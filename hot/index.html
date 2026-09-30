@@ -821,102 +821,91 @@
                             this.y + Math.sin(this.angle) * 18,
                             spreadAngle,
                             this.weapon.speed,
-                            this.weapon.damage
+                            this.weapon.damage,
+                            false
                         ));
                     }
                 } else {
-                    // Ativa Animação Visual de Soco/Atraque
                     this.punching = true;
                     this.punchTimer = 0;
-                    this.punchHand *= -1; // Alterna mão esquerda / direita
+                    this.punchHand *= -1;
+                    audio.playSwing();
 
-                    if (this.weaponKey === 'FISTS') {
-                        audio.playPunch();
-                    } else {
-                        audio.playSwing();
-                    }
+                    enemies.forEach(e => {
+                        if (e.alive) {
+                            const dist = Math.hypot(e.x - this.x, e.y - this.y);
+                            const angleToEnemy = Math.atan2(e.y - this.y, e.x - this.x);
+                            const angleDiff = Math.abs(this.angle - angleToEnemy);
 
-                    const attackRange = this.weapon.range;
-                    enemies.forEach(enemy => {
-                        if (enemy.alive) {
-                            const dist = Math.hypot(enemy.x - this.x, enemy.y - this.y);
-                            const angleToEnemy = Math.atan2(enemy.y - this.y, enemy.x - this.x);
-                            let angleDiff = Math.abs(this.angle - angleToEnemy);
-                            if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-
-                            if (dist < attackRange && angleDiff < 0.95) {
-                                enemy.kill(this.angle);
+                            if (dist < this.weapon.range && angleDiff < 0.8) {
+                                e.kill(this.angle, false);
                             }
                         }
                     });
                 }
 
                 this.lastShotTime = now;
-                updateHUD();
             }
 
             throwWeapon() {
-                audio.playSwing();
+                if (this.weaponKey === 'FISTS') return;
+
                 bullets.push(new Bullet(
                     this.x,
                     this.y,
                     this.angle,
-                    20,
+                    16,
                     1,
                     false,
                     true,
                     this.weaponKey
                 ));
 
-                this.weaponKey = 'FISTS';
-                this.weapon = WEAPONS.FISTS;
-                this.ammo = Infinity;
-                updateHUD();
+                audio.playSwing();
+                this.setWeapon('FISTS', Infinity);
             }
 
             pickupNearestWeapon() {
-                let nearest = null;
-                let minDist = 48;
+                let closestIndex = -1;
+                let closestDist = 45;
 
                 droppedWeapons.forEach((w, index) => {
                     const dist = Math.hypot(w.x - this.x, w.y - this.y);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        nearest = { weapon: w, index: index };
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestIndex = index;
                     }
                 });
 
-                if (nearest) {
+                if (closestIndex !== -1) {
+                    const picked = droppedWeapons.splice(closestIndex, 1)[0];
                     if (this.weaponKey !== 'FISTS') {
                         droppedWeapons.push(new DroppedWeapon(this.x, this.y, this.weaponKey, this.ammo));
                     }
-
-                    const newW = WEAPONS[nearest.weapon.weaponKey];
-                    this.weaponKey = nearest.weapon.weaponKey;
-                    this.weapon = newW;
-                    this.ammo = nearest.weapon.ammo > 0 ? nearest.weapon.ammo : newW.ammo;
-
-                    droppedWeapons.splice(nearest.index, 1);
+                    this.setWeapon(picked.weaponKey, picked.ammo);
                     audio.playPickup();
-                    updateHUD();
                 }
+            }
+
+            setWeapon(key, ammo) {
+                this.weaponKey = key;
+                this.weapon = WEAPONS[key];
+                this.ammo = ammo !== undefined ? ammo : this.weapon.ammo;
             }
 
             kill() {
                 if (!this.alive) return;
                 this.alive = false;
+                gameState = 'GAME_OVER';
                 audio.playHit();
-                screenShake = 16;
+                screenShake = 15;
                 bloodDecals.push(new BloodDecal(this.x, this.y));
 
-                for (let i = 0; i < 35; i++) {
-                    const pAngle = Math.random() * Math.PI * 2;
-                    const speed = Math.random() * 9 + 2;
-                    particles.push(new Particle(this.x, this.y, Math.cos(pAngle) * speed, Math.sin(pAngle) * speed, '#990022', 4, 30));
+                for (let i = 0; i < 30; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 8 + 2;
+                    particles.push(new Particle(this.x, this.y, Math.cos(angle) * speed, Math.sin(angle) * speed, '#ff0033', 4, 40));
                 }
-
-                gameState = 'GAME_OVER';
-                showOverlay("YOU DIED", "PRESS 'R' TO RESTART");
             }
 
             draw(ctx) {
@@ -924,72 +913,38 @@
 
                 ctx.save();
                 ctx.translate(this.x, this.y);
-
-                // Cone de Visão / Lanterna Neon
-                const flashlightGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, 320);
-                flashlightGrad.addColorStop(0, 'rgba(0, 255, 255, 0.2)');
-                flashlightGrad.addColorStop(0.5, 'rgba(0, 255, 255, 0.05)');
-                flashlightGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-                ctx.fillStyle = flashlightGrad;
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.arc(0, 0, 320, this.angle - 0.45, this.angle + 0.45);
-                ctx.closePath();
-                ctx.fill();
-
                 ctx.rotate(this.angle);
 
-                // Pernas andando
-                const legOffset = Math.sin(this.walkCycle) * 7;
-                ctx.fillStyle = '#0f172a';
-                ctx.fillRect(-6, -10 + legOffset, 12, 5);
-                ctx.fillRect(-6, 5 - legOffset, 12, 5);
+                // Pernas / Passos
+                const legOffset = Math.sin(this.walkCycle) * 6;
+                ctx.fillStyle = '#0a2540';
+                ctx.fillRect(-6 + legOffset, -10, 10, 5);
+                ctx.fillRect(-6 - legOffset, 5, 10, 5);
 
-                // Corpo / Jaqueta Neon
-                ctx.shadowColor = '#00ffff';
-                ctx.shadowBlur = 12;
-                ctx.fillStyle = '#00e5ff';
+                // Corpo
+                ctx.fillStyle = '#e8ac65';
                 ctx.beginPath();
                 ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Máscara
-                ctx.fillStyle = '#facc15';
-                ctx.beginPath();
-                ctx.arc(2, 0, 10, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.fillStyle = '#111';
+                ctx.fillRect(-10, -12, 20, 24);
 
-                // Crista
-                ctx.fillStyle = '#ef4444';
-                ctx.fillRect(-4, -2, 8, 4);
+                // Braços / Armas
+                ctx.fillStyle = '#e8ac65';
+                const punchOffset = this.punchProgress * 12;
 
-                // ANIMAÇÃO DE SOCO / ATAQUE
-                const reach = this.punchProgress * 22; // Distância do soco
-                const rightHandY = 8 + (this.punchHand === 1 ? reach : 0);
-                const leftHandY = -14 - (this.punchHand === -1 ? reach : 0);
+                if (this.weaponKey === 'FISTS') {
+                    ctx.fillRect(2, -12 + (this.punchHand === -1 ? punchOffset : 0), 10, 6);
+                    ctx.fillRect(2, 6 + (this.punchHand === 1 ? punchOffset : 0), 10, 6);
+                } else {
+                    ctx.fillRect(2, -10, 14, 5);
+                    ctx.fillRect(2, 5, 14, 5);
 
-                ctx.fillStyle = '#facc15';
-                ctx.fillRect(8 + (this.punchHand === 1 ? reach : 0), 8, 7, 7);
-                ctx.fillRect(8 + (this.punchHand === -1 ? reach : 0), -15, 7, 7);
-
-                // Rastro de vento neon do soco
-                if (this.punching && this.weaponKey === 'FISTS') {
+                    ctx.fillStyle = '#00ffff';
                     ctx.shadowColor = '#00ffff';
-                    ctx.shadowBlur = 15;
-                    ctx.strokeStyle = 'rgba(0, 255, 255, ' + (1 - this.punchProgress) + ')';
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.arc(10, this.punchHand === 1 ? 10 : -10, 18, -0.6, 0.6);
-                    ctx.stroke();
-                }
-
-                // Armas desenhadas
-                ctx.fillStyle = '#e2e8f0';
-                if (this.weaponKey === 'PISTOL' || this.weaponKey === 'UZI') {
-                    ctx.fillRect(12, 5, 12, 4);
-                } else if (this.weaponKey === 'SHOTGUN' || this.weaponKey === 'BAT' || this.weaponKey === 'KNIFE') {
-                    ctx.fillRect(10, 5, 24, 5);
+                    ctx.shadowBlur = 8;
+                    ctx.fillRect(10, -3, 16, 6);
                 }
 
                 ctx.restore();
@@ -1007,38 +962,42 @@
                 this.weapon = WEAPONS[weaponKey];
                 this.alive = true;
                 this.alerted = false;
-                this.targetX = x;
-                this.targetY = y;
-                this.lastShotTime = 0;
                 this.stunned = false;
                 this.stunTimer = 0;
+                this.lastShotTime = 0;
+                this.targetX = x;
+                this.targetY = y;
+                this.patrolTimer = Math.random() * 2;
             }
 
             stun() {
                 this.stunned = true;
-                this.stunTimer = 180;
+                this.stunTimer = 4.0;
                 audio.playHit();
             }
 
-            kill(angle = 0, isExecution = false) {
+            kill(angle, isExecution = false) {
                 if (!this.alive) return;
                 this.alive = false;
                 audio.playHit();
-                screenShake = isExecution ? 14 : 7;
+                screenShake = isExecution ? 12 : 6;
+
+                score += isExecution ? 200 : 100;
+                combo++;
+                comboTimer = 3.0;
 
                 bloodDecals.push(new BloodDecal(this.x, this.y));
 
-                for (let i = 0; i < (isExecution ? 40 : 22); i++) {
-                    const pAngle = (angle || Math.random() * Math.PI * 2) + (Math.random() - 0.5);
-                    const speed = Math.random() * 10 + 2;
-                    particles.push(new Particle(this.x, this.y, Math.cos(pAngle) * speed, Math.sin(pAngle) * speed, '#a30000', 4, 30));
+                for (let i = 0; i < (isExecution ? 35 : 20); i++) {
+                    const pAngle = angle + (Math.random() - 0.5) * 1.5;
+                    const speed = Math.random() * 9 + 2;
+                    particles.push(new Particle(this.x, this.y, Math.cos(pAngle) * speed, Math.sin(pAngle) * speed, '#990000', 4, 30));
                 }
 
                 if (this.weaponKey !== 'FISTS') {
-                    droppedWeapons.push(new DroppedWeapon(this.x, this.y, this.weaponKey, Math.floor(Math.random() * 6) + 2));
+                    droppedWeapons.push(new DroppedWeapon(this.x, this.y, this.weaponKey, this.weapon.ammo));
                 }
 
-                addScore(isExecution ? 400 : 200);
                 checkStageClear();
             }
 
@@ -1046,7 +1005,7 @@
                 if (!this.alive) return;
 
                 if (this.stunned) {
-                    this.stunTimer -= dt * 60;
+                    this.stunTimer -= dt;
                     if (this.stunTimer <= 0) {
                         this.stunned = false;
                     }
@@ -1063,76 +1022,100 @@
                 }
 
                 if (this.alerted) {
-                    this.angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
-                    const dist = Math.hypot(this.targetX - this.x, this.targetY - this.y);
+                    this.angle = Math.atan2(player.y - this.y, player.x - this.x);
+                    const dist = Math.hypot(player.x - this.x, player.y - this.y);
 
-                    if (dist > 10) {
-                        const moveSpeed = this.speed * dt * 60;
-                        const moveX = Math.cos(this.angle) * moveSpeed;
-                        const moveY = Math.sin(this.angle) * moveSpeed;
+                    if (dist > (this.weapon.type === 'melee' ? 20 : 180)) {
+                        const moveSpeed = this.speed * 1.4 * dt * 60;
+                        const newX = this.x + Math.cos(this.angle) * moveSpeed;
+                        const newY = this.y + Math.sin(this.angle) * moveSpeed;
 
-                        if (!checkWallCollision(this.x + moveX, this.y, this.radius)) this.x += moveX;
-                        if (!checkWallCollision(this.x, this.y + moveY, this.radius)) this.y += moveY;
+                        if (!checkWallCollision(newX, this.y, this.radius)) this.x = newX;
+                        if (!checkWallCollision(this.x, newY, this.radius)) this.y = newY;
                     }
 
-                    if (player.alive && checkLineOfSight(this.x, this.y, player.x, player.y)) {
-                        this.shoot();
+                    if (player.alive && dist < (this.weapon.type === 'melee' ? 40 : 350)) {
+                        this.attack();
+                    }
+                } else {
+                    this.patrolTimer -= dt;
+                    if (this.patrolTimer <= 0) {
+                        this.patrolTimer = Math.random() * 3 + 2;
+                        this.angle = Math.random() * Math.PI * 2;
+                    }
+
+                    const moveSpeed = this.speed * 0.5 * dt * 60;
+                    const newX = this.x + Math.cos(this.angle) * moveSpeed;
+                    const newY = this.y + Math.sin(this.angle) * moveSpeed;
+
+                    if (!checkWallCollision(newX, newY, this.radius)) {
+                        this.x = newX;
+                        this.y = newY;
+                    } else {
+                        this.angle += Math.PI;
                     }
                 }
             }
 
-            shoot() {
+            attack() {
                 const now = Date.now();
-                if (now - this.lastShotTime < this.weapon.fireRate * 1.8) return;
+                if (now - this.lastShotTime < this.weapon.fireRate * 1.3) return;
 
-                audio.playGunshot(this.weaponKey.toLowerCase());
-                bullets.push(new Bullet(
-                    this.x + Math.cos(this.angle) * 16,
-                    this.y + Math.sin(this.angle) * 16,
-                    this.angle + (Math.random() - 0.5) * 0.1,
-                    this.weapon.speed * 0.85,
-                    1,
-                    true
-                ));
+                if (this.weapon.type === 'firearm') {
+                    audio.playGunshot(this.weaponKey.toLowerCase());
+                    bullets.push(new Bullet(
+                        this.x + Math.cos(this.angle) * 16,
+                        this.y + Math.sin(this.angle) * 16,
+                        this.angle + (Math.random() - 0.5) * 0.1,
+                        14,
+                        1,
+                        true
+                    ));
+                } else {
+                    audio.playSwing();
+                    const dist = Math.hypot(player.x - this.x, player.y - this.y);
+                    if (dist < 40) {
+                        player.kill();
+                    }
+                }
 
                 this.lastShotTime = now;
             }
 
             draw(ctx) {
+                if (!this.alive) return;
+
                 ctx.save();
                 ctx.translate(this.x, this.y);
-
-                if (!this.alive) {
-                    ctx.rotate(this.angle);
-                    ctx.fillStyle = '#7f1d1d';
-                    ctx.fillRect(-12, -8, 24, 16);
-                    ctx.restore();
-                    return;
-                }
-
                 ctx.rotate(this.angle);
 
                 if (this.stunned) {
-                    ctx.fillStyle = '#ca8a04';
+                    ctx.fillStyle = '#ffcc00';
+                    ctx.shadowColor = '#ffcc00';
+                    ctx.shadowBlur = 10;
                 } else {
-                    ctx.fillStyle = '#dc2626';
+                    ctx.fillStyle = '#ffffff';
                 }
 
-                ctx.shadowColor = '#ff0055';
-                ctx.shadowBlur = 10;
+                // Corpo
                 ctx.beginPath();
                 ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
                 ctx.fill();
 
-                ctx.fillStyle = '#fef08a';
-                ctx.fillRect(8, -4, 10, 8);
+                // Terno Branco / Gangster
+                ctx.fillStyle = '#222222';
+                ctx.fillRect(-8, -10, 16, 20);
+
+                // Armas
+                ctx.fillStyle = '#ff0055';
+                ctx.fillRect(8, -2, 12, 4);
 
                 ctx.restore();
             }
         }
 
-        function initLevel(floorIndex) {
-            currentFloor = floorIndex;
+        function loadLevel(levelIndex) {
+            currentFloor = levelIndex;
             const map = MAP_LEVELS[currentFloor];
 
             enemies = [];
@@ -1145,83 +1128,86 @@
             for (let r = 0; r < map.length; r++) {
                 for (let c = 0; c < map[r].length; c++) {
                     const tile = map[r][c];
-                    const worldX = c * TILE_SIZE;
-                    const worldY = r * TILE_SIZE;
+                    const x = c * TILE_SIZE;
+                    const y = r * TILE_SIZE;
 
                     if (tile === 4) {
-                        player = new Player(worldX + TILE_SIZE / 2, worldY + TILE_SIZE / 2);
+                        player = new Player(x + TILE_SIZE / 2, y + TILE_SIZE / 2);
+                        // Adiciona uma Shotgun inicial no chão logo no spawn do jogador
+                        droppedWeapons.push(new DroppedWeapon(x + TILE_SIZE / 2 + 20, y + TILE_SIZE / 2 + 20, 'SHOTGUN', WEAPONS.SHOTGUN.ammo));
                     } else if (tile === 5) {
-                        const randWeapon = Math.random() > 0.5 ? 'PISTOL' : 'UZI';
-                        enemies.push(new Enemy(worldX + TILE_SIZE / 2, worldY + TILE_SIZE / 2, randWeapon));
+                        const weapons = ['PISTOL', 'SHOTGUN', 'UZI', 'BAT', 'KNIFE'];
+                        const randomWeapon = weapons[Math.floor(Math.random() * weapons.length)];
+                        enemies.push(new Enemy(x + TILE_SIZE / 2, y + TILE_SIZE / 2, randomWeapon));
                     } else if (tile === 2) {
-                        doors.push(new Door(worldX, worldY, false));
+                        doors.push(new Door(x, y, false));
                     } else if (tile === 3) {
-                        doors.push(new Door(worldX, worldY, true));
+                        doors.push(new Door(x, y, true));
                     }
                 }
             }
 
             gameState = 'PLAYING';
             hideOverlay();
-            updateHUD();
-            audio.startSynthwaveBGM();
-        }
-
-        function addScore(pts) {
-            combo++;
-            comboTimer = 180;
-            score += pts * combo;
-
-            const comboEl = document.getElementById('combo-display');
-            document.getElementById('combo-count').innerText = combo + "x";
-            comboEl.classList.remove('scale-0');
-            comboEl.classList.add('scale-100');
-
-            updateHUD();
-        }
-
-        function updateHUD() {
-            document.getElementById('stage-val').innerText = currentFloor + 1;
-            document.getElementById('score-val').innerText = score;
-            document.getElementById('weapon-display').innerText = player ? player.weaponKey : 'UNARMED';
-            document.getElementById('ammo-display').innerText = player && player.ammo !== Infinity ? `AMMO: ${player.ammo}` : 'AMMO: INF';
+            updateUI();
         }
 
         function checkStageClear() {
-            const aliveEnemies = enemies.filter(e => e.alive);
-            if (aliveEnemies.length === 0) {
-                gameState = 'CLEARED';
-                showOverlay("FLOOR CLEARED", "PRESS 'N' FOR NEXT FLOOR", "OR 'R' TO RESTART");
+            const aliveEnemies = enemies.filter(e => e.alive).length;
+            if (aliveEnemies === 0) {
+                gameState = 'STAGE_CLEAR';
+                showOverlay('STAGE CLEARED', 'PRESS \'N\' FOR NEXT FLOOR');
             }
         }
 
-        function showOverlay(title, sub, detail = "") {
+        function showOverlay(title, subtitle) {
             const overlay = document.getElementById('overlay-msg');
             document.getElementById('overlay-title').innerText = title;
-            document.getElementById('overlay-sub').innerText = sub;
-            document.getElementById('overlay-detail').innerText = detail;
-            overlay.classList.remove('opacity-0', 'pointer-events-none');
+            document.getElementById('overlay-sub').innerText = subtitle;
+            overlay.classList.remove('opacity-0');
             overlay.classList.add('opacity-100');
         }
 
         function hideOverlay() {
             const overlay = document.getElementById('overlay-msg');
-            overlay.classList.add('opacity-0', 'pointer-events-none');
             overlay.classList.remove('opacity-100');
+            overlay.classList.add('opacity-0');
         }
 
-        // Window Events
+        function updateUI() {
+            document.getElementById('stage-val').innerText = currentFloor + 1;
+            document.getElementById('score-val').innerText = score;
+            document.getElementById('weapon-display').innerText = player.weaponKey;
+            document.getElementById('ammo-display').innerText = player.weapon.type === 'firearm' ? `AMMO: ${player.ammo}` : 'AMMO: INF';
+
+            const comboEl = document.getElementById('combo-display');
+            if (combo > 1) {
+                document.getElementById('combo-count').innerText = `${combo}x`;
+                comboEl.classList.remove('scale-0');
+                comboEl.classList.add('scale-100');
+            } else {
+                comboEl.classList.remove('scale-100');
+                comboEl.classList.add('scale-0');
+            }
+        }
+
+        // ==========================================
+        // INPUT LISTENERS & EVENTS
+        // ==========================================
         window.addEventListener('keydown', e => {
             audio.init();
+            audio.startSynthwaveBGM();
             keys[e.key] = true;
 
             if (e.key === 'r' || e.key === 'R') {
-                initLevel(currentFloor);
+                loadLevel(currentFloor);
             }
 
-            if ((e.key === 'n' || e.key === 'N') && gameState === 'CLEARED') {
-                const nextFloor = (currentFloor + 1) % MAP_LEVELS.length;
-                initLevel(nextFloor);
+            if (e.key === 'n' || e.key === 'N') {
+                if (gameState === 'STAGE_CLEAR') {
+                    const nextFloor = (currentFloor + 1) % MAP_LEVELS.length;
+                    loadLevel(nextFloor);
+                }
             }
         });
 
@@ -1229,14 +1215,18 @@
             keys[e.key] = false;
         });
 
-        canvas.addEventListener('mousemove', e => {
+        window.addEventListener('mousemove', e => {
             const rect = canvas.getBoundingClientRect();
             mouse.x = e.clientX - rect.left;
             mouse.y = e.clientY - rect.top;
+
+            mouse.worldX = mouse.x + camera.x;
+            mouse.worldY = mouse.y + camera.y;
         });
 
         canvas.addEventListener('mousedown', e => {
             audio.init();
+            audio.startSynthwaveBGM();
             if (e.button === 0) mouse.down = true;
             if (e.button === 2) mouse.rightDown = true;
         });
@@ -1248,13 +1238,14 @@
 
         canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-        // Dynamic Loop 60 FPS Engine
+        // ==========================================
+        // MAIN GAME LOOP (PRECISION 60FPS)
+        // ==========================================
         function gameLoop(now) {
-            let dt = (now - lastTime) / 1000;
-            if (dt > 0.1) dt = 0.1; // Trava contra picos imensos de lag
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
             lastTime = now;
 
-            // Medidor FPS
+            // Framerate counter
             frameCount++;
             if (now - fpsTimer >= 1000) {
                 document.getElementById('fps-val').innerText = `${frameCount} FPS`;
@@ -1262,123 +1253,116 @@
                 fpsTimer = now;
             }
 
-            // Update Combo Countdown
+            // Combo Timeout
             if (comboTimer > 0) {
-                comboTimer -= dt * 60;
+                comboTimer -= dt;
                 if (comboTimer <= 0) {
                     combo = 0;
-                    document.getElementById('combo-display').classList.add('scale-0');
-                    document.getElementById('combo-display').classList.remove('scale-100');
                 }
             }
 
-            // Camera Tracking
-            if (player) {
-                camera.targetX = player.x - CANVAS_WIDTH / 2;
-                camera.targetY = player.y - CANVAS_HEIGHT / 2;
-                camera.x += (camera.targetX - camera.x) * 6 * dt;
-                camera.y += (camera.targetY - camera.y) * 6 * dt;
-
-                mouse.worldX = mouse.x + camera.x;
-                mouse.worldY = mouse.y + camera.y;
-
+            // Update Game Objects
+            if (gameState === 'PLAYING') {
                 player.update(dt);
-            }
 
-            doors.forEach(d => d.update(dt));
-            enemies.forEach(e => e.update(dt));
+                enemies.forEach(e => e.update(dt));
+                doors.forEach(d => d.update(dt));
 
-            // Colisão & Lógica de Tiros
-            bullets.forEach(b => {
-                b.update(dt);
+                // Bullets logic
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    const b = bullets[i];
+                    b.update(dt);
 
-                if (!b.alive) return;
-
-                if (b.isEnemy && player.alive) {
-                    const dist = Math.hypot(b.x - player.x, b.y - player.y);
-                    if (dist < player.radius) {
-                        b.alive = false;
-                        player.kill();
-                    }
-                } else if (!b.isEnemy) {
-                    enemies.forEach(e => {
-                        if (e.alive) {
-                            const dist = Math.hypot(b.x - e.x, b.y - e.y);
-                            if (dist < e.radius) {
-                                b.alive = false;
-                                if (b.isThrownWeapon) {
-                                    e.stun();
-                                } else {
-                                    e.kill(b.angle);
+                    if (b.isEnemy && player.alive) {
+                        const dist = Math.hypot(player.x - b.x, player.y - b.y);
+                        if (dist < player.radius + b.radius) {
+                            player.kill();
+                            b.alive = false;
+                        }
+                    } else if (!b.isEnemy) {
+                        enemies.forEach(e => {
+                            if (e.alive) {
+                                const dist = Math.hypot(e.x - b.x, e.y - b.y);
+                                if (dist < e.radius + b.radius) {
+                                    e.kill(b.angle, false);
+                                    b.alive = false;
                                 }
                             }
-                        }
-                    });
+                        });
+                    }
+
+                    if (!b.alive) bullets.splice(i, 1);
                 }
-            });
 
-            bullets = bullets.filter(b => b.alive);
-            particles.forEach(p => p.update(dt));
-            particles = particles.filter(p => p.age < p.maxAge);
-
-            // Shake de Tela
-            let shakeX = 0;
-            let shakeY = 0;
-            if (screenShake > 0) {
-                shakeX = (Math.random() - 0.5) * screenShake;
-                shakeY = (Math.random() - 0.5) * screenShake;
-                screenShake *= Math.pow(0.85, dt * 60);
-                if (screenShake < 0.5) screenShake = 0;
+                // Particle Aging
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update(dt);
+                    if (particles[i].age >= particles[i].maxAge) {
+                        particles.splice(i, 1);
+                    }
+                }
+            } else if (gameState === 'GAME_OVER') {
+                showOverlay('YOU' + '\'' + 'RE DEAD', 'PRESS \'R\' TO RESTART');
             }
 
-            // RENDER WORLD
-            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            // Camera Tracking Smooth Follow
+            camera.targetX = player.x - CANVAS_WIDTH / 2;
+            camera.targetY = player.y - CANVAS_HEIGHT / 2;
+            camera.x += (camera.targetX - camera.x) * 8 * dt;
+            camera.y += (camera.targetY - camera.y) * 8 * dt;
+
+            // Screen Shake Reduction
+            if (screenShake > 0) {
+                screenShake *= Math.pow(0.85, dt * 60);
+            }
+
+            // Clear Screen
+            ctx.fillStyle = '#05020d';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
             ctx.save();
+            const shakeX = (Math.random() - 0.5) * screenShake;
+            const shakeY = (Math.random() - 0.5) * screenShake;
             ctx.translate(-camera.x + shakeX, -camera.y + shakeY);
 
-            // Grade Neon de Chão e Paredes
+            // Render Floor Tiles
             const map = MAP_LEVELS[currentFloor];
             for (let r = 0; r < map.length; r++) {
                 for (let c = 0; c < map[r].length; c++) {
-                    const tile = map[r][c];
                     const x = c * TILE_SIZE;
                     const y = r * TILE_SIZE;
 
-                    if (tile === 1) {
-                        // Paredes Neon
-                        ctx.fillStyle = '#1e082b';
-                        ctx.strokeStyle = '#ff007f';
-                        ctx.lineWidth = 2;
+                    if (map[r][c] === 1) {
+                        ctx.fillStyle = '#110b29';
                         ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                        ctx.strokeStyle = '#281a52';
                         ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
                     } else {
-                        // Chão Quadriculado Retrô
-                        ctx.fillStyle = (r + c) % 2 === 0 ? '#0a0518' : '#120b28';
+                        ctx.fillStyle = '#0a0618';
                         ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-
-                        ctx.strokeStyle = 'rgba(255, 0, 128, 0.05)';
-                        ctx.lineWidth = 1;
+                        ctx.strokeStyle = '#150d33';
                         ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
                     }
                 }
             }
 
+            // Render Game Layer Elements
             bloodDecals.forEach(b => b.draw(ctx));
             droppedWeapons.forEach(w => w.draw(ctx));
             doors.forEach(d => d.draw(ctx));
             enemies.forEach(e => e.draw(ctx));
-            if (player) player.draw(ctx);
+            player.draw(ctx);
             bullets.forEach(b => b.draw(ctx));
             particles.forEach(p => p.draw(ctx));
 
             ctx.restore();
 
+            updateUI();
             requestAnimationFrame(gameLoop);
         }
 
-        // Start
-        initLevel(0);
+        // Initialize First Level
+        loadLevel(0);
         requestAnimationFrame(gameLoop);
     </script>
 </body>
