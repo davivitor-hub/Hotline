@@ -12,7 +12,7 @@ let optionsReturnState = 'main';
 let score = 0;
 let combo = 0;
 let comboTimer = 0;
-let currentFloor = 0;
+let currentFloor = 1;
 let screenShake = 0;
 let enableShake = true;
 let difficulty = 'NORMAL';
@@ -24,7 +24,7 @@ let frameCount = 0;
 let fpsTimer = performance.now();
 let lastTime = performance.now();
 
-// AUDIO SYNTHESIZER (Web Audio API)
+// AUDIO SYNTHESIZER (Web Audio API - Estilo Synthwave Hotline)
 let audioCtx = null;
 
 function initAudio() {
@@ -33,14 +33,17 @@ function initAudio() {
   }
 }
 
-function playSound(freq, duration, type = 'square') {
+function playSound(freq, duration, type = 'square', rampDownFreq = null) {
   if (!audioCtx) return;
   try {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    if (rampDownFreq) {
+      osc.frequency.exponentialRampToValueAtTime(rampDownFreq, audioCtx.currentTime + duration);
+    }
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
     osc.connect(gain);
     gain.connect(audioCtx.destination);
@@ -49,52 +52,31 @@ function playSound(freq, duration, type = 'square') {
   } catch (e) {}
 }
 
-// CONFIGURAÇÃO DE ARMAS
+// ARMAS COM FÍSICA E ATRIBUTOS HOTLINE
 const WEAPONS = {
-  FISTS: { name: 'FISTS', ammo: Infinity, rate: 250, speed: 0, damage: 1, type: 'MELEE' },
-  PISTOL: { name: 'PISTOL', ammo: 12, rate: 220, speed: 18, damage: 1, type: 'GUN', spread: 0.04 },
-  SHOTGUN: { name: 'SHOTGUN', ammo: 6, rate: 650, speed: 15, damage: 1, type: 'GUN', spread: 0.22, pellets: 6 },
-  RIFLE: { name: 'RIFLE', ammo: 24, rate: 90, speed: 20, damage: 1, type: 'GUN', spread: 0.08 }
+  FISTS: { name: 'FISTS', ammo: Infinity, rate: 220, speed: 0, damage: 1, type: 'MELEE' },
+  PISTOL: { name: 'PISTOL', ammo: 12, rate: 180, speed: 22, damage: 1, type: 'GUN', spread: 0.05 },
+  SHOTGUN: { name: 'SHOTGUN', ammo: 6, rate: 600, speed: 18, damage: 1, type: 'GUN', spread: 0.25, pellets: 7 },
+  RIFLE: { name: 'MAC-10', ammo: 30, rate: 70, speed: 24, damage: 1, type: 'GUN', spread: 0.12 },
+  BAT: { name: 'BASEBALL BAT', ammo: Infinity, rate: 350, speed: 0, damage: 1, type: 'MELEE' }
 };
 
-// CONFIGURAÇÃO DE SKINS
+// MÁSCARAS / SKINS COM BÔNUS ROGUELIKE
 const SKINS = {
-  ROOSTER: { name: 'RICHARD', color: '#e74c3c', speedMult: 1.0 },
-  TIGER: { name: 'TONY', color: '#e67e22', speedMult: 1.15 },
-  BEAR: { name: 'MARK', color: '#3498db', speedMult: 0.95 },
-  MONKEY: { name: 'RAMI', color: '#9b59b6', speedMult: 1.25 }
+  ROOSTER: { name: 'RICHARD (ROOSTER)', color: '#e74c3c', speedMult: 1.0, bonus: 'Standard Mask' },
+  TIGER: { name: 'TONY (TIGER)', color: '#e67e22', speedMult: 1.2, bonus: 'Lethal Fists & Speed' },
+  BEAR: { name: 'MARK (BEAR)', color: '#3498db', speedMult: 0.95, bonus: 'Tank Resistance' },
+  MONKEY: { name: 'RAMI (MONKEY)', color: '#9b59b6', speedMult: 1.3, bonus: 'Extreme Speed' }
 };
 let selectedSkin = 'ROOSTER';
 
-// MAPAS DE FASE (1 = Parede, 0 = Chão)
-const MAP_LEVELS = [
-  [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-    [1,1,1,0,1,1,1,1,1,0,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1],
-    [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-  ],
-  [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,1,0,1,1,1,1,0,1,1,1,1,0,1,1,1,1,1,1,0,1,1,1,1,1],
-    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-  ]
-];
+// ESTADO DO MAPA PROCEDURAL (ROGUELIKE)
+let currentMap = [];
+let mapWidth = 35;
+let mapHeight = 25;
+let doors = [];
 
-// ENTIDADES E OBJETOS DO JOGO
+// ENTIDADES E EFEITOS
 let camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
 let player = null;
 let enemies = [];
@@ -102,6 +84,119 @@ let bullets = [];
 let particles = [];
 let bloodDecals = [];
 let droppedWeapons = [];
+
+// ==========================================
+// GERADOR PROCEDURAL DE MAPAS (BSPTREE ROGUELIKE)
+// ==========================================
+function generateProceduralMap(cols, rows) {
+  let grid = Array.from({ length: rows }, () => Array(cols).fill(1));
+  let rooms = [];
+
+  class Leaf {
+    constructor(x, y, w, h) {
+      this.x = x; this.y = y; this.w = w; this.h = h;
+      this.leftChild = null; this.rightChild = null;
+      this.room = null;
+    }
+
+    split() {
+      if (this.leftChild || this.rightChild) return false;
+      let splitH = Math.random() > 0.5;
+      if (this.w / this.h >= 1.25) splitH = false;
+      else if (this.h / this.w >= 1.25) splitH = true;
+
+      let max = (splitH ? this.h : this.w) - 6;
+      if (max < 6) return false;
+
+      let split = Math.floor(Math.random() * (max - 6)) + 6;
+      if (splitH) {
+        this.leftChild = new Leaf(this.x, this.y, this.w, split);
+        this.rightChild = new Leaf(this.x, this.y + split, this.w, this.h - split);
+      } else {
+        this.leftChild = new Leaf(this.x, this.y, split, this.h);
+        this.rightChild = new Leaf(this.x + split, this.y, this.w - split, this.h);
+      }
+      return true;
+    }
+
+    createRooms() {
+      if (this.leftChild || this.rightChild) {
+        if (this.leftChild) this.leftChild.createRooms();
+        if (this.rightChild) this.rightChild.createRooms();
+        if (this.leftChild && this.rightChild) {
+          let lRoom = this.leftChild.getRoom();
+          let rRoom = this.rightChild.getRoom();
+          if (lRoom && rRoom) createCorridor(lRoom, rRoom);
+        }
+      } else {
+        let rw = Math.floor(Math.random() * (this.w - 4)) + 4;
+        let rh = Math.floor(Math.random() * (this.h - 4)) + 4;
+        let rx = Math.floor(Math.random() * (this.w - rw - 1)) + this.x + 1;
+        let ry = Math.floor(Math.random() * (this.h - rh - 1)) + this.y + 1;
+        this.room = { x: rx, y: ry, w: rw, h: rh };
+        rooms.push(this.room);
+        for (let r = ry; r < ry + rh; r++) {
+          for (let c = rx; c < rx + rw; c++) {
+            grid[r][c] = 0;
+          }
+        }
+      }
+    }
+
+    getRoom() {
+      if (this.room) return this.room;
+      let lRoom = this.leftChild ? this.leftChild.getRoom() : null;
+      let rRoom = this.rightChild ? this.rightChild.getRoom() : null;
+      if (!lRoom) return rRoom;
+      if (!rRoom) return lRoom;
+      return Math.random() > 0.5 ? lRoom : rRoom;
+    }
+  }
+
+  function createCorridor(r1, r2) {
+    let p1 = { x: Math.floor(r1.x + r1.w / 2), y: Math.floor(r1.y + r1.h / 2) };
+    let p2 = { x: Math.floor(r2.x + r2.w / 2), y: Math.floor(r2.y + r2.h / 2) };
+
+    if (Math.random() > 0.5) {
+      for (let x = Math.min(p1.x, p2.x); x <= Math.max(p1.x, p2.x); x++) grid[p1.y][x] = 0;
+      for (let y = Math.min(p1.y, p2.y); y <= Math.max(p1.y, p2.y); y++) grid[y][p2.x] = 0;
+    } else {
+      for (let y = Math.min(p1.y, p2.y); y <= Math.max(p1.y, p2.y); y++) grid[y][p1.x] = 0;
+      for (let x = Math.min(p1.x, p2.x); x <= Math.max(p1.x, p2.x); x++) grid[p2.y][x] = 0;
+    }
+  }
+
+  let root = new Leaf(0, 0, cols, rows);
+  let leaves = [root];
+  let didSplit = true;
+
+  while (didSplit) {
+    didSplit = false;
+    for (let i = 0; i < leaves.length; i++) {
+      let l = leaves[i];
+      if (!l.leftChild && !l.rightChild) {
+        if (l.w > 10 || l.h > 10 || Math.random() > 0.25) {
+          if (l.split()) {
+            leaves.push(l.leftChild);
+            leaves.push(l.rightChild);
+            didSplit = true;
+          }
+        }
+      }
+    }
+  }
+  root.createRooms();
+
+  // GERAR PORTAS NOS ACESSOS DE SALAS
+  doors = [];
+  rooms.forEach(r => {
+    for (let x = r.x; x < r.x + r.w; x++) {
+      if (grid[r.y - 1][x] === 0 && grid[r.y][x] === 0) doors.push({ x: x * TILE_SIZE + 20, y: r.y * TILE_SIZE, angle: 0, open: false });
+    }
+  });
+
+  return { grid, rooms };
+}
 
 // ==========================================
 // CLASSES DO JOGO
@@ -122,20 +217,16 @@ class Player {
   update() {
     if (!this.alive) return;
 
-    let dx = 0;
-    let dy = 0;
+    let dx = 0, dy = 0;
     if (keys['w'] || keys['W'] || keys['ArrowUp']) dy -= 1;
     if (keys['s'] || keys['S'] || keys['ArrowDown']) dy += 1;
     if (keys['a'] || keys['A'] || keys['ArrowLeft']) dx -= 1;
     if (keys['d'] || keys['D'] || keys['ArrowRight']) dx += 1;
 
-    if (dx !== 0 && dy !== 0) {
-      dx *= 0.7071;
-      dy *= 0.7071;
-    }
+    if (dx !== 0 && dy !== 0) { dx *= 0.7071; dy *= 0.7071; }
 
-    const currentSpeed = this.baseSpeed * SKINS[selectedSkin].speedMult;
-    this.moveWithCollision(dx * currentSpeed, dy * currentSpeed);
+    const speed = this.baseSpeed * SKINS[selectedSkin].speedMult;
+    this.moveWithCollision(dx * speed, dy * speed);
 
     this.angle = Math.atan2(mouse.worldY - this.y, mouse.worldX - this.x);
 
@@ -152,8 +243,9 @@ class Player {
   shoot() {
     const now = performance.now();
     if (now - this.lastShot < this.weapon.rate) return;
+    
     if (this.weapon.type === 'GUN' && this.ammo <= 0) {
-      playSound(150, 0.05, 'sawtooth');
+      playSound(120, 0.05, 'sawtooth');
       return;
     }
 
@@ -161,22 +253,20 @@ class Player {
 
     if (this.weapon.type === 'MELEE') {
       triggerScreenShake(3);
-      playSound(200, 0.08, 'sine');
+      playSound(220, 0.08, 'sawtooth', 80);
       enemies.forEach(e => {
         const dist = Math.hypot(e.x - this.x, e.y - this.y);
-        if (dist < 45) e.kill(this.angle);
+        if (dist < 48) e.kill(this.angle);
       });
     } else {
       triggerScreenShake(6);
-      playSound(100, 0.15, 'sawtooth');
+      playSound(150, 0.12, 'square', 40);
       this.ammo--;
       updateHUD();
 
-      // Alerta inimigos próximos com o som do tiro
+      // Alerta sonoro para inimigos
       enemies.forEach(e => {
-        if (Math.hypot(e.x - this.x, e.y - this.y) < 350) {
-          e.state = 'CHASE';
-        }
+        if (Math.hypot(e.x - this.x, e.y - this.y) < 400) e.state = 'CHASE';
       });
 
       const count = this.weapon.pellets || 1;
@@ -195,7 +285,7 @@ class Player {
         this.weapon = WEAPONS[w.type];
         this.ammo = w.ammo;
         droppedWeapons.splice(i, 1);
-        playSound(400, 0.08, 'triangle');
+        playSound(450, 0.08, 'triangle');
         updateHUD();
         break;
       }
@@ -216,13 +306,24 @@ class Player {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
 
+    // Sombra do Jogador
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.arc(3, 3, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Corpo
     ctx.fillStyle = SKINS[selectedSkin].color;
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
 
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, -2, 16, 4);
+    // Arma/Braços
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, -3, 18, 6);
     ctx.restore();
   }
 }
@@ -232,10 +333,12 @@ class Enemy {
     this.x = x;
     this.y = y;
     this.radius = 12;
-    this.speed = difficulty === 'HARDCORE' ? 3.0 : 2.2;
+    this.speed = difficulty === 'HARDCORE' ? 3.2 : 2.4;
     this.alive = true;
     this.angle = Math.random() * Math.PI * 2;
     this.state = 'PATROL';
+    this.patrolTimer = Math.floor(Math.random() * 100);
+    this.hasGun = Math.random() > 0.4;
     this.lastShot = 0;
   }
 
@@ -244,37 +347,66 @@ class Enemy {
 
     const distToPlayer = Math.hypot(player.x - this.x, player.y - this.y);
 
-    if (distToPlayer < 280 && hasLineOfSight(this.x, this.y, player.x, player.y)) {
+    if (distToPlayer < 320 && hasLineOfSight(this.x, this.y, player.x, player.y)) {
       this.state = 'CHASE';
     }
 
     if (this.state === 'CHASE') {
       this.angle = Math.atan2(player.y - this.y, player.x - this.x);
-      const vx = Math.cos(this.angle) * this.speed;
-      const vy = Math.sin(this.angle) * this.speed;
+      
+      if (this.hasGun && distToPlayer < 220 && distToPlayer > 80) {
+        // Dispara se tiver linha de visão clara
+        const now = performance.now();
+        if (now - this.lastShot > 800) {
+          this.lastShot = now;
+          playSound(100, 0.1, 'sawtooth');
+          bullets.push(new Bullet(this.x, this.y, this.angle + (Math.random() - 0.5) * 0.1, 14, false));
+        }
+      } else {
+        const vx = Math.cos(this.angle) * this.speed;
+        const vy = Math.sin(this.angle) * this.speed;
+        if (!checkWallCollision(this.x + vx, this.y, this.radius)) this.x += vx;
+        if (!checkWallCollision(this.x, this.y + vy, this.radius)) this.y += vy;
+      }
 
-      if (!checkWallCollision(this.x + vx, this.y, this.radius)) this.x += vx;
-      if (!checkWallCollision(this.x, this.y + vy, this.radius)) this.y += vy;
-
-      if (distToPlayer < 20) killPlayer();
+      if (distToPlayer < 18) killPlayer();
+    } else {
+      // Patrulha Aleatória
+      this.patrolTimer--;
+      if (this.patrolTimer <= 0) {
+        this.angle = Math.random() * Math.PI * 2;
+        this.patrolTimer = Math.floor(Math.random() * 120) + 60;
+      }
+      const vx = Math.cos(this.angle) * (this.speed * 0.4);
+      const vy = Math.sin(this.angle) * (this.speed * 0.4);
+      if (!checkWallCollision(this.x + vx, this.y + vy, this.radius)) {
+        this.x += vx;
+        this.y += vy;
+      }
     }
   }
 
   kill(angle) {
     if (!this.alive) return;
     this.alive = false;
-    playSound(80, 0.2, 'sawtooth');
+    playSound(70, 0.25, 'sawtooth', 30);
     addScore(100);
 
-    for (let i = 0; i < 20; i++) {
+    // Sangramento Ultra-Violento
+    for (let i = 0; i < 30; i++) {
+      const spd = Math.random() * 8 + 2;
+      const spreadAngle = angle + (Math.random() - 0.5) * 1.2;
       bloodDecals.push({
-        x: this.x + (Math.random() - 0.5) * 30,
-        y: this.y + (Math.random() - 0.5) * 30,
-        radius: Math.random() * 6 + 2
+        x: this.x,
+        y: this.y,
+        vx: Math.cos(spreadAngle) * spd,
+        vy: Math.sin(spreadAngle) * spd,
+        radius: Math.random() * 5 + 2,
+        life: 1.0
       });
     }
 
-    if (Math.random() > 0.4) {
+    if (this.hasGun) {
       const types = ['PISTOL', 'SHOTGUN', 'RIFLE'];
       const chosen = types[Math.floor(Math.random() * types.length)];
       droppedWeapons.push(new DroppedWeapon(this.x, this.y, chosen, WEAPONS[chosen].ammo, Math.random() * Math.PI * 2));
@@ -289,10 +421,12 @@ class Enemy {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
 
-    ctx.fillStyle = '#ff3333';
+    ctx.fillStyle = '#ff2a6d';
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.stroke();
 
     ctx.fillStyle = '#000';
     ctx.fillRect(0, -2, 14, 4);
@@ -328,14 +462,23 @@ class Bullet {
           this.alive = false;
         }
       });
+    } else {
+      if (player && player.alive && Math.hypot(player.x - this.x, player.y - this.y) < player.radius) {
+        killPlayer();
+        this.alive = false;
+      }
     }
   }
 
   draw() {
-    ctx.fillStyle = '#ffff00';
+    ctx.save();
+    ctx.fillStyle = this.isPlayer ? '#00f0ff' : '#ff007f';
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = ctx.fillStyle;
     ctx.beginPath();
     ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -347,7 +490,7 @@ class DroppedWeapon {
     this.ammo = ammo;
     this.angle = angle;
     this.isThrown = isThrown;
-    this.throwSpeed = isThrown ? 12 : 0;
+    this.throwSpeed = isThrown ? 16 : 0;
   }
 
   update() {
@@ -361,7 +504,7 @@ class DroppedWeapon {
       } else {
         this.x += vx;
         this.y += vy;
-        this.throwSpeed *= 0.9;
+        this.throwSpeed *= 0.88;
 
         enemies.forEach(e => {
           if (e.alive && Math.hypot(e.x - this.x, e.y - this.y) < e.radius + 8) {
@@ -371,10 +514,7 @@ class DroppedWeapon {
           }
         });
 
-        if (this.throwSpeed < 1) {
-          this.throwSpeed = 0;
-          this.isThrown = false;
-        }
+        if (this.throwSpeed < 1) this.isThrown = false;
       }
     }
   }
@@ -383,7 +523,9 @@ class DroppedWeapon {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.fillStyle = '#00f0ff';
+    ctx.fillStyle = '#ff007f';
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = '#ff007f';
     ctx.fillRect(-10, -3, 20, 6);
     ctx.restore();
   }
@@ -393,9 +535,6 @@ class DroppedWeapon {
 // FUNÇÕES AUXILIARES E LÓGICA DO JOGO
 // ==========================================
 function checkWallCollision(x, y, radius) {
-  const map = MAP_LEVELS[currentFloor];
-  if (!map) return false;
-
   const minCol = Math.floor((x - radius) / TILE_SIZE);
   const maxCol = Math.floor((x + radius) / TILE_SIZE);
   const minRow = Math.floor((y - radius) / TILE_SIZE);
@@ -403,8 +542,8 @@ function checkWallCollision(x, y, radius) {
 
   for (let r = minRow; r <= maxRow; r++) {
     for (let c = minCol; c <= maxCol; c++) {
-      if (r >= 0 && r < map.length && c >= 0 && c < map[r].length) {
-        if (map[r][c] === 1) return true;
+      if (r >= 0 && r < mapHeight && c >= 0 && c < mapWidth) {
+        if (currentMap[r][c] === 1) return true;
       }
     }
   }
@@ -413,7 +552,7 @@ function checkWallCollision(x, y, radius) {
 
 function hasLineOfSight(x1, y1, x2, y2) {
   const dist = Math.hypot(x2 - x1, y2 - y1);
-  const steps = Math.ceil(dist / 10);
+  const steps = Math.ceil(dist / 12);
   for (let i = 0; i <= steps; i++) {
     const px = x1 + (x2 - x1) * (i / steps);
     const py = y1 + (y2 - y1) * (i / steps);
@@ -423,13 +562,13 @@ function hasLineOfSight(x1, y1, x2, y2) {
 }
 
 function createSparks(x, y) {
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     particles.push({
       x: x, y: y,
-      vx: (Math.random() - 0.5) * 6,
-      vy: (Math.random() - 0.5) * 6,
+      vx: (Math.random() - 0.5) * 8,
+      vy: (Math.random() - 0.5) * 8,
       life: 1.0,
-      color: '#ffaa00'
+      color: '#00f0ff'
     });
   }
 }
@@ -454,11 +593,11 @@ function killPlayer() {
   if (!player || !player.alive) return;
   player.alive = false;
   gameState = 'GAMEOVER';
-  playSound(50, 0.4, 'sawtooth');
+  playSound(40, 0.5, 'sawtooth', 10);
 
   const overlay = document.getElementById('overlay-msg');
   document.getElementById('overlay-title').innerText = 'VOCÊ MORREU';
-  document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA TENTAR NOVAMENTE";
+  document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA REINICIAR O RUN";
   document.getElementById('overlay-detail').classList.add('hidden');
   overlay.classList.remove('opacity-0', 'pointer-events-none');
 }
@@ -467,41 +606,45 @@ function checkLevelClear() {
   const aliveEnemies = enemies.filter(e => e.alive);
   if (aliveEnemies.length === 0) {
     gameState = 'CLEAR';
-    playSound(600, 0.3, 'sine');
+    playSound(600, 0.3, 'sine', 900);
     const overlay = document.getElementById('overlay-msg');
     document.getElementById('overlay-title').innerText = 'FASE LIMPA!';
-    document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA A PRÓXIMA FASE";
+    document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA AVANÇAR O ANDAR";
     document.getElementById('overlay-detail').classList.remove('hidden');
     overlay.classList.remove('opacity-0', 'pointer-events-none');
   }
 }
 
 function loadLevel(floorIndex) {
-  currentFloor = floorIndex % MAP_LEVELS.length;
+  currentFloor = floorIndex;
+  const mapData = generateProceduralMap(mapWidth, mapHeight);
+  currentMap = mapData.grid;
+  
   enemies = [];
   bullets = [];
   particles = [];
   bloodDecals = [];
   droppedWeapons = [];
 
-  player = new Player(100, 100);
+  const startRoom = mapData.rooms[0];
+  player = new Player((startRoom.x + startRoom.w / 2) * TILE_SIZE, (startRoom.y + startRoom.h / 2) * TILE_SIZE);
 
-  if (currentFloor === 0) {
-    enemies.push(new Enemy(300, 120));
-    enemies.push(new Enemy(500, 250));
-    enemies.push(new Enemy(700, 150));
-  } else {
-    enemies.push(new Enemy(200, 200));
-    enemies.push(new Enemy(400, 100));
-    enemies.push(new Enemy(600, 250));
-    enemies.push(new Enemy(800, 200));
+  // Spawna Inimigos nas Salas Restantes
+  for (let i = 1; i < mapData.rooms.length; i++) {
+    const rm = mapData.rooms[i];
+    const enemyCount = Math.floor(Math.random() * 2) + 1 + Math.floor(currentFloor / 2);
+    for (let e = 0; e < enemyCount; e++) {
+      const ex = (rm.x + 1 + Math.random() * (rm.w - 2)) * TILE_SIZE;
+      const ey = (rm.y + 1 + Math.random() * (rm.h - 2)) * TILE_SIZE;
+      enemies.push(new Enemy(ex, ey));
+    }
   }
 
   updateHUD();
 }
 
 function updateHUD() {
-  document.getElementById('stage-val').innerText = currentFloor + 1;
+  document.getElementById('stage-val').innerText = currentFloor;
   document.getElementById('score-val').innerText = score;
   if (player) {
     document.getElementById('weapon-display').innerText = player.weapon.name;
@@ -548,17 +691,27 @@ function gameLoop(now) {
 
     droppedWeapons.forEach(w => w.update());
 
+    // Atualiza projeção do sangue no chão
+    bloodDecals.forEach(b => {
+      if (b.vx) {
+        b.x += b.vx;
+        b.y += b.vy;
+        b.vx *= 0.82;
+        b.vy *= 0.82;
+      }
+    });
+
     particles.forEach(p => {
       p.x += p.vx;
       p.y += p.vy;
-      p.life -= 0.05;
+      p.life -= 0.04;
     });
     particles = particles.filter(p => p.life > 0);
 
     if (screenShake > 0) screenShake *= 0.85;
   }
 
-  // Renderização do Canvas
+  // Renderização
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.save();
 
@@ -568,29 +721,27 @@ function gameLoop(now) {
 
   ctx.translate(-Math.floor(camera.x), -Math.floor(camera.y));
 
-  // Renderiza Mapa
-  const map = MAP_LEVELS[currentFloor];
-  if (map) {
-    for (let r = 0; r < map.length; r++) {
-      for (let c = 0; c < map[r].length; c++) {
-        const x = c * TILE_SIZE;
-        const y = r * TILE_SIZE;
-        if (map[r][c] === 1) {
-          ctx.fillStyle = '#222';
-          ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-          ctx.strokeStyle = '#444';
-          ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          ctx.fillStyle = '#111';
-          ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-        }
+  // Renderiza Mapa Neon
+  for (let r = 0; r < mapHeight; r++) {
+    for (let c = 0; c < mapWidth; c++) {
+      const x = c * TILE_SIZE;
+      const y = r * TILE_SIZE;
+      if (currentMap[r][c] === 1) {
+        ctx.fillStyle = '#0d0d1a';
+        ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        ctx.strokeStyle = '#00f0ff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+      } else {
+        ctx.fillStyle = '#05050d';
+        ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
       }
     }
   }
 
-  // Renderiza Sangue e Decalques
+  // Renderiza Sangue Persistente
   bloodDecals.forEach(b => {
-    ctx.fillStyle = '#880000';
+    ctx.fillStyle = '#88002d';
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
     ctx.fill();
@@ -615,7 +766,7 @@ function gameLoop(now) {
 }
 
 // ==========================================
-// AÇÕES DOS MENUS E EVENTOS
+// CONTROLES E MENUS
 // ==========================================
 function startGame() {
   initAudio();
@@ -623,7 +774,7 @@ function startGame() {
   document.getElementById('ui-layer').classList.remove('hidden');
   gameState = 'PLAYING';
   score = 0;
-  loadLevel(0);
+  loadLevel(1);
 }
 
 function resumeGame() {
@@ -635,7 +786,8 @@ function restartCurrentLevel() {
   document.getElementById('pause-menu').classList.add('hidden');
   document.getElementById('overlay-msg').classList.add('opacity-0', 'pointer-events-none');
   gameState = 'PLAYING';
-  loadLevel(currentFloor);
+  if (player && !player.alive) score = 0;
+  loadLevel(gameState === 'GAMEOVER' ? 1 : currentFloor);
 }
 
 function quitToMainMenu() {
@@ -644,30 +796,6 @@ function quitToMainMenu() {
   document.getElementById('overlay-msg').classList.add('opacity-0', 'pointer-events-none');
   document.getElementById('main-menu').classList.remove('hidden');
   gameState = 'MENU';
-}
-
-function openSelectLevel() {
-  document.getElementById('main-menu').classList.add('hidden');
-  document.getElementById('level-menu').classList.remove('hidden');
-}
-
-function selectLevelAndStart(level) {
-  initAudio();
-  document.getElementById('level-menu').classList.add('hidden');
-  document.getElementById('ui-layer').classList.remove('hidden');
-  gameState = 'PLAYING';
-  score = 0;
-  loadLevel(level);
-}
-
-function openSelectSkin() {
-  document.getElementById('main-menu').classList.add('hidden');
-  document.getElementById('skin-menu').classList.remove('hidden');
-}
-
-function setSkin(skinKey) {
-  selectedSkin = skinKey;
-  backToMainMenu();
 }
 
 function openOptionsMenu(fromState) {
@@ -686,8 +814,17 @@ function closeOptionsMenu() {
   }
 }
 
+function openSelectSkin() {
+  document.getElementById('main-menu').classList.add('hidden');
+  document.getElementById('skin-menu').classList.remove('hidden');
+}
+
+function setSkin(skinKey) {
+  selectedSkin = skinKey;
+  backToMainMenu();
+}
+
 function backToMainMenu() {
-  document.getElementById('level-menu').classList.add('hidden');
   document.getElementById('skin-menu').classList.add('hidden');
   document.getElementById('main-menu').classList.remove('hidden');
 }
@@ -696,9 +833,7 @@ function changeDifficulty(val) { difficulty = val; }
 function toggleCRT(checked) { document.getElementById('crt-layer').style.display = checked ? 'block' : 'none'; }
 function toggleShake(checked) { enableShake = checked; }
 
-// ==========================================
-// INICIALIZAÇÃO DE EVENTOS
-// ==========================================
+// EVENT LISTENERS
 window.addEventListener('DOMContentLoaded', () => {
   canvas = document.getElementById('gameCanvas');
   ctx = canvas.getContext('2d');
