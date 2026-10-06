@@ -40,7 +40,7 @@
 
       <!-- Rodapé: Contador de FPS e Controles -->
       <div class="flex justify-between text-xs text-gray-400 bg-black/40 p-2 rounded">
-        <div>[WASD] Mover | [LMB] Atirar | [RMB] Arremessar Arma | [E] Pegar | [Esc/P] Pausar</div>
+        <div>[WASD] Mover | [LMB] Atirar/Ataque | [RMB] Arremessar | [E] Pegar | [Esc/P] Pausa</div>
         <div id="fps-val">60 FPS</div>
       </div>
     </div>
@@ -59,7 +59,7 @@
         <button onclick="resumeGame()" class="btn">Continuar</button>
         <button onclick="restartCurrentLevel()" class="btn">Reiniciar Fase</button>
         <button onclick="openOptionsMenu('pause')" class="btn">Opções</button>
-        <button onclick="quitToMainMenu()" class="btn btn-danger">Sair para o Menu</button>
+        <button onclick="quitToMainMenu()" class="btn btn-danger">Sair para Menu</button>
       </div>
     </div>
 
@@ -84,15 +84,15 @@
       <div class="grid grid-cols-2 gap-4 mb-6 pointer-events-auto">
         <button onclick="setSkin('ROOSTER')" class="p-4 border-2 border-yellow-400 bg-gray-900 rounded text-left hover:bg-gray-800">
           <div class="font-bold text-yellow-400">RICHARD (Galo)</div>
-          <div class="text-xs text-gray-400">Velocidade Normal</div>
+          <div class="text-xs text-gray-400">Equilibrado</div>
         </button>
         <button onclick="setSkin('TIGER')" class="p-4 border-2 border-orange-500 bg-gray-900 rounded text-left hover:bg-gray-800">
           <div class="font-bold text-orange-500">TONY (Tigre)</div>
-          <div class="text-xs text-gray-400">+10% Velocidade</div>
+          <div class="text-xs text-gray-400">+15% Velocidade</div>
         </button>
         <button onclick="setSkin('BEAR')" class="p-4 border-2 border-cyan-400 bg-gray-900 rounded text-left hover:bg-gray-800">
           <div class="font-bold text-cyan-400">MARK (Urso)</div>
-          <div class="text-xs text-gray-400">-5% Velocidade</div>
+          <div class="text-xs text-gray-400">Ataques Pesados</div>
         </button>
         <button onclick="setSkin('MONKEY')" class="p-4 border-2 border-purple-500 bg-gray-900 rounded text-left hover:bg-gray-800">
           <div class="font-bold text-purple-500">RAMI (Macaco)</div>
@@ -106,8 +106,8 @@
     <div id="level-menu" class="absolute inset-0 bg-neutral-950 flex flex-col items-center justify-center hidden z-30">
       <h2 class="text-3xl font-bold text-purple-400 mb-6">SELECIONAR FASE</h2>
       <div class="flex gap-4 mb-6 pointer-events-auto">
-        <button onclick="selectLevelAndStart(0)" class="p-6 border-2 border-pink-500 bg-gray-900 text-xl font-bold hover:bg-pink-600 rounded">FASE 1<br><span class="text-xs font-normal">Entrada</span></button>
-        <button onclick="selectLevelAndStart(1)" class="p-6 border-2 border-pink-500 bg-gray-900 text-xl font-bold hover:bg-pink-600 rounded">FASE 2<br><span class="text-xs font-normal">Escritório</span></button>
+        <button onclick="selectLevelAndStart(0)" class="p-6 border-2 border-pink-500 bg-gray-900 text-xl font-bold hover:bg-pink-600 rounded">FASE 1<br><span class="text-xs font-normal">Recepção</span></button>
+        <button onclick="selectLevelAndStart(1)" class="p-6 border-2 border-pink-500 bg-gray-900 text-xl font-bold hover:bg-pink-600 rounded">FASE 2<br><span class="text-xs font-normal">Escritórios</span></button>
       </div>
       <button onclick="backToMainMenu()" class="btn w-48">Voltar</button>
     </div>
@@ -138,6 +138,6 @@
 
   </div>
 
-  <script src="script.js"></script>
+  <script src="java.js"></script>
 </body>
 </html>

@@ -1,4 +1,3 @@
-/* RESET E ESTILOS GERAIS */
 * {
   margin: 0;
   padding: 0;
@@ -20,12 +19,12 @@ body {
   pointer-events: none;
   z-index: 50;
   background: 
-    linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-    linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%), 
+    linear-gradient(90deg, rgba(255, 0, 0, 0.05), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.05));
   background-size: 100% 4px, 6px 100%;
 }
 
-/* BOTÕES ESTILIZADOS */
+/* BOTÕES ESTILIZADOS SYNTHWAVE */
 .btn {
   display: inline-block;
   width: 100%;
@@ -35,7 +34,7 @@ body {
   border: 2px solid #00f0ff;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 1px;

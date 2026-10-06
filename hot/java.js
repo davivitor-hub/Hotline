@@ -24,18 +24,43 @@ let frameCount = 0;
 let fpsTimer = performance.now();
 let lastTime = performance.now();
 
+// AUDIO SYNTHESIZER (Web Audio API)
+let audioCtx = null;
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+function playSound(freq, duration, type = 'square') {
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch (e) {}
+}
+
 // CONFIGURAÇÃO DE ARMAS
 const WEAPONS = {
   FISTS: { name: 'FISTS', ammo: Infinity, rate: 250, speed: 0, damage: 1, type: 'MELEE' },
-  PISTOL: { name: 'PISTOL', ammo: 12, rate: 200, speed: 14, damage: 1, type: 'GUN', spread: 0.05 },
-  SHOTGUN: { name: 'SHOTGUN', ammo: 6, rate: 600, speed: 12, damage: 1, type: 'GUN', spread: 0.2, pellets: 5 },
-  RIFLE: { name: 'RIFLE', ammo: 24, rate: 90, speed: 16, damage: 1, type: 'GUN', spread: 0.08 }
+  PISTOL: { name: 'PISTOL', ammo: 12, rate: 220, speed: 18, damage: 1, type: 'GUN', spread: 0.04 },
+  SHOTGUN: { name: 'SHOTGUN', ammo: 6, rate: 650, speed: 15, damage: 1, type: 'GUN', spread: 0.22, pellets: 6 },
+  RIFLE: { name: 'RIFLE', ammo: 24, rate: 90, speed: 20, damage: 1, type: 'GUN', spread: 0.08 }
 };
 
-// CONFIGURAÇÃO DE SKINS (MÁSCARAS)
+// CONFIGURAÇÃO DE SKINS
 const SKINS = {
   ROOSTER: { name: 'RICHARD', color: '#e74c3c', speedMult: 1.0 },
-  TIGER: { name: 'TONY', color: '#e67e22', speedMult: 1.1 },
+  TIGER: { name: 'TONY', color: '#e67e22', speedMult: 1.15 },
   BEAR: { name: 'MARK', color: '#3498db', speedMult: 0.95 },
   MONKEY: { name: 'RAMI', color: '#9b59b6', speedMult: 1.25 }
 };
@@ -64,6 +89,7 @@ const MAP_LEVELS = [
     [1,1,0,1,1,1,1,0,1,1,1,1,0,1,1,1,1,1,1,0,1,1,1,1,1],
     [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ]
 ];
@@ -76,7 +102,6 @@ let bullets = [];
 let particles = [];
 let bloodDecals = [];
 let droppedWeapons = [];
-let doors = [];
 
 // ==========================================
 // CLASSES DO JOGO
@@ -86,7 +111,7 @@ class Player {
     this.x = x;
     this.y = y;
     this.radius = 12;
-    this.baseSpeed = 3.5;
+    this.baseSpeed = 3.8;
     this.angle = 0;
     this.weapon = WEAPONS.FISTS;
     this.ammo = Infinity;
@@ -127,20 +152,32 @@ class Player {
   shoot() {
     const now = performance.now();
     if (now - this.lastShot < this.weapon.rate) return;
-    if (this.weapon.type === 'GUN' && this.ammo <= 0) return;
+    if (this.weapon.type === 'GUN' && this.ammo <= 0) {
+      playSound(150, 0.05, 'sawtooth');
+      return;
+    }
 
     this.lastShot = now;
 
     if (this.weapon.type === 'MELEE') {
       triggerScreenShake(3);
+      playSound(200, 0.08, 'sine');
       enemies.forEach(e => {
         const dist = Math.hypot(e.x - this.x, e.y - this.y);
-        if (dist < 40) e.kill(this.angle);
+        if (dist < 45) e.kill(this.angle);
       });
     } else {
-      triggerScreenShake(5);
+      triggerScreenShake(6);
+      playSound(100, 0.15, 'sawtooth');
       this.ammo--;
       updateHUD();
+
+      // Alerta inimigos próximos com o som do tiro
+      enemies.forEach(e => {
+        if (Math.hypot(e.x - this.x, e.y - this.y) < 350) {
+          e.state = 'CHASE';
+        }
+      });
 
       const count = this.weapon.pellets || 1;
       for (let i = 0; i < count; i++) {
@@ -153,11 +190,12 @@ class Player {
   pickupWeapon() {
     for (let i = droppedWeapons.length - 1; i >= 0; i--) {
       const w = droppedWeapons[i];
-      if (Math.hypot(w.x - this.x, w.y - this.y) < 30) {
-        if (this.weapon.type !== 'MELEE') this.dropWeapon();
+      if (Math.hypot(w.x - this.x, w.y - this.y) < 35) {
+        if (this.weapon.type !== 'MELEE') this.throwWeapon();
         this.weapon = WEAPONS[w.type];
         this.ammo = w.ammo;
         droppedWeapons.splice(i, 1);
+        playSound(400, 0.08, 'triangle');
         updateHUD();
         break;
       }
@@ -166,9 +204,10 @@ class Player {
 
   throwWeapon() {
     if (this.weapon.type === 'MELEE') return;
-    droppedWeapons.push(new DroppedWeapon(this.x, this.y, this.weapon.name, this.ammo, this.angle));
+    droppedWeapons.push(new DroppedWeapon(this.x, this.y, this.weapon.name, this.ammo, this.angle, true));
     this.weapon = WEAPONS.FISTS;
     this.ammo = Infinity;
+    playSound(300, 0.05, 'sine');
     updateHUD();
   }
 
@@ -193,10 +232,11 @@ class Enemy {
     this.x = x;
     this.y = y;
     this.radius = 12;
-    this.speed = 2.2;
+    this.speed = difficulty === 'HARDCORE' ? 3.0 : 2.2;
     this.alive = true;
     this.angle = Math.random() * Math.PI * 2;
     this.state = 'PATROL';
+    this.lastShot = 0;
   }
 
   update() {
@@ -204,7 +244,9 @@ class Enemy {
 
     const distToPlayer = Math.hypot(player.x - this.x, player.y - this.y);
 
-    if (distToPlayer < 250) this.state = 'CHASE';
+    if (distToPlayer < 280 && hasLineOfSight(this.x, this.y, player.x, player.y)) {
+      this.state = 'CHASE';
+    }
 
     if (this.state === 'CHASE') {
       this.angle = Math.atan2(player.y - this.y, player.x - this.x);
@@ -221,20 +263,21 @@ class Enemy {
   kill(angle) {
     if (!this.alive) return;
     this.alive = false;
+    playSound(80, 0.2, 'sawtooth');
     addScore(100);
 
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 20; i++) {
       bloodDecals.push({
-        x: this.x + (Math.random() - 0.5) * 20,
-        y: this.y + (Math.random() - 0.5) * 20,
+        x: this.x + (Math.random() - 0.5) * 30,
+        y: this.y + (Math.random() - 0.5) * 30,
         radius: Math.random() * 6 + 2
       });
     }
 
-    if (Math.random() > 0.5) {
+    if (Math.random() > 0.4) {
       const types = ['PISTOL', 'SHOTGUN', 'RIFLE'];
       const chosen = types[Math.floor(Math.random() * types.length)];
-      droppedWeapons.push(new DroppedWeapon(this.x, this.y, chosen, WEAPONS[chosen].ammo));
+      droppedWeapons.push(new DroppedWeapon(this.x, this.y, chosen, WEAPONS[chosen].ammo, Math.random() * Math.PI * 2));
     }
 
     checkLevelClear();
@@ -297,12 +340,43 @@ class Bullet {
 }
 
 class DroppedWeapon {
-  constructor(x, y, type, ammo, angle = 0) {
+  constructor(x, y, type, ammo, angle = 0, isThrown = false) {
     this.x = x;
     this.y = y;
     this.type = type;
     this.ammo = ammo;
     this.angle = angle;
+    this.isThrown = isThrown;
+    this.throwSpeed = isThrown ? 12 : 0;
+  }
+
+  update() {
+    if (this.isThrown && this.throwSpeed > 0) {
+      const vx = Math.cos(this.angle) * this.throwSpeed;
+      const vy = Math.sin(this.angle) * this.throwSpeed;
+
+      if (checkWallCollision(this.x + vx, this.y + vy, 8)) {
+        this.throwSpeed = 0;
+        this.isThrown = false;
+      } else {
+        this.x += vx;
+        this.y += vy;
+        this.throwSpeed *= 0.9;
+
+        enemies.forEach(e => {
+          if (e.alive && Math.hypot(e.x - this.x, e.y - this.y) < e.radius + 8) {
+            e.kill(this.angle);
+            this.throwSpeed = 0;
+            this.isThrown = false;
+          }
+        });
+
+        if (this.throwSpeed < 1) {
+          this.throwSpeed = 0;
+          this.isThrown = false;
+        }
+      }
+    }
   }
 
   draw() {
@@ -310,7 +384,7 @@ class DroppedWeapon {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
     ctx.fillStyle = '#00f0ff';
-    ctx.fillRect(-8, -3, 16, 6);
+    ctx.fillRect(-10, -3, 20, 6);
     ctx.restore();
   }
 }
@@ -337,12 +411,23 @@ function checkWallCollision(x, y, radius) {
   return false;
 }
 
+function hasLineOfSight(x1, y1, x2, y2) {
+  const dist = Math.hypot(x2 - x1, y2 - y1);
+  const steps = Math.ceil(dist / 10);
+  for (let i = 0; i <= steps; i++) {
+    const px = x1 + (x2 - x1) * (i / steps);
+    const py = y1 + (y2 - y1) * (i / steps);
+    if (checkWallCollision(px, py, 2)) return false;
+  }
+  return true;
+}
+
 function createSparks(x, y) {
   for (let i = 0; i < 5; i++) {
     particles.push({
       x: x, y: y,
-      vx: (Math.random() - 0.5) * 4,
-      vy: (Math.random() - 0.5) * 4,
+      vx: (Math.random() - 0.5) * 6,
+      vy: (Math.random() - 0.5) * 6,
       life: 1.0,
       color: '#ffaa00'
     });
@@ -366,13 +451,14 @@ function addScore(pts) {
 }
 
 function killPlayer() {
-  if (!player.alive) return;
+  if (!player || !player.alive) return;
   player.alive = false;
   gameState = 'GAMEOVER';
+  playSound(50, 0.4, 'sawtooth');
 
   const overlay = document.getElementById('overlay-msg');
   document.getElementById('overlay-title').innerText = 'VOCÊ MORREU';
-  document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA REINICIAR";
+  document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA TENTAR NOVAMENTE";
   document.getElementById('overlay-detail').classList.add('hidden');
   overlay.classList.remove('opacity-0', 'pointer-events-none');
 }
@@ -381,9 +467,10 @@ function checkLevelClear() {
   const aliveEnemies = enemies.filter(e => e.alive);
   if (aliveEnemies.length === 0) {
     gameState = 'CLEAR';
+    playSound(600, 0.3, 'sine');
     const overlay = document.getElementById('overlay-msg');
     document.getElementById('overlay-title').innerText = 'FASE LIMPA!';
-    document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA PRÓXIMA FASE";
+    document.getElementById('overlay-sub').innerText = "PRESSIONE 'R' PARA A PRÓXIMA FASE";
     document.getElementById('overlay-detail').classList.remove('hidden');
     overlay.classList.remove('opacity-0', 'pointer-events-none');
   }
@@ -459,6 +546,8 @@ function gameLoop(now) {
     bullets.forEach(b => b.update());
     bullets = bullets.filter(b => b.alive);
 
+    droppedWeapons.forEach(w => w.update());
+
     particles.forEach(p => {
       p.x += p.vx;
       p.y += p.vy;
@@ -529,6 +618,7 @@ function gameLoop(now) {
 // AÇÕES DOS MENUS E EVENTOS
 // ==========================================
 function startGame() {
+  initAudio();
   document.getElementById('main-menu').classList.add('hidden');
   document.getElementById('ui-layer').classList.remove('hidden');
   gameState = 'PLAYING';
@@ -562,6 +652,7 @@ function openSelectLevel() {
 }
 
 function selectLevelAndStart(level) {
+  initAudio();
   document.getElementById('level-menu').classList.add('hidden');
   document.getElementById('ui-layer').classList.remove('hidden');
   gameState = 'PLAYING';
