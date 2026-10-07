@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hotline Miami X1 — Neon Duel</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="menu">
+    <div class="panel">
+      <h1>NEON DUEL</h1>
+      <p>Hotline-style 1v1 multiplayer</p>
+      <button id="playBtn">JOGAR ONLINE</button>
+      <div id="status">Conectando ao servidor...</div>
+      <small>WASD mover · E pegar arma · LMB atirar · Q mapa</small>
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <span id="players">1/2</span>
+    <span id="weapon">Mãos</span>
+    <span id="ammo">0</span>
+    <span id="state">AGUARDANDO JOGADOR...</span>
+  </div>
+
+  <div id="mapOverlay">
+    <div class="mapTitle">MAPA</div>
+    <canvas id="mapCanvas"></canvas>
+    <div class="mapHelp">Q para fechar</div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>

@@ -1,94 +1,155 @@
-const http=require('http'),fs=require('fs'),path=require('path'),{WebSocketServer}=require('ws');
-const PORT=process.env.PORT||10000,root=__dirname;
-const server=http.createServer((req,res)=>{
- let p=decodeURIComponent(req.url.split('?')[0]);if(p==='/')p='/index.html';
- const file=path.resolve(root,'.'+p);
- if(!file.startsWith(root)||!fs.existsSync(file)||fs.statSync(file).isDirectory()){res.writeHead(404);return res.end('404')}
- const ext=path.extname(file),types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8'};
- res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':'no-store'});fs.createReadStream(file).pipe(res);
-});
-const wss=new WebSocketServer({server});
-const rooms=new Map();let nextId=1;
-const TILE=40,MW=50,MH=30,MAPW=MW*TILE,MAPH=MH*TILE;
-const WEAPONS={
- PISTOL:{ammo:12,rate:190,damage:25,speed:14,pellets:1,spread:.025},
- SMG:{ammo:36,rate:75,damage:11,speed:16,pellets:1,spread:.09},
- SHOTGUN:{ammo:6,rate:650,damage:14,speed:13,pellets:7,spread:.30}
-};
-function newSeed(){return (Date.now()^Math.floor(Math.random()*0xffffffff))>>>0}
-function rng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296}}
-function generate(seed){
- const r=rng(seed),map=Array.from({length:MH},()=>Array(MW).fill(1)),rooms=[];
- for(let i=0;i<18;i++){const w=5+Math.floor(r()*7),h=4+Math.floor(r()*5),x=1+Math.floor(r()*(MW-w-2)),y=1+Math.floor(r()*(MH-h-2));rooms.push({x,y,w,h});for(let yy=y;yy<y+h;yy++)for(let xx=x;xx<x+w;xx++)map[yy][xx]=0}
- rooms.sort((a,b)=>(a.x+a.y)-(b.x+b.y));
- for(let i=1;i<rooms.length;i++){const a=rooms[i-1],b=rooms[i],x1=Math.floor(a.x+a.w/2),y1=Math.floor(a.y+a.h/2),x2=Math.floor(b.x+b.w/2),y2=Math.floor(b.y+b.h/2);
-  if(r()>.5){for(let x=Math.min(x1,x2);x<=Math.max(x1,x2);x++)map[y1][x]=0;for(let y=Math.min(y1,y2);y<=Math.max(y1,y2);y++)map[y][x2]=0}
-  else{for(let y=Math.min(y1,y2);y<=Math.max(y1,y2);y++)map[y][x1]=0;for(let x=Math.min(x1,x2);x<=Math.max(x1,x2);x++)map[y2][x]=0}}
- const points=rooms.map(a=>({x:(a.x+a.w/2)*TILE,y:(a.y+a.h/2)*TILE}));
- // Muitas armas em posições diferentes: a cada sala pode aparecer uma arma.
- const types=['PISTOL','SMG','SHOTGUN','SMG','PISTOL','SHOTGUN','SMG','PISTOL','SHOTGUN'];
- const weapons=types.map((type,i)=>{const p=points[(i*2+1)%points.length];return{x:p.x+(r()-.5)*60,y:p.y+(r()-.5)*45,type,ammo:WEAPONS[type].ammo,id:'w'+i}});
- return {map,points,weapons};
+const http = require("http");
+const WebSocket = require("ws");
+const crypto = require("crypto");
+
+const PORT = process.env.PORT || 10000;
+const W=1800, H=1000;
+const MAX=2;
+const clients=new Map();
+let game=null;
+
+function rnd(a,b){return Math.random()*(b-a)+a}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function rectHitCircle(r,x,y,rad){
+  const cx=clamp(x,r.x,r.x+r.w), cy=clamp(y,r.y,r.y+r.h);
+  return Math.hypot(x-cx,y-cy)<rad;
 }
-function makeRoom(){
- for(const r of rooms.values())if(r.players.size<2)return r;
- const id=String(Math.floor(1000+Math.random()*9000)),seed=newSeed(),g=generate(seed);
- const r={id,seed,map:g.map,points:g.points,weapons:g.weapons,players:new Map(),bullets:[],winner:null,ended:false};
- rooms.set(id,r);return r;
-}
-function send(ws,o){if(ws.readyState===1)ws.send(JSON.stringify(o))}
-function broadcast(r,o){for(const p of r.players.values())send(p.ws,o)}
-function walk(r,x,y,rad=13){
- const minx=Math.floor((x-rad)/TILE),maxx=Math.floor((x+rad)/TILE),miny=Math.floor((y-rad)/TILE),maxy=Math.floor((y+rad)/TILE);
- for(let yy=miny;yy<=maxy;yy++)for(let xx=minx;xx<=maxx;xx++)if(yy<0||xx<0||yy>=MH||xx>=MW||r.map[yy][xx])return false;return true
-}
-function spawnFor(r,index){
- const p=r.points[index%r.points.length];
- const candidates=[p,...r.points.filter(q=>Math.hypot(q.x-p.x,q.y-p.y)>180)];
- for(const q of candidates)if(walk(r,q.x,q.y))return{x:q.x,y:q.y};return{x:100,y:100}
-}
-function snapshot(r){
- return {type:'state',seed:r.seed,players:[...r.players.values()].map(p=>({id:p.id,name:p.name,x:p.x,y:p.y,angle:p.angle,hp:p.hp,weapon:p.weapon,ammo:p.ammo,alive:p.alive})).reduce((o,p)=>(o[p.id]=p,o),{}),bullets:r.bullets.map(b=>({x:b.x,y:b.y,owner:b.owner})),weapons:r.weapons}
-}
-function resetRound(r){
- const g=generate(newSeed());r.seed=Date.now()>>>0;r.map=g.map;r.points=g.points;r.weapons=g.weapons;r.bullets=[];r.winner=null;r.ended=false;
- [...r.players.values()].forEach((p,i)=>{const s=spawnFor(r,i);p.x=s.x;p.y=s.y;p.hp=100;p.alive=true;p.weapon='PISTOL';p.ammo=12;p.dx=0;p.dy=0});
- broadcast(r,{type:'round'});broadcast(r,snapshot(r));
-}
-function fire(r,p,angle){
- const w=WEAPONS[p.weapon];if(!w||!p.alive||p.ammo<=0)return;
- const now=Date.now();if(now-p.lastShot<w.rate)return;p.lastShot=now;p.ammo--;
- for(let i=0;i<w.pellets;i++){const a=angle+(Math.random()-.5)*w.spread;r.bullets.push({x:p.x,y:p.y,vx:Math.cos(a)*w.speed,vy:Math.sin(a)*w.speed,owner:p.id,damage:w.damage,life:70})}
-}
-function tick(r){
- const ps=[...r.players.values()];
- for(const p of ps)if(p.alive){const nx=p.x+p.dx*4,ny=p.y+p.dy*4;if(walk(r,nx,p.y))p.x=nx;if(walk(r,p.x,ny))p.y=ny}
- for(const b of r.bullets){
-  b.x+=b.vx;b.y+=b.vy;b.life--;if(!walk(r,b.x,b.y,2))b.life=0;
-  for(const p of ps)if(b.life>0&&p.id!==b.owner&&p.alive&&Math.hypot(p.x-b.x,p.y-b.y)<17){
-   p.hp-=b.damage;b.life=0;
-   if(p.hp<=0){p.hp=0;p.alive=false;r.winner=b.owner;r.ended=true;const winner=r.players.get(b.owner);broadcast(r,{type:'dead',winnerId:b.owner,text:(winner?.name||'Jogador')+' venceu a rodada.'})}
+function freePoint(walls,rad=25){
+  for(let i=0;i<1000;i++){
+    const p={x:rnd(70,W-70),y:rnd(70,H-70)};
+    if(walls.every(r=>!rectHitCircle(r,p.x,p.y,rad))) return p;
   }
- }
- r.bullets=r.bullets.filter(b=>b.life>0);broadcast(r,snapshot(r));
+  return {x:100,y:100};
 }
-setInterval(()=>{for(const r of rooms.values())if(r.players.size)tick(r)},33);
-wss.on('connection',ws=>{
- let p=null,r=null;
- ws.on('message',raw=>{
-  let m;try{m=JSON.parse(raw)}catch{return}
-  if(m.type==='join'){
-   if(p)return;r=makeRoom();const s=spawnFor(r,r.players.size);
-   p={id:String(nextId++),name:String(m.name||'Player').slice(0,14),x:s.x,y:s.y,dx:0,dy:0,angle:0,hp:100,weapon:'PISTOL',ammo:12,lastShot:0,alive:true,ws};
-   r.players.set(p.id,p);send(ws,{type:'welcome',id:p.id,room:r.id,seed:r.seed,weapons:r.weapons});broadcast(r,{type:'event',text:p.name+' entrou na arena'});broadcast(r,snapshot(r));
-  }else if(!p||!r)return;
-  else if(m.type==='input'){p.dx=Math.max(-1,Math.min(1,Number(m.dx)||0));p.dy=Math.max(-1,Math.min(1,Number(m.dy)||0));p.angle=Number(m.angle)||0}
-  else if(m.type==='shoot')fire(r,p,Number(m.angle)||0);
-  else if(m.type==='pickup'&&p.alive){const i=r.weapons.findIndex(w=>Math.hypot(w.x-p.x,w.y-p.y)<42);if(i>=0){const w=r.weapons.splice(i,1)[0];p.weapon=w.type;p.ammo=w.ammo;broadcast(r,{type:'event',text:p.name+' pegou '+w.type})}}
-  else if(m.type==='ping')send(ws,{type:'pong',t:Number(m.t)||0});
-  else if(m.type==='pause'){}
-  else if(m.type==='rematch'&&r.ended)resetRound(r);
- });
- ws.on('close',()=>{if(r&&p){r.players.delete(p.id);broadcast(r,{type:'event',text:p.name+' saiu da arena'});if(r.players.size===0)rooms.delete(r.id)}})
+function makeMap(){
+  const walls=[];
+  walls.push({x:0,y:0,w:W,h:30},{x:0,y:H-30,w:W,h:30},{x:0,y:0,w:30,h:H},{x:W-30,y:0,w:30,h:H});
+  for(let i=0;i<22;i++){
+    const w=rnd(100,300),h=rnd(50,150),x=rnd(70,W-w-70),y=rnd(70,H-h-70);
+    const r={x,y,w,h};
+    if(walls.slice(4).every(o=>Math.abs((o.x+o.w/2)-(x+w/2))>70||Math.abs((o.y+o.h/2)-(y+h/2))>70)) walls.push(r);
+  }
+  return {width:W,height:H,walls};
+}
+function makeGame(){
+  const map=makeMap(), weapons=[];
+  const types=[
+    {name:"PISTOLA",damage:34,fireDelay:220,maxAmmo:12,speed:13,spread:.03},
+    {name:"SHOTGUN",damage:22,fireDelay:650,maxAmmo:4,speed:12,spread:.25,pellets:7}
+  ];
+  for(let i=0;i<12;i++){
+    const p=freePoint(map.walls,28), t=types[Math.floor(Math.random()*types.length)];
+    weapons.push({id:crypto.randomUUID(),x:p.x,y:p.y,rot:rnd(0,Math.PI*2),type:t.name,stats:t,taken:false});
+  }
+  return {map,weapons,players:{}};
+}
+function spawn(p){
+  const q=freePoint(game.map.walls,25);
+  p.x=q.x;p.y=q.y;p.hp=100;p.alive=true;p.weapon=null;p.cool=0;
+}
+function makePlayer(id){
+  const p={id,x:0,y:0,angle:0,hp:100,alive:true,weapon:null,cool:0};
+  spawn(p); return p;
+}
+function collision(p,nx,ny){
+  const r=22;
+  if(nx<30+r||ny<30+r||nx>W-30-r||ny>H-30-r)return true;
+  return game.map.walls.some(w=>rectHitCircle(w,nx,ny,r));
+}
+function broadcast(o){
+  const s=JSON.stringify(o);
+  for(const c of clients.values()) if(c.ws.readyState===WebSocket.OPEN)c.ws.send(s);
+}
+function publicState(){
+  const out={};
+  for(const [id,p] of Object.entries(game.players)){
+    out[id]={id:p.id,x:p.x,y:p.y,angle:p.angle,hp:p.hp,alive:p.alive,
+      weapon:p.weapon?{name:p.weapon.name,ammo:p.weapon.ammo,maxAmmo:p.weapon.maxAmmo}:null};
+  }
+  return out;
+}
+function resetRound(winner){
+  broadcast({type:"round",winner});
+  setTimeout(()=>{
+    if(Object.keys(game.players).length<2)return;
+    game=makeGame();
+    for(const id of Object.keys(game.players)) game.players[id]=makePlayer(id);
+    broadcast({type:"map",map:game.map,weapons:game.weapons});
+    broadcast({type:"start"});
+  },1200);
+}
+function shoot(p){
+  const now=Date.now();
+  if(!p.alive||!p.weapon||now<p.cool)return;
+  if(p.weapon.ammo<=0)return;
+  p.cool=now+p.weapon.fireDelay;p.weapon.ammo--;
+  const count=p.weapon.pellets||1;
+  for(let k=0;k<count;k++){
+    const a=p.angle+rnd(-p.weapon.spread,p.weapon.spread);
+    let x=p.x,y=p.y;
+    for(let s=0;s<85;s++){
+      x+=Math.cos(a)*4;y+=Math.sin(a)*4;
+      if(collision(p,x,y))break;
+      for(const q of Object.values(game.players)){
+        if(q.id===p.id||!q.alive)continue;
+        if(Math.hypot(q.x-x,q.y-y)<20){
+          q.hp-=p.weapon.damage;
+          broadcast({type:"hit",shooter:p.id,target:q.id});
+          if(q.hp<=0){
+            q.alive=false;
+            broadcast({type:"state",players:publicState(),weapons:game.weapons});
+            resetRound(p.id);
+          }
+          return;
+        }
+      }
+    }
+  }
+}
+function handle(ws,m){
+  if(m.type==="join"){
+    if(clients.size>MAX){ws.send(JSON.stringify({type:"full"}));return}
+    const id=crypto.randomUUID();clients.set(ws,{id,ws});
+    game.players[id]=makePlayer(id);
+    ws.send(JSON.stringify({type:"welcome",id}));
+    ws.send(JSON.stringify({type:"map",map:game.map,weapons:game.weapons}));
+    if(clients.size===2){
+      broadcast({type:"start"});
+      broadcast({type:"message",text:"2 jogadores conectados — FIGHT!"});
+    }
+    return;
+  }
+  const c=clients.get(ws);if(!c)return;
+  const p=game.players[c.id];if(!p)return;
+  if(m.type==="input"){
+    if(!p.alive)return;
+    const k=m.keys||{}, speed=4.6;
+    let dx=(k.d?1:0)-(k.a?1:0),dy=(k.s?1:0)-(k.w?1:0);
+    if(dx||dy){const l=Math.hypot(dx,dy);dx/=l;dy/=l;let nx=p.x+dx*speed,ny=p.y+dy*speed;
+      if(!collision(p,nx,p.y))p.x=nx;if(!collision(p,p.x,ny))p.y=ny;
+    }
+    if(Number.isFinite(m.angle))p.angle=m.angle;
+    if(k.pickup){
+      const w=game.weapons.find(w=>!w.taken&&Math.hypot(w.x-p.x,w.y-p.y)<55);
+      if(w){w.taken=true;p.weapon={...w.stats,name:w.type,ammo:w.stats.maxAmmo,maxAmmo:w.stats.maxAmmo};}
+    }
+    if(m.shoot)shoot(p);
+  }
+  if(m.type==="reload"&&p.weapon)p.weapon.ammo=p.weapon.maxAmmo;
+}
+const server=http.createServer((req,res)=>{
+  res.writeHead(200,{"Content-Type":"text/plain","Access-Control-Allow-Origin":"*"});
+  res.end("NEON DUEL multiplayer server online");
 });
-server.listen(PORT,()=>console.log('2 SHADOWS server listening on '+PORT));
+const wss=new WebSocket.Server({server});
+wss.on("connection",ws=>{
+  if(clients.size>=MAX){ws.send(JSON.stringify({type:"full"}));ws.close();return}
+  ws.on("message",d=>{try{handle(ws,JSON.parse(d.toString()))}catch(e){console.error(e)}});
+  ws.on("close",()=>{
+    const c=clients.get(ws);if(c){delete game.players[c.id];clients.delete(ws);broadcast({type:"message",text:"Jogador saiu."})}
+  });
+});
+game=makeGame();
+setInterval(()=>broadcast({type:"state",players:publicState(),weapons:game.weapons}),50);
+server.listen(PORT,"0.0.0.0",()=>console.log("NEON DUEL server on "+PORT));
