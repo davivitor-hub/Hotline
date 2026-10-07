@@ -1,2 +1,0 @@
-Este projeto deve ser publicado pela raiz do repositório no GitHub Pages.
-O multiplayer conecta em wss://hotline-m6gx.onrender.com
