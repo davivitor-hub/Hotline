@@ -1,65 +1,53 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pong das 7 Sombras</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>2 SHADOWS — Online</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="game-container">
+  <canvas id="gameCanvas"></canvas>
 
-<div id="toast" class="toast"></div>
-
-<div class="canvas-container" id="canvasContainer">
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
-
-    <!-- Tela do Lobby Online / X1 -->
-    <div id="onlineScreen" class="overlay-screen">
-        <h2>X1 ONLINE MULTIPLAYER</h2>
-        <div class="tabs">
-            <button class="tab active" data-tab="createTab">Criar Sala</button>
-            <button class="tab" data-tab="joinTab">Entrar por Código</button>
-            <button class="tab" data-tab="listTab">Salas Públicas</button>
-        </div>
-
-        <div id="createTab" class="tabbody active">
-            <input type="text" id="roomName" placeholder="Nome da Sala" value="Arena das Sombras">
-            <input type="text" id="roomCode" placeholder="Código Custom (Opcional)">
-            <label style="font-size: 12px; cursor: pointer;">
-                <input type="checkbox" id="roomPublic" checked> Sala Pública
-            </label>
-            <button id="createBtn" class="btn">CRIAR SALA X1</button>
-        </div>
-
-        <div id="joinTab" class="tabbody">
-            <input type="text" id="joinCode" placeholder="Digite o Código da Sala">
-            <button id="joinBtn" class="btn">ENTRAR NA SALA</button>
-        </div>
-
-        <div id="listTab" class="tabbody">
-            <button id="refresh" class="btn" style="padding: 6px; font-size: 12px;">Atualizar Lista</button>
-            <div id="roomsList" class="rooms-list">
-                <span class="muted">Nenhuma sala disponível no momento.</span>
-            </div>
-        </div>
-
-        <button id="backBtn" class="btn-cancel">VOLTAR AO MENU</button>
+  <section id="hud" class="hidden">
+    <div class="hud-card">
+      <b>VOCÊ</b><span id="hp">100 HP</span><span id="weapon">PISTOLA</span><span id="ammo">12 / 12</span>
     </div>
-
-    <!-- Tela de Espera X1 -->
-    <div id="waitingScreen" class="overlay-screen">
-        <h2>AGUARDANDO OPONENTE</h2>
-        <p style="margin-bottom: 8px;">Nome: <strong id="waitingName" style="color: #00f0ff;">---</strong></p>
-        <p style="margin-bottom: 20px;">Código: <strong id="waitingCode" style="color: #ff007f;">---</strong></p>
-        <div style="display: flex; gap: 10px;">
-            <button id="copyBtn" class="btn">COPIAR LINK X1</button>
-            <button id="leaveBtn" class="btn-cancel" style="margin-top:0;">CANCELAR</button>
-        </div>
+    <div class="top-center"><b>2 SHADOWS</b><span id="status">CONECTANDO...</span><small id="roomInfo">SALA ----</small></div>
+    <div class="hud-card right">
+      <b>JOGADOR 2</b><span id="enemyHp">Aguardando</span><span id="ping">-- ms</span>
     </div>
+    <button id="mapBtn" class="hud-btn" type="button">MAPA [Q]</button>
+  </section>
+
+  <div id="minimap" class="hidden">
+    <div class="mini-title">MAPA</div>
+    <canvas id="miniCanvas" width="250" height="150"></canvas>
+    <div class="mini-legend"><i></i> Você &nbsp; <em></em> Jogador 2 &nbsp; ◆ armas</div>
+  </div>
+
+  <div id="mainMenu" class="screen">
+    <div class="logo">2 <span>SHADOWS</span></div>
+    <p class="subtitle">HOTLINE-STYLE ONLINE DUEL</p>
+    <div class="panel">
+      <label for="nameInput">SEU NOME</label>
+      <input id="nameInput" maxlength="14" value="Player" autocomplete="off">
+      <button id="playBtn" class="primary" type="button">ENTRAR NA ARENA</button>
+      <p class="help"><b>WASD</b> mover · <b>Mouse</b> mirar · <b>clique</b> atirar · <b>E</b> pegar arma · <b>Q</b> mapa · <b>Esc</b> pausar</p>
+    </div>
+    <div id="roomInfoMenu">Conectando ao servidor...</div>
+  </div>
+
+  <div id="pauseMenu" class="screen hidden">
+    <div class="pause-box"><h1>PAUSADO</h1><p>Seu movimento está parado.</p><button id="resumeBtn" class="primary" type="button">CONTINUAR</button><button id="leaveBtn" type="button">SAIR</button></div>
+  </div>
+
+  <div id="gameOver" class="screen hidden">
+    <div class="pause-box"><h1 id="resultTitle">FIM DE JOGO</h1><p id="resultText"></p><button id="againBtn" class="primary" type="button">NOVA ARENA</button></div>
+  </div>
+  <div id="toast" aria-live="polite"></div>
 </div>
-
-<script src="script.js"></script>
+<script src="java.js"></script>
 </body>
 </html>
