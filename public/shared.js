@@ -513,6 +513,3 @@
 
   return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { Game };
-}

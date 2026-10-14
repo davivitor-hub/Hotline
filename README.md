@@ -12,7 +12,7 @@ npm start          # abre em http://localhost:3000
 O servidor entrega o jogo **e** o WebSocket na mesma porta. Abra duas abas (ou dois computadores) e clique em **Duelo online 1v1**. Sem servidor, use **Treino contra bot**, que roda tudo no navegador.
 
 ### Deploy no Render
-Suba esta pasta inteira (com `public/`) no repositório do serviço atual. Build: `npm install`. Start: `npm start`.
+Suba esta pasta inteira (com `public/`) no repositório. Build: `npm install`. Start: `npm start`. Health check path: `/health`. No plano gratuito o Render dorme após inatividade; a primeira conexão pode levar ~30 s.
 O cliente conecta sozinho no mesmo endereço. Se hospedar o `public/` em outro lugar, edite `SERVER_URL` no topo de `public/game.js`.
 
 ## Controles

@@ -7,8 +7,12 @@
 const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME } = Shared;
 const $ = id => document.getElementById(id);
 
-// O cliente pode estar no GitHub Pages; o WebSocket deve apontar para o servidor Render.
-const SERVER_URL = 'wss://hotline-m6gx.onrender.com';
+// Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
+const RENDER_HOST = 'hotline-m6gx.onrender.com';
+const SAME_ORIGIN = location.protocol.startsWith('http') && (location.hostname === RENDER_HOST || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+const SERVER_URL = SAME_ORIGIN ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host : 'wss://' + RENDER_HOST;
+// Acorda o servidor do Render (plano gratuito dorme) assim que a página abre.
+if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'no-cors' }); } catch { } }
 
 const STEP = 1 / 60, TAU = Math.PI * 2;
 const SKINS = {
