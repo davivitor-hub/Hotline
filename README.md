@@ -1,30 +1,43 @@
-# 2 SHADOWS — Online
+# NEON DUEL
 
-Jogo de tiro 1v1 para GitHub Pages + Render.
+Arena 1v1 top-down inspirada em Hotline Miami. Um tiro, uma morte. Primeiro a 5 rodadas vence.
 
-## GitHub Pages
-Coloque `index.html`, `style.css`, `java.js` e `.nojekyll` na raiz do repositório e ative:
-Settings → Pages → Deploy from a branch → `main` → `/ (root)`.
+## Como rodar
 
-## Render
-Use o mesmo repositório ou uma cópia contendo `server.js` e `package.json`.
+```bash
+npm install
+npm start          # abre em http://localhost:3000
+```
 
-- Runtime: Node
-- Build Command: `npm install`
-- Start Command: `npm start`
+O servidor entrega o jogo **e** o WebSocket na mesma porta. Abra duas abas (ou dois computadores) e clique em **Duelo online 1v1**. Sem servidor, use **Treino contra bot**, que roda tudo no navegador.
 
-O cliente já usa:
-`wss://hotline-m6gx.onrender.com`
+### Deploy no Render
+Suba esta pasta inteira (com `public/`) no repositório do serviço atual. Build: `npm install`. Start: `npm start`.
+O cliente conecta sozinho no mesmo endereço. Se hospedar o `public/` em outro lugar, edite `SERVER_URL` no topo de `public/game.js`.
 
 ## Controles
-- WASD: andar
-- Mouse: mirar
-- Clique esquerdo: atirar
-- E: pegar arma
-- Q: abrir/fechar mapa
-- Esc: pausa
+| Tecla | Ação |
+|---|---|
+| WASD / setas | Mover |
+| Mouse | Mirar (clique esquerdo ataca) |
+| E | Pegar arma do chão (troca a atual) |
+| Botão direito / F | Arremessar a arma (derruba o inimigo) |
+| Espaço (segurar) | Olhar mais longe |
+| Esc | Pausar |
+| M | Música liga/desliga |
 
-## Multiplayer
-Dois jogadores entram pelo mesmo endereço do GitHub Pages. O servidor cria uma sala de até 2 jogadores, gera um mapa procedural com seed e distribui armas aleatoriamente.
+## Mecânicas
+- **Um golpe mata**: tiro, faca, taco e katana matam na hora.
+- **Soco derruba**: o inimigo cai por 1,7 s e solta a arma. Qualquer ataque em quem está no chão é uma execução.
+- **Arremesso**: arma arremessada derruba quem ela acertar. Arma vazia serve para isso.
+- **Portas**: empurre para abrir. Quem estiver do outro lado leva a porta na cara e cai.
+- **Visão**: você só vê o inimigo com linha de visão livre. Paredes e portas fechadas bloqueiam.
+- **Armas**: faca, taco, katana, pistola, SMG, fuzil e shotgun. Sem recarga: acabou a munição, arremesse.
+- **Rodadas**: todos começam desarmados e os mapas são simétricos (rotação de 180°), então ninguém leva vantagem.
+- **Mapas**: Escritório e Casa Noturna, alternando a cada rodada.
+- Sangue permanente, cadáveres que deslizam, cápsulas, tremor de tela, hit-stop e trilha synthwave gerada no navegador.
 
-A movimentação tem previsão local no navegador para reduzir a sensação de atraso, enquanto o servidor continua validando colisões, tiros, dano e pickups.
+## Arquitetura
+- `public/shared.js`: simulação completa (mapas, física, armas, rodadas, bot). Roda no servidor e no navegador.
+- `server.js`: servidor autoritativo a 60 Hz, snapshots a 30 Hz.
+- `public/game.js`: cliente com predição e reconciliação do seu movimento, interpolação do inimigo, visão e efeitos.

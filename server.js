@@ -1,184 +1,92 @@
-const http = require("http");
-const WebSocket = require("ws");
-const crypto = require("crypto");
+/* NEON DUEL — servidor autoritativo (HTTP estático + WebSocket)
+   Uso: npm install && npm start   (porta via process.env.PORT, padrão 3000) */
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const WebSocket = require('ws');
+const S = require('./public/shared.js');
 
-const PORT = process.env.PORT || 10000;
-const W = 1800, H = 1000, MAX_PLAYERS = 2;
-const clients = new Map();
-let game;
-const weaponTypes = {
-  PISTOLA: { name:"PISTOLA", damage:34, fireDelay:220, maxAmmo:12, spread:0.035, pellets:1, color:"#65f5ff" },
-  SHOTGUN: { name:"SHOTGUN", damage:16, fireDelay:620, maxAmmo:5, spread:0.24, pellets:7, color:"#ffcc66" },
-  RIFLE: { name:"RIFLE", damage:20, fireDelay:105, maxAmmo:28, spread:0.075, pellets:1, color:"#b6ff79" }
-};
-const rnd = (a,b) => Math.random()*(b-a)+a;
-const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
-const dist = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
-function rectHitCircle(r,x,y,rad) {
-  const cx=clamp(x,r.x,r.x+r.w), cy=clamp(y,r.y,r.y+r.h);
-  return Math.hypot(x-cx,y-cy)<rad;
-}
-function freePoint(walls,rad=25) {
-  for(let i=0;i<1200;i++) {
-    const p={x:rnd(65,W-65),y:rnd(65,H-65)};
-    if(walls.every(r=>!rectHitCircle(r,p.x,p.y,rad))) return p;
-  }
-  return {x:100,y:100};
-}
-function makeMap() {
-  const walls=[
-    {x:0,y:0,w:W,h:30},{x:0,y:H-30,w:W,h:30},
-    {x:0,y:0,w:30,h:H},{x:W-30,y:0,w:30,h:H}
-  ];
-  for(let i=0;i<22;i++) {
-    const w=rnd(100,260),h=rnd(55,135),x=rnd(70,W-w-70),y=rnd(70,H-h-70);
-    const r={x,y,w,h};
-    if(walls.slice(4).every(o=>Math.abs((o.x+o.w/2)-(x+w/2))>80 || Math.abs((o.y+o.h/2)-(y+h/2))>80)) walls.push(r);
-  }
-  return {width:W,height:H,walls};
-}
-function makeWeapon(type,x,y,ammo) {
-  const t=weaponTypes[type] || weaponTypes.PISTOLA;
-  return {id:crypto.randomUUID(),x,y,rot:rnd(0,Math.PI*2),type:t.name,stats:{...t},ammo:ammo ?? t.maxAmmo,taken:false};
-}
-function makeGame() {
-  const map=makeMap(), weapons=[];
-  for(let i=0;i<14;i++) {
-    const p=freePoint(map.walls,26), type=["PISTOLA","PISTOLA","SHOTGUN","RIFLE"][Math.floor(Math.random()*4)];
-    weapons.push(makeWeapon(type,p.x,p.y));
-  }
-  return {map,weapons,players:{}};
-}
-function spawn(p) {
-  const q=freePoint(game.map.walls,25);
-  Object.assign(p,{x:q.x,y:q.y,angle:0,hp:100,alive:true,weapon:null,cool:0});
-}
-function makePlayer(id) { const p={id,x:0,y:0,angle:0,hp:100,alive:true,weapon:null,cool:0};spawn(p);return p; }
-function collision(p,nx,ny) {
-  const r=20;
-  if(nx<30+r||ny<30+r||nx>W-30-r||ny>H-30-r)return true;
-  return game.map.walls.some(w=>rectHitCircle(w,nx,ny,r));
-}
-function broadcast(o) {
-  const s=JSON.stringify(o);
-  for(const c of clients.values()) if(c.ws.readyState===WebSocket.OPEN)c.ws.send(s);
-}
-function publicWeapons() { return game.weapons.map(({stats,...w})=>({...w,stats:undefined})); }
-function publicState() {
-  const out={};
-  for(const [id,p] of Object.entries(game.players)) out[id]={
-    id:p.id,x:p.x,y:p.y,angle:p.angle,hp:p.hp,alive:p.alive,
-    weapon:p.weapon?{name:p.weapon.name,ammo:p.weapon.ammo,maxAmmo:p.weapon.maxAmmo}:null
-  };
-  return out;
-}
-function sendState() { broadcast({type:"state",players:publicState(),weapons:publicWeapons()}); }
-function dropWeapon(p) {
-  if(!p.weapon)return;
-  const w=makeWeapon(p.weapon.name,p.x+Math.cos(p.angle)*30,p.y+Math.sin(p.angle)*30,p.weapon.ammo);
-  w.rot=p.angle;
-  game.weapons.push(w);
-  p.weapon=null;
-}
-function resetRound(winner) {
-  if(game.resetting)return;
-  game.resetting=true;
-  broadcast({type:"round",winner});
-  setTimeout(()=>{
-    if(Object.keys(game.players).length<2){game.resetting=false;return;}
-    game=makeGame();
-    for(const id of Object.keys(game.players))game.players[id]=makePlayer(id);
-    broadcast({type:"map",map:game.map,weapons:publicWeapons()});
-    broadcast({type:"start"});
-  },1800);
-}
-function shoot(p) {
-  const now=Date.now();
-  if(!p.alive||!p.weapon||now<p.cool||p.weapon.ammo<=0)return;
-  p.cool=now+p.weapon.fireDelay;p.weapon.ammo--;
-  const count=p.weapon.pellets||1;
-  for(let k=0;k<count;k++) {
-    const a=p.angle+rnd(-p.weapon.spread,p.weapon.spread);
-    let hit=false;
-    for(let s=0;s<100;s++) {
-      const x=p.x+Math.cos(a)*s*5, y=p.y+Math.sin(a)*s*5;
-      if(collision(p,x,y))break;
-      for(const q of Object.values(game.players)) {
-        if(q.id===p.id||!q.alive)continue;
-        if(Math.hypot(q.x-x,q.y-y)<21) {
-          q.hp=Math.max(0,q.hp-p.weapon.damage);
-          broadcast({type:"hit",shooter:p.id,target:q.id,damage:p.weapon.damage,hp:q.hp});
-          if(q.hp<=0){q.alive=false;resetRound(p.id);}
-          hit=true;break;
-        }
-      }
-      if(hit)break;
-    }
-  }
-}
-function pickup(p) {
-  let best=-1, bestD=58;
-  for(let i=0;i<game.weapons.length;i++) {
-    const w=game.weapons[i], d=Math.hypot(w.x-p.x,w.y-p.y);
-    if(!w.taken&&d<bestD){best=i;bestD=d;}
-  }
-  if(best<0)return;
-  const w=game.weapons[best];
-  if(p.weapon)dropWeapon(p);
-  p.weapon={...weaponTypes[w.type],name:w.type,ammo:w.ammo,maxAmmo:weaponTypes[w.type].maxAmmo};
-  game.weapons.splice(best,1);
-  broadcast({type:"message",text:`${p.weapon.name} equipada`});
-}
-function handle(ws,m) {
-  if(!m||typeof m.type!=="string")return;
-  if(m.type==="join") {
-    const existing=clients.get(ws);
-    if(existing){ws.send(JSON.stringify({type:"welcome",id:existing.id}));return;}
-    if(clients.size>=MAX_PLAYERS){ws.send(JSON.stringify({type:"full"}));return;}
-    const id=crypto.randomUUID();
-    clients.set(ws,{id,ws,lastInput:0});
-    game.players[id]=makePlayer(id);
-    ws.send(JSON.stringify({type:"welcome",id}));
-    ws.send(JSON.stringify({type:"map",map:game.map,weapons:publicWeapons()}));
-    sendState();
-    if(clients.size===2){broadcast({type:"start"});broadcast({type:"message",text:"2 jogadores conectados — FIGHT!"});}
-    return;
-  }
-  const c=clients.get(ws); if(!c)return;
-  const p=game.players[c.id]; if(!p)return;
-  if(m.type==="input") {
-    if(!p.alive||game.resetting)return;
-    const now=Date.now();
-    if(now-c.lastInput<20)return;
-    const dt=Math.min(40,now-c.lastInput||33);c.lastInput=now;
-    const k=m.keys||{}, speed=0.19*dt;
-    let dx=(k.d?1:0)-(k.a?1:0),dy=(k.s?1:0)-(k.w?1:0);
-    if(dx||dy){const l=Math.hypot(dx,dy);dx/=l;dy/=l;
-      const nx=p.x+dx*speed,ny=p.y+dy*speed;
-      if(!collision(p,nx,p.y))p.x=nx;
-      if(!collision(p,p.x,ny))p.y=ny;
-    }
-    if(Number.isFinite(m.angle))p.angle=m.angle;
-    if(m.pickup&&!c.pickupDown)pickup(p);
-    if(m.drop&&!c.dropDown)dropWeapon(p);
-    if(m.shoot)shoot(p);
-    c.pickupDown=!!m.pickup;c.dropDown=!!m.drop;
-  }
-  if(m.type==="reload"&&p.weapon&&p.alive) p.weapon.ammo=p.weapon.maxAmmo;
-}
-const server=http.createServer((req,res)=>{
-  res.writeHead(200,{"Content-Type":"text/plain; charset=utf-8","Cache-Control":"no-store"});
-  res.end("NEON DUEL — servidor online");
-});
-const wss=new WebSocket.Server({server});
-wss.on("connection",ws=>{
-  if(clients.size>=MAX_PLAYERS){ws.send(JSON.stringify({type:"full"}));ws.close();return;}
-  ws.on("message",d=>{try{handle(ws,JSON.parse(d.toString()));}catch(e){console.error("Mensagem inválida:",e.message);}});
-  ws.on("close",()=>{
-    const c=clients.get(ws);
-    if(c){delete game.players[c.id];clients.delete(ws);broadcast({type:"message",text:"Jogador saiu."});sendState();}
+const PORT = process.env.PORT || 3000;
+const PUB = path.join(__dirname, 'public');
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon', '.svg': 'image/svg+xml' };
+const SKINS = ['ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF'];
+
+const server = http.createServer((req, res) => {
+  let u = '/';
+  try { u = decodeURIComponent((req.url || '/').split('?')[0]); } catch { }
+  if (u === '/health') { res.writeHead(200); return res.end('ok'); }
+  if (u === '/') u = '/index.html';
+  const file = path.join(PUB, path.normalize(u));
+  if (!file.startsWith(PUB)) { res.writeHead(403); return res.end(); }
+  fs.readFile(file, (err, data) => {
+    if (err) { res.writeHead(404); return res.end('404'); }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.end(data);
   });
 });
-game=makeGame();
-setInterval(()=>{if(game&&!game.resetting)sendState();},50);
-server.listen(PORT,"0.0.0.0",()=>console.log("NEON DUEL server on "+PORT));
+
+const wss = new WebSocket.Server({ server, maxPayload: 2048 });
+const game = new S.Game();
+const clients = new Map();
+let nextId = 1;
+const send = (ws, o) => { if (ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+wss.on('connection', ws => {
+  const c = { ws, id: 'p' + (nextId++), p: null, msgs: 0 };
+  clients.set(ws, c);
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  send(ws, { type: 'welcome', id: c.id });
+
+  ws.on('message', raw => {
+    if (++c.msgs > 400) return;               // limite de mensagens por segundo
+    let m; try { m = JSON.parse(raw); } catch { return; }
+    if (!m || typeof m !== 'object') return;
+
+    if (m.type === 'join') {
+      if (c.p) return;
+      if (game.count >= 2) return send(ws, { type: 'full' });
+      const skin = SKINS.includes(m.skin) ? m.skin : 'ROOSTER';
+      c.p = game.addPlayer(c.id, String(m.name || '').replace(/[<>]/g, ''), skin);
+      send(ws, { type: 'joined', id: c.id });
+    } else if (m.type === 'input' && c.p) {
+      const seq = Number(m.seq), dt = Number(m.dt), a = Number(m.a);
+      if (!Number.isFinite(seq) || !Number.isFinite(dt) || !Number.isFinite(a)) return;
+      if (seq > c.p.ack) c.p.ack = seq;
+      game.applyInput(c.p, { k: m.k | 0, a, f: m.f ? 1 : 0, fp: m.fp ? 1 : 0, pk: m.pk ? 1 : 0, th: m.th ? 1 : 0 }, Math.max(0, Math.min(0.05, dt)));
+    } else if (m.type === 'ping') {
+      send(ws, { type: 'pong', t: m.t });
+    }
+  });
+
+  ws.on('close', () => {
+    if (c.p) game.removePlayer(c.id);
+    clients.delete(ws);
+  });
+});
+
+function broadcast() {
+  const snap = game.snapshot();
+  game.events = [];
+  for (const [ws, c] of clients) {
+    if (!c.p || ws.readyState !== 1) continue;
+    snap.ack = c.p.ack;
+    ws.send(JSON.stringify(snap));
+  }
+}
+
+// loop fixo de 60 Hz, snapshots a 30 Hz
+let last = Date.now(), acc = 0, tickN = 0;
+const DT = 1 / 60;
+setInterval(() => {
+  const now = Date.now();
+  acc += Math.min(0.25, (now - last) / 1000); last = now;
+  while (acc >= DT) { game.tick(DT); acc -= DT; if (++tickN % 2 === 0) broadcast(); }
+}, 8);
+
+setInterval(() => { for (const c of clients.values()) c.msgs = 0; }, 1000);
+setInterval(() => {
+  for (const ws of wss.clients) { if (!ws.isAlive) { ws.terminate(); continue; } ws.isAlive = false; ws.ping(); }
+}, 15000);
+
+server.listen(PORT, () => console.log(`NEON DUEL rodando em http://localhost:${PORT}`));
