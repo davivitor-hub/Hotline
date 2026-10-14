@@ -7,9 +7,8 @@
 const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME } = Shared;
 const $ = id => document.getElementById(id);
 
-// Se hospedar o cliente separado do servidor, troque por 'wss://SEU-SERVIDOR.onrender.com'
-const SERVER_URL = (location.protocol === 'http:' || location.protocol === 'https:')
-  ? ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host) : 'ws://localhost:3000';
+// O cliente pode estar no GitHub Pages; o WebSocket deve apontar para o servidor Render.
+const SERVER_URL = 'wss://hotline-m6gx.onrender.com';
 
 const STEP = 1 / 60, TAU = Math.PI * 2;
 const SKINS = {
