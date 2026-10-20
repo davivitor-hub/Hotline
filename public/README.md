@@ -22,14 +22,14 @@ O cliente conecta sozinho no mesmo endereço. Se hospedar o `public/` em outro l
 | Mouse | Mirar (clique esquerdo ataca) |
 | E | Pegar arma do chão (troca a atual) |
 | Botão direito / F | Arremessar a arma (derruba o inimigo) |
-| Q | Curar 30% da vida (1 vez por rodada) |
+| Q | Curar 20% da vida (2 s parado e invulnerável, sem limite de usos) |
 | Espaço (segurar) | Olhar mais longe |
 | Esc | Pausar |
 | M | Música liga/desliga |
 
 ## Mecânicas
 - **Vida**: 5000 pontos = 100%. Cada arma tira uma % (faca 40, taco 50, katana 70, pistola 35, SMG 12, fuzil 25, shotgun 15 por chumbinho x7, soco 5). Arremesso e porta tiram 10%. Ataque corpo a corpo em quem está caído causa o triplo. Tudo se ajusta no bloco `VIDA E DANO` do `shared.js`.
-- **Cura**: a tecla Q devolve 30% da vida máxima (`HEAL_PCT`), 1 vez por rodada (`HEAL_USES`), e não funciona caído, morto ou com vida cheia. Ajuste no bloco `VIDA E DANO` do `shared.js`.
+- **Cura**: a tecla Q inicia uma cura ilimitada. O jogador fica parado e **invulnerável** por 2 s (`HEAL_TIME`) com uma barra verde carregando sobre a cabeça; ao completar, recebe 20% da vida máxima (`HEAL_PCT`). Não funciona caído, morto ou com vida cheia, e não dá para atacar, pegar ou arremessar armas durante a cura. Ajuste no bloco `VIDA E DANO` do `shared.js`.
 - **Soco derruba**: o inimigo cai por 1,7 s e solta a arma. Golpe corpo a corpo em quem está no chão causa dano triplo.
 - **Arremesso**: arma arremessada derruba quem ela acertar. Arma vazia serve para isso.
 - **Portas**: empurre para abrir. Quem estiver do outro lado leva a porta na cara e cai.

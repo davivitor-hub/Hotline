@@ -46,7 +46,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return res.end('ok');
+    return res.end(`ok · sala de ${S.MIN_PLAYERS} a ${S.MAX_PLAYERS} jogadores · ${game.count} conectado(s)`);
   }
 
   if (pathname === '/') pathname = '/index.html';

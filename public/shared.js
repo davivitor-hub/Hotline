@@ -17,8 +17,8 @@
   const EXEC_MULT = 3;     // multiplicador do golpe corpo a corpo em quem está caído no chão
   const THROW_DMG = 10;    // % tirado por arma arremessada que acerta
   const DOOR_DMG = 10;     // % tirado por porta na cara
-  const HEAL_PCT = 30;     // % da vida máxima que a cura devolve
-  const HEAL_USES = 1;     // curas disponíveis por rodada
+  const HEAL_PCT = 20;     // % da vida máxima que a cura devolve
+  const HEAL_TIME = 2;     // segundos parado (e invulnerável) enquanto cura; a cura é ilimitada
 
   /* ---------------------------------------------------------------- ARMAS */
   const WEAPONS = {
@@ -181,7 +181,7 @@
     }
   }
 
-  function canMove(phase, alive, down) { return !!alive && !down && (phase === 'live' || phase === 'over' || phase === 'matchover'); }
+  function canMove(phase, alive, down, healing) { return !!alive && !down && !healing && (phase === 'live' || phase === 'over' || phase === 'matchover'); }
 
   // k = bitmask: W=1 A=2 S=4 D=8
   function stepMove(level, p, k, dt) {
@@ -209,7 +209,7 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0) return null;
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
-        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, heals: HEAL_USES };
+        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, healT: 0 };
       this.players[slot] = p;
       if (this.phase === 'waiting' || this.phase === 'lobby' || !this.level) {
         if (!this.autoStart) this.phase = 'lobby';                       // espera o anfitrião apertar Iniciar
@@ -229,7 +229,7 @@
       this.players[p.slot] = null;
       if (this.count < MIN_PLAYERS) {
         // sem adversários: volta para a sala de espera
-        for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.weapon = null; }
+        for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.healT = 0; q.weapon = null; }
         this.phase = this.autoStart ? 'waiting' : 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
       }
     }
@@ -241,7 +241,7 @@
       this.startMatch(); return true;
     }
     toLobby() {
-      for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.weapon = null; q.fire = false; }
+      for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.healT = 0; q.weapon = null; q.fire = false; }
       this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
@@ -250,7 +250,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.heals = HEAL_USES;
+      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0;
     }
     startMatch() { for (const p of this.players) if (p) p.score = 0; this.round = 0; this.startRound(); }
     startRound() {
@@ -279,12 +279,12 @@
       if (Number.isFinite(inp.a)) p.angle = inp.a;
       p.fire = !!inp.f;
       if (inp.fp) p.buf = 0.16;
-      if (this.phase === 'live' && p.alive && !p.down) {
+      if (this.phase === 'live' && p.alive && !p.down && !(p.healT > 0)) {
         if (inp.pk) this.pickup(p);
         if (inp.th) this.throwWeapon(p);
         if (inp.hl) this.heal(p);
       }
-      if (canMove(this.phase, p.alive, p.down)) {
+      if (canMove(this.phase, p.alive, p.down, p.healT > 0)) {
         const dd = Math.min(dt, 0.05, p.budget);
         if (dd > 0) {
           p.budget -= dd;
@@ -299,6 +299,17 @@
         if (!p) continue;
         p.cd -= dt; p.swing -= dt; p.buf -= dt; p.budget = Math.min(0.3, p.budget + dt);
         if (p.down) { p.downT -= dt; if (p.downT <= 0) p.down = false; }
+        if (p.healT > 0) {
+          if (!p.alive || p.down || this.phase !== 'live') p.healT = 0;
+          else {
+            p.healT -= dt;
+            if (p.healT <= 0) {
+              p.healT = 0;
+              p.hp = Math.min(MAX_HP, p.hp + MAX_HP * HEAL_PCT / 100);
+              this.events.push({ t: 'heal', id: p.id, x: p.x, y: p.y, hp: Math.round(p.hp) });
+            }
+          }
+        }
       }
       if (this.phase === 'waiting' || !this.level) return;
       if (this.phase === 'countdown') {
@@ -306,7 +317,7 @@
         if (this.timer <= 0) { this.phase = 'live'; this.events.push({ t: 'go' }); }
       } else if (this.phase === 'live') {
         for (const p of this.players) {
-          if (!p || !p.alive || p.down) continue;
+          if (!p || !p.alive || p.down || p.healT > 0) continue;
           const w = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
           if (p.cd <= 0 && (p.buf > 0 || (p.fire && w.auto))) { p.buf = 0; this.attack(p); }
         }
@@ -359,7 +370,7 @@
 
     // Tira `pct`% da vida máxima. Se zerar, mata.
     hurt(v, by, pct, how, a) {
-      if (!v.alive || this.phase !== 'live') return false;
+      if (!v.alive || this.phase !== 'live' || v.healT > 0) return false;   // curando = invulnerável
       v.hp = Math.max(0, v.hp - MAX_HP * pct / 100);
       this.events.push({ t: 'hurt', id: v.id, x: v.x, y: v.y, a, hp: Math.round(v.hp), by: by ? by.id : null });
       if (v.hp <= 0) this.kill(v, by, how, a);
@@ -372,7 +383,7 @@
       this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin });
     }
     knockdown(p, dur, a) {
-      if (!p.alive || p.down) return;
+      if (!p.alive || p.down || p.healT > 0) return;
       p.down = true; p.downT = dur; p.fire = false;
       this.dropWeapon(p, Math.cos(a) * 220, Math.sin(a) * 220);
       this.events.push({ t: 'down', id: p.id, x: p.x, y: p.y, a });
@@ -382,12 +393,11 @@
       this.addItem(p.weapon.type, p.x, p.y, vx * 0.5 + (Math.random() - 0.5) * 60, vy * 0.5 + (Math.random() - 0.5) * 60, p.weapon.ammo);
       p.weapon = null;
     }
-    // Cura: devolve HEAL_PCT% da vida máxima (limitado ao máximo). Usos limitados por rodada.
+    // Cura ilimitada: o jogador fica parado e invulnerável por HEAL_TIME s; ao fim recebe HEAL_PCT% da vida máxima.
     heal(p) {
-      if (!p.alive || p.down || p.heals <= 0 || p.hp >= MAX_HP) return false;
-      p.heals--;
-      p.hp = Math.min(MAX_HP, p.hp + MAX_HP * HEAL_PCT / 100);
-      this.events.push({ t: 'heal', id: p.id, x: p.x, y: p.y, hp: Math.round(p.hp) });
+      if (!p.alive || p.down || p.healT > 0 || p.hp >= MAX_HP) return false;
+      p.healT = HEAL_TIME; p.fire = false; p.buf = 0;
+      this.events.push({ t: 'hstart', id: p.id, x: p.x, y: p.y });
       return true;
     }
     pickup(p) {
@@ -498,7 +508,7 @@
         map: this.level ? this.level.id : null, win: this.winner, host: this.hostId(),
         pl: this.players.filter(Boolean).map(p => ({
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
-          hp: Math.round(p.hp), hs: p.heals, al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
+          hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, bot: p.bot ? 1 : 0
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy)]),
@@ -537,7 +547,7 @@
       const D = { EASY: { turn: 3.2, react: 0.55, acc: 0.14 }, NORMAL: { turn: 5.5, react: 0.32, acc: 0.07 }, HARD: { turn: 9, react: 0.16, acc: 0.03 } };
       this.d = D[diff] || D.NORMAL;
       this.ang = slot ? Math.PI : 0; this.path = []; this.pathT = 0; this.seen = 0; this.noise = 0; this.noiseT = 0;
-      this.st = 1; this.stT = 0; this.pkCd = 0; this.thCd = 0;
+      this.st = 1; this.stT = 0; this.pkCd = 0; this.thCd = 0; this.hlCd = 0;
     }
     think(dt) {
       const g = this.g, me = g.players[this.slot];
@@ -558,7 +568,7 @@
       this.seen = los ? this.seen + dt : 0;
       this.noiseT -= dt; if (this.noiseT <= 0) { this.noiseT = 0.4; this.noise = (Math.random() - 0.5) * D.acc * 2; }
       this.stT -= dt; if (this.stT <= 0) { this.stT = 0.5 + Math.random() * 1.2; this.st = Math.random() < 0.5 ? -1 : 1; }
-      this.pkCd -= dt; this.thCd -= dt;
+      this.pkCd -= dt; this.thCd -= dt; this.hlCd -= dt;
 
       const wd = me.weapon ? WEAPONS[me.weapon.type] : WEAPONS.FISTS;
       const hasGun = !!me.weapon && !wd.melee && me.weapon.ammo > 0;
@@ -625,10 +635,12 @@
       this.ang += Math.max(-m, Math.min(m, angDiff(wantAng, this.ang)));
       let k = 0;
       if (mx > 0.3) k |= 8; if (mx < -0.3) k |= 2; if (my > 0.3) k |= 4; if (my < -0.3) k |= 1;
-      const hl = me.heals > 0 && me.hp <= MAX_HP * 0.4 ? 1 : 0;   // bot se cura quando a vida baixa de 40%
+      // bot se cura quando a vida baixa de 40%, sem inimigo à vista e com intervalo entre curas
+      const hl = me.hp <= MAX_HP * 0.4 && !los && this.hlCd <= 0 ? 1 : 0;
+      if (hl) this.hlCd = 6;
       g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th, hl }, dt);
     }
   }
 
-  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_USES, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });

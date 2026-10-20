@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, MAX_PLAYERS, MIN_PLAYERS } = Shared;
+const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -434,7 +434,7 @@ function onSnapshot(s) {
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
     const t = { x: me.x, y: me.y };
-    if (canMove(s.ph, me.al, me.dn)) for (const p of pending) stepMove(level, t, p.k, p.dt);
+    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt);
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
     if (first || err > 40) { pred.x = t.x; pred.y = t.y; first = false; }
     else { pred.x += (t.x - pred.x) * 0.35; pred.y += (t.y - pred.y) * 0.35; }
@@ -508,6 +508,7 @@ function handleEvent(e, now) {
       for (let i = 0; i < 14; i++) { const a = Math.random() * TAU; fx.parts.push({ k: 's', x: e.x + Math.cos(a) * 10, y: e.y + Math.sin(a) * 10, vx: Math.cos(a) * 90, vy: Math.sin(a) * 90 - 120, life: 0.5, sz: 4, col: '#7dff8a' }); }
       fx.lights.push({ x: e.x, y: e.y, t: 0.3, r: 120, c: '90,255,140' });
       break;
+    case 'hstart': sfx('click', e.x, e.y); fx.lights.push({ x: e.x, y: e.y, t: 0.25, r: 90, c: '90,255,140' }); break;
     case 'pick': sfx('pick', e.x, e.y); break;
     case 'click': sfx('click', e.x, e.y); break;
     case 'throw': sfx('throw', e.x, e.y); break;
@@ -576,7 +577,7 @@ function stepInput() {
   const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0 };
   edge.fp = edge.pk = edge.th = edge.hl = false;
   const me = myState();
-  if (me && canMove(snap.ph, me.al, me.dn)) stepMove(level, pred, k, STEP);
+  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP);
   pending.push({ seq: inp.seq, dt: STEP, k }); if (pending.length > 120) pending.shift();
   sendInput(inp);
 }
@@ -787,9 +788,9 @@ function render(now, dt) {
   for (const f of foesOf()) {
     if (!f.al) continue;
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
-    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false);
+    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawHealBar(ie.x, ie.y, f.hz, now);
   }
-  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); }
+  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawHealBar(pred.x, pred.y, me.hz, now); }
 
   // efeitos
   for (const p of fx.parts) {
@@ -821,6 +822,19 @@ function drawHpBar(x, y, hp, mine) {
   const k = Math.max(0, Math.min(1, hp / MAX_HP)), w = 44;
   ctx.fillStyle = 'rgba(10,0,20,.85)'; ctx.fillRect(x - w / 2 - 1.5, y - 37, w + 3, 8);
   ctx.fillStyle = k > 0.3 ? (mine ? '#00e5ff' : '#ff2e97') : '#ffe600'; ctx.fillRect(x - w / 2, y - 35.5, w * k, 5);
+}
+// barra de cura: escudo ciano (invulnerável) + barra verde carregando acima da cabeça
+function drawHealBar(x, y, hz, now) {
+  if (!(hz > 0)) return;
+  const k = Math.max(0, Math.min(1, 1 - hz / HEAL_TIME)), w = 56;
+  ctx.save();
+  ctx.strokeStyle = `rgba(125,255,138,${0.55 + 0.3 * Math.sin(now / 90)})`; ctx.lineWidth = 3; ctx.shadowColor = '#7dff8a'; ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.arc(x, y, 24, 0, TAU); ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 56, w + 4, 11);
+  ctx.fillStyle = '#7dff8a'; ctx.fillRect(x - w / 2, y - 54, w * k, 7);
+  ctx.font = '700 12px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#7dff8a';
+  ctx.strokeText('CURANDO', x, y - 61); ctx.fillText('CURANDO', x, y - 61);
+  ctx.restore();
 }
 function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
@@ -882,17 +896,7 @@ function updateHud(now) {
   setText('pingTxt', mode === 'online' ? `${pingMs} ms · ${snap.pl.length}/${MAX_PLAYERS} jogadores` : 'treino · offline');
   updateRoster();
   if (me) {
-    const wd = me.w ? WEAPONS[me.w] : null;
-    setText('wName', (wd ? wd.name : 'Mãos') + ' · ' + (wd ? wd.dmg : WEAPONS.FISTS.dmg) + '%' + (wd && wd.pellets > 1 ? ' x' + wd.pellets : ''));
-    setText('wAmmo', wd && !wd.melee ? String(me.am) : '');
-    $('wAmmo').classList.toggle('low', !!wd && !wd.melee && me.am <= 2);
-    let hint = '';
-    if (!me.al) hint = '';
-    else if (wd && !wd.melee && me.am <= 0) hint = 'Vazia: arremesse com o botão direito';
-    else if (wd) hint = 'Botão direito arremessa';
-    else hint = 'Soco derruba; golpe no chão dá dano extra';
-    if (me.al) hint += (hint ? ' · ' : '') + `Q cura ${HEAL_PCT}% (${me.hs ?? 0})`;
-    setText('wHint', hint);
+    setText('wName', me.w ? WEAPONS[me.w].name : WEAPONS.FISTS.name);
   }
   // banner
   let t = '', s = '', cls = '';
