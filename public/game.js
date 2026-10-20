@@ -196,7 +196,8 @@ const PAL = {
   wood: ['#b57e48', '#ab7440'], carpet: ['#8b6a8c', '#836284'], tile: ['#d6e8ea', '#c4dadd'],
   ktile: ['#efe8d6', '#ddd4bb'], grass: ['#54964a', '#4e8d44'], deck: ['#c9a06a', '#bd945d'], path: ['#bdb7aa', '#b2ac9e']
 };
-const OUT = 'rgba(40,24,10,.7)';
+// Contornos leves: evita o efeito de sombra preta grossa em móveis e objetos.
+const OUT = 'rgba(40,24,10,.28)';
 function hash(x, y) { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 function rrect(c, x, y, w, h, r, fill, stroke, lw) {
   r = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -368,7 +369,7 @@ function drawRug(c, r, T) {
   const x = r.x * T + 4, y = r.y * T + 4, w = r.w * T - 8, h = r.h * T - 8;
   rrect(c, x, y, w, h, 8, r.col, OUT, 1.5);
   rrect(c, x + 6, y + 6, w - 12, h - 12, 5, null, 'rgba(255,255,255,.6)', 2.5);
-  rrect(c, x + 13, y + 13, w - 26, h - 26, 3, null, 'rgba(0,0,0,.18)', 2);
+  rrect(c, x + 13, y + 13, w - 26, h - 26, 3, null, 'rgba(255,255,255,.24)', 1.5);
   c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5;
   for (let i = 0; i < w; i += 7) { c.beginPath(); c.moveTo(x + i, y - 3); c.lineTo(x + i, y); c.moveTo(x + i, y + h); c.lineTo(x + i, y + h + 3); c.stroke(); }
 }
@@ -400,8 +401,8 @@ function buildStatic() {
     if (!wall(x - 1, y)) ex.push([X + 1.5, Y, X + 1.5, Y + T, 3, 0]);
     if (!wall(x + 1, y)) ex.push([X + T - 1.5, Y, X + T - 1.5, Y + T, -3, 0]);
     for (const [x1, y1, x2, y2, ox, oy] of ex) {
-      wc.strokeStyle = hedge ? '#1d4d1c' : th.edge; wc.lineWidth = 3; wc.beginPath(); wc.moveTo(x1, y1); wc.lineTo(x2, y2); wc.stroke();
-      if (!hedge) { wc.strokeStyle = th.wallTop; wc.lineWidth = 2; wc.beginPath(); wc.moveTo(x1 + ox * 1.6, y1 + oy * 1.6); wc.lineTo(x2 + ox * 1.6, y2 + oy * 1.6); wc.stroke(); }
+      wc.strokeStyle = hedge ? '#397336' : '#c8b79d'; wc.lineWidth = 1.5; wc.beginPath(); wc.moveTo(x1, y1); wc.lineTo(x2, y2); wc.stroke();
+      if (!hedge) { wc.strokeStyle = 'rgba(255,255,255,.42)'; wc.lineWidth = 1.5; wc.beginPath(); wc.moveTo(x1 + ox * 1.6, y1 + oy * 1.6); wc.lineTo(x2 + ox * 1.6, y2 + oy * 1.6); wc.stroke(); }
     }
   }
   wc.lineCap = 'butt';
@@ -613,7 +614,8 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   const jacket = isMe ? '#10c6e8' : '#ff2e97';
   ctx.save(); ctx.translate(x, y);
   if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); }
-  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill();
+  // Sombra de contato suave: evita o contorno preto pesado ao redor do personagem.
+  ctx.fillStyle = 'rgba(25,18,30,.18)'; ctx.beginPath(); ctx.ellipse(2, 5, 13, 9, 0, 0, TAU); ctx.fill();
   ctx.rotate(ang);
   if (p.dn) {
     ctx.globalAlpha = 0.92; drawBody(p.sk, jacket, true); ctx.translate(-3, 0); drawHead(p.sk); ctx.globalAlpha = 1;
@@ -653,7 +655,8 @@ function drawPlayer(p, x, y, ang, isMe, now) {
 }
 function drawCorpse(c) {
   ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a);
-  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(2, 4, 18, 14, 0, 0, TAU); ctx.fill();
+  // Sombra discreta no cadáver, sem halo preto forte.
+  ctx.fillStyle = 'rgba(25,18,30,.16)'; ctx.beginPath(); ctx.ellipse(2, 5, 15, 10, 0, 0, TAU); ctx.fill();
   drawBody(c.sk, c.mine ? '#10c6e8' : '#ff2e97', true);
   ctx.fillStyle = 'rgba(160,10,35,.85)'; circle(2, 0, 7); circle(-4, 5, 4);
   ctx.translate(-4, 0); drawHead(c.sk);
@@ -762,7 +765,7 @@ function render(now, dt) {
     ctx.strokeStyle = '#fff3a8'; ctx.lineWidth = 2.4; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
     ctx.beginPath(); ctx.moveTo(x - b[3] / l * tl, y - b[4] / l * tl); ctx.lineTo(x, y); ctx.stroke();
   }
-  ctx.shadowBlur = 0;
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
   // jogadores
   let enemyVisible = false;
   if (en && en.al) {
