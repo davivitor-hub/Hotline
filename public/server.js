@@ -147,6 +147,12 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (m.type === 'start' && c.p) {
+      if (!game.requestStart(c.id)) send(ws, { type: 'error', message: 'Só o anfitrião inicia, com 2 ou mais jogadores.' });
+      else console.log(`${c.id} iniciou a partida com ${game.count} jogadores`);
+      return;
+    }
+
     if (m.type === 'ping') send(ws, { type: 'pong', t: m.t });
   });
 

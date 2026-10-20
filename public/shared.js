@@ -196,8 +196,10 @@
 
   /* ----------------------------------------------------------------- JOGO */
   class Game {
-    constructor() {
-      this.players = new Array(MAX_PLAYERS).fill(null); this.phase = 'waiting'; this.timer = 0; this.round = 0;
+    // autoStart: true => começa sozinho com 2+ jogadores (treino); false => sala com botão Iniciar (online)
+    constructor(opts = {}) {
+      this.autoStart = !!opts.autoStart;
+      this.players = new Array(MAX_PLAYERS).fill(null); this.phase = this.autoStart ? 'waiting' : 'lobby'; this.timer = 0; this.round = 0;
       this.mapIdx = -1; this.level = null; this.bullets = []; this.items = []; this.events = []; this.nid = 1; this.winner = -1;
     }
     get count() { return this.players.filter(Boolean).length; }
@@ -209,9 +211,9 @@
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
         weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, heals: HEAL_USES };
       this.players[slot] = p;
-      if (this.phase === 'waiting' || !this.level) {
-        // sala vazia/aguardando: começa assim que houver o mínimo de jogadores
-        if (this.count >= MIN_PLAYERS) this.startMatch(); else this.phase = 'waiting';
+      if (this.phase === 'waiting' || this.phase === 'lobby' || !this.level) {
+        if (!this.autoStart) this.phase = 'lobby';                       // espera o anfitrião apertar Iniciar
+        else if (this.count >= MIN_PLAYERS) this.startMatch(); else this.phase = 'waiting';
       } else if (this.phase === 'countdown') {
         // ainda na contagem: entra normalmente na rodada
         this.spawnPlayer(p, this.nextSpawn());
@@ -227,9 +229,20 @@
       this.players[p.slot] = null;
       if (this.count < MIN_PLAYERS) {
         // sem adversários: volta para a sala de espera
-        for (const q of this.players) if (q) q.score = 0;
-        this.phase = 'waiting'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
+        for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.weapon = null; }
+        this.phase = this.autoStart ? 'waiting' : 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
       }
+    }
+    // anfitrião = jogador conectado há mais tempo (menor slot); só ele inicia a partida
+    hostId() { const p = this.players.find(Boolean); return p ? p.id : null; }
+    requestStart(id) {
+      if (this.autoStart || this.phase !== 'lobby') return false;
+      if (id !== this.hostId() || this.count < MIN_PLAYERS) return false;
+      this.startMatch(); return true;
+    }
+    toLobby() {
+      for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.weapon = null; q.fire = false; }
+      this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
     spawnPlayer(p, idx) {
@@ -302,7 +315,7 @@
       if (this.phase === 'live') this.evalRound();
       else if (this.phase === 'over' || this.phase === 'matchover') {
         this.timer -= dt;
-        if (this.timer <= 0) { if (this.phase === 'matchover') this.startMatch(); else this.startRound(); }
+        if (this.timer <= 0) { if (this.phase === 'matchover') { if (this.autoStart) this.startMatch(); else this.toLobby(); } else this.startRound(); }
       }
     }
 
@@ -482,7 +495,7 @@
       const r1 = v => Math.round(v * 10) / 10;
       return {
         type: 's', ph: this.phase, tm: Math.max(0, +this.timer.toFixed(2)), rd: this.round,
-        map: this.level ? this.level.id : null, win: this.winner,
+        map: this.level ? this.level.id : null, win: this.winner, host: this.hostId(),
         pl: this.players.filter(Boolean).map(p => ({
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hs: p.heals, al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),

@@ -100,6 +100,21 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #roster .rrow.dead{opacity:.45;text-decoration:line-through}
 @media (max-width:640px){#roster{display:none}}
 
+#hud.inlobby #roster,#hud.inlobby #weaponHud{display:none}
+#roster .rhead{padding:3px 10px;background:var(--ink);border-left:4px solid var(--yellow);color:var(--yellow);font:400 .8rem var(--display)}
+#lobby{position:fixed;inset:0;z-index:24;display:grid;place-items:center;background:rgba(10,0,20,.72)}
+#lobby .box{display:grid;gap:12px;width:min(420px,92vw);padding:26px;background:var(--ink);border:3px solid var(--pink);box-shadow:8px 8px 0 var(--cyan)}
+#lobby h2{margin:0;font:400 2rem var(--display);color:var(--pink);text-align:center}
+.lcount{margin:0;text-align:center;color:var(--cyan);font-weight:700}
+#lobbyList{display:grid;gap:6px;max-height:40vh;overflow:auto}
+.lrow{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0b0214;border-left:4px solid var(--violet);font-weight:700}
+.lrow.me{border-left-color:var(--cyan)}
+.lrow i{width:16px;height:16px;border-radius:50%;border:2px solid #000;flex:none}
+.lrow span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lrow em{font:400 .7rem var(--display);font-style:normal;color:var(--yellow)}
+.lhint{margin:0;text-align:center;color:#ffd1ea;font-weight:600;min-height:22px}
+.btn:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+
 #banner{position:fixed;left:0;right:0;top:30%;z-index:12;text-align:center;pointer-events:none}
 #banner h2{margin:0;font:400 clamp(40px,9vw,96px)/1 var(--display);color:var(--white);text-shadow:5px 5px 0 var(--pink),-3px -3px 0 var(--cyan);transform:rotate(-2deg);animation:pop .25s cubic-bezier(.2,1.6,.4,1)}
 #banner p{margin:12px 0 0;font:700 1.3rem var(--body);color:var(--yellow);text-shadow:2px 2px 0 #000}

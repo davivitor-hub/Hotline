@@ -135,8 +135,10 @@ $('btnOnline').onclick = () => { initAudio(); startOnline(); };
 $('btnBot').onclick = () => { initAudio(); startLocal(cfg.diff); };
 $('btnResume').onclick = () => setPaused(false);
 $('btnLeave').onclick = () => { closeAll(); showMenu(''); };
+$('btnStart').onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start' })); };
+$('btnLobbyLeave').onclick = () => { closeAll(); showMenu(''); };
 const status = t => { $('status').textContent = t; };
-function showMenu(msg) { $('menu').classList.remove('hidden'); $('pause').classList.add('hidden'); $('hud').classList.add('hidden'); $('banner').classList.add('hidden'); status(msg || ''); }
+function showMenu(msg) { $('menu').classList.remove('hidden'); $('pause').classList.add('hidden'); $('lobby').classList.add('hidden'); $('hud').classList.add('hidden'); $('banner').classList.add('hidden'); status(msg || ''); }
 function hideMenu() { $('menu').classList.add('hidden'); $('hud').classList.remove('hidden'); }
 function setPaused(p) {
   if (!mode) return; paused = p; $('pause').classList.toggle('hidden', !p);
@@ -171,7 +173,7 @@ function startOnline() {
 }
 function startLocal(diff) {
   closeAll(); mode = 'local'; myId = 'me';
-  const g = new Game();
+  const g = new Game({ autoStart: true });
   const me = g.addPlayer('me', playerName(), cfg.skin);
   const keysSk = Object.keys(SKINS).filter(k => k !== cfg.skin);
   const bot = g.addPlayer('bot', 'BOT ' + ({ EASY: 'fácil', NORMAL: 'normal', HARD: 'difícil' }[diff] || ''), keysSk[Math.floor(Math.random() * keysSk.length)]);
@@ -834,12 +836,37 @@ function setHp(id, hp) {
   if (hudCache[id + 'w'] !== p) { hudCache[id + 'w'] = p; $(id).style.width = p + '%'; $(id).parentNode.classList.toggle('low', p <= 30); }
 }
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
-let bannerKey = '', rosterKey = '';
+let bannerKey = '', rosterKey = '', lobbyKey = '';
+// sala de espera online: lista de conectados e botão Iniciar (só o anfitrião)
+function updateLobby() {
+  const show = mode === 'online' && snap.ph === 'lobby';
+  $('lobby').classList.toggle('hidden', !show || paused);
+  $('hud').classList.toggle('inlobby', show);
+  if (!show) { lobbyKey = ''; return; }
+  const isHost = snap.host === myId, n = snap.pl.length, can = isHost && n >= MIN_PLAYERS;
+  const key = [snap.host, myId, ...snap.pl.map(p => p.id + ':' + p.nm + ':' + p.sk)].join('|');
+  if (key !== lobbyKey) {
+    lobbyKey = key;
+    $('lobbyCount').textContent = `${n}/${MAX_PLAYERS} conectados`;
+    const el = $('lobbyList'); el.textContent = '';
+    for (const p of [...snap.pl].sort((a, b) => a.sl - b.sl)) {
+      const row = document.createElement('div'); row.className = 'lrow' + (p.id === myId ? ' me' : '');
+      const dot = document.createElement('i'); dot.style.background = (SKINS[p.sk] || SKINS.ROOSTER).c;
+      const nm = document.createElement('span'); nm.textContent = p.nm + (p.id === myId ? ' (você)' : '');
+      row.append(dot, nm);
+      if (p.id === snap.host) { const tag = document.createElement('em'); tag.textContent = 'anfitrião'; row.appendChild(tag); }
+      el.appendChild(row);
+    }
+  }
+  $('btnStart').disabled = !can;
+  setText('lobbyHint', can ? 'Todos prontos? Aperte Iniciar.' : isHost ? `Precisa de pelo menos ${MIN_PLAYERS} jogadores para iniciar.` : 'Aguardando o anfitrião iniciar a partida…');
+}
 // lista de todos os jogadores com pontuação (vivo / caído)
 function updateRoster() {
-  const key = snap.pl.map(p => [p.id, p.nm, p.sc, p.al, p.sl].join(':')).join('|');
+  const key = snap.rd + '#' + snap.pl.map(p => [p.id, p.nm, p.sc, p.al, p.sl].join(':')).join('|');
   if (key === rosterKey) return; rosterKey = key;
   const el = $('roster'); el.textContent = '';
+  const head = document.createElement('div'); head.className = 'rhead'; head.textContent = snap.rd ? `Rodada ${snap.rd} · primeiro a 5` : 'Sala'; el.appendChild(head);
   for (const p of [...snap.pl].sort((a, b) => b.sc - a.sc || a.sl - b.sl)) {
     const row = document.createElement('div'); row.className = 'rrow' + (p.al ? '' : ' dead') + (p.id === myId ? ' me' : '');
     const dot = document.createElement('i'); dot.style.background = jacketOf(p.id, p.id === myId);
@@ -850,11 +877,8 @@ function updateRoster() {
 }
 function updateHud(now) {
   if (!snap) return;
-  const me = myState(), en = enemyState();
-  if (me) { setText('s1n', me.nm); setText('s1v', String(me.sc)); }
-  setText('s2n', en ? en.nm : '—'); setText('s2v', en ? String(en.sc) : '0');
-  setHp('hp1', me ? me.hp : MAX_HP); setHp('hp2', en ? en.hp : MAX_HP);
-  setText('rdTxt', snap.rd ? `Rodada ${snap.rd}` : 'Sala'); 
+  const me = myState();
+  updateLobby();
   setText('pingTxt', mode === 'online' ? `${pingMs} ms · ${snap.pl.length}/${MAX_PLAYERS} jogadores` : 'treino · offline');
   updateRoster();
   if (me) {
@@ -884,7 +908,7 @@ function updateHud(now) {
       break;
     case 'matchover':
       if (snap.win === mySlot) { t = 'Vitória!'; cls = 'win'; } else { t = 'Derrota'; cls = 'lose'; }
-      { const w = snap.pl.find(p => p.sl === snap.win); s = `${w ? w.nm + ' venceu a partida · ' : ''}nova partida em instantes`; } break;
+      { const w = snap.pl.find(p => p.sl === snap.win); s = `${w ? w.nm + ' venceu a partida · ' : ''}${mode === 'online' ? 'voltando para a sala…' : 'nova partida em instantes'}`; } break;
   }
   const key = t + '|' + s + '|' + cls;
   const b = $('banner');

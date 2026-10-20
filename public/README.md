@@ -9,7 +9,7 @@ npm install
 npm start          # abre em http://localhost:3000
 ```
 
-O servidor entrega o jogo **e** o WebSocket na mesma porta. Abra de 2 a 7 abas (ou computadores) e clique em **Online (2 a 7 jogadores)**. A partida começa assim que há 2 ou mais jogadores; quem entra no meio de uma rodada assiste e joga a partir da próxima. Sem servidor, use **Treino contra bot**, que roda tudo no navegador.
+O servidor entrega o jogo **e** o WebSocket na mesma porta. Abra de 2 a 7 abas (ou computadores) e clique em **Online (2 a 7 jogadores)**. Todos caem numa **sala** que lista os conectados; o anfitrião (quem entrou primeiro) aperta **Iniciar partida** quando houver 2 ou mais. Ao fim da partida todos voltam para a sala. Quem entra no meio de uma rodada assiste e joga a partir da próxima. O treino contra bot começa direto, sem sala. Sem servidor, use **Treino contra bot**, que roda tudo no navegador.
 
 ### Deploy no Render
 Suba esta pasta inteira (com `public/`) no repositório do serviço atual. Build: `npm install`. Start: `npm start`.

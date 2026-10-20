@@ -14,21 +14,23 @@
   <canvas id="game"></canvas>
 
   <div id="hud" class="hidden">
-    <div id="scoreboard">
-      <div class="side me"><span id="s1n">VOCÊ</span><b id="s1v">0</b></div>
-      <div class="mid"><span id="rdTxt">Rodada 1</span><small>primeiro a 5</small></div>
-      <div class="side en"><b id="s2v">0</b><span id="s2n">INIMIGO</span></div>
-    </div>
-    <div id="hpBars">
-      <div class="hp me"><i id="hp1"></i><span id="hp1t">100%</span></div>
-      <div class="hp en"><i id="hp2"></i><span id="hp2t">100%</span></div>
-    </div>
     <div id="weaponHud"><span id="wName">Mãos</span><b id="wAmmo"></b><small id="wHint"></small></div>
     <div id="netHud"><span id="pingTxt"></span></div>
     <div id="roster"></div>
   </div>
 
   <div id="banner" class="hidden"><h2 id="bTitle"></h2><p id="bSub"></p></div>
+
+  <div id="lobby" class="hidden">
+    <div class="box">
+      <h2>Sala online</h2>
+      <p id="lobbyCount" class="lcount"></p>
+      <div id="lobbyList"></div>
+      <p id="lobbyHint" class="lhint"></p>
+      <button id="btnStart" class="btn primary" disabled>Iniciar partida</button>
+      <button id="btnLobbyLeave" class="btn danger">Sair da sala</button>
+    </div>
+  </div>
 
   <div id="pause" class="hidden">
     <div class="box">
