@@ -10,16 +10,22 @@
 
   const TILE = 50, PR = 14, SPEED = 235, WIN_SCORE = 5, DOWN_TIME = 1.7;
 
+  /* ===== VIDA E DANO (tudo em % da vida máxima) ===== */
+  const MAX_HP = 5000;     // vida máxima = 100%
+  const EXEC_MULT = 3;     // multiplicador do golpe corpo a corpo em quem está caído no chão
+  const THROW_DMG = 10;    // % tirado por arma arremessada que acerta
+  const DOOR_DMG = 10;     // % tirado por porta na cara
+
   /* ---------------------------------------------------------------- ARMAS */
   const WEAPONS = {
-    FISTS:   { name: 'MÃOS',    melee: true, range: 34, arc: 1.8, cd: 0.40, kill: false, col: '#ffd7b0' },
-    KNIFE:   { name: 'FACA',    melee: true, range: 42, arc: 1.5, cd: 0.26, kill: true,  col: '#e6f1ff' },
-    BAT:     { name: 'TACO',    melee: true, range: 60, arc: 2.1, cd: 0.50, kill: true,  col: '#ffb35c' },
-    KATANA:  { name: 'KATANA',  melee: true, range: 70, arc: 2.3, cd: 0.40, kill: true,  col: '#9ff7ff' },
-    PISTOL:  { name: 'PISTOLA', ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff' },
-    SMG:     { name: 'SMG',     ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8' },
-    RIFLE:   { name: 'FUZIL',   ammo: 24, cd: 0.15,  spread: 0.04, speed: 1400, pellets: 1, range: 1600, auto: true,  col: '#b9ff79' },
-    SHOTGUN: { name: 'SHOTGUN', ammo: 6,  cd: 0.80,  spread: 0.30, speed: 980,  pellets: 7, range: 440,  auto: false, col: '#ffc96b' }
+    FISTS:   { name: 'MÃOS',    dmg: 5,  knock: true, melee: true, range: 34, arc: 1.8, cd: 0.40, col: '#ffd7b0' },
+    KNIFE:   { name: 'FACA',    dmg: 40, melee: true, range: 42, arc: 1.5, cd: 0.26, col: '#e6f1ff' },
+    BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 60, arc: 2.1, cd: 0.50, col: '#ffb35c' },
+    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, range: 70, arc: 2.3, cd: 0.40, col: '#9ff7ff' },
+    PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff' },
+    SMG:     { name: 'SMG',     dmg: 12, ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8' },
+    RIFLE:   { name: 'FUZIL',   dmg: 25, ammo: 24, cd: 0.15,  spread: 0.04, speed: 1400, pellets: 1, range: 1600, auto: true,  col: '#b9ff79' },
+    SHOTGUN: { name: 'SHOTGUN', dmg: 15, ammo: 6,  cd: 0.80,  spread: 0.30, speed: 980,  pellets: 7, range: 440,  auto: false, col: '#ffc96b' }
   };
   const POOLS = {
     M: ['KNIFE', 'BAT', 'KATANA'],
@@ -193,7 +199,7 @@
     addPlayer(id, name, skin) {
       const slot = !this.players[0] ? 0 : (!this.players[1] ? 1 : -1);
       if (slot < 0) return null;
-      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0,
+      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
         weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false };
       this.players[slot] = p;
       if (this.count === 2) this.startMatch(); else this.phase = 'waiting';
@@ -215,7 +221,7 @@
         if (!p) return;
         const s = this.level.m.spawn[i];
         p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE; p.angle = i ? Math.PI : 0;
-        p.alive = true; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false;
+        p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false;
       });
       const types = {};
       for (const w of this.level.m.wp) {
@@ -295,8 +301,8 @@
           if (d <= wd.range + PR) {
             const aa = Math.atan2(dy, dx);
             if ((Math.abs(angDiff(aa, p.angle)) <= wd.arc / 2 || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
-              if (o.down || wd.kill) this.kill(o, p, o.down ? 'exec' : 'melee', aa);
-              else this.knockdown(o, DOWN_TIME, aa);
+              if (o.down) this.hurt(o, p, wd.dmg * EXEC_MULT, 'exec', aa);
+              else { this.hurt(o, p, wd.dmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
             }
           }
         }
@@ -308,11 +314,19 @@
       for (let i = 0; i < wd.pellets; i++) {
         const a = p.angle + (Math.random() - 0.5) * 2 * wd.spread;
         const sp = wd.speed * (wd.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
-        this.bullets.push({ id: this.nid++, x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: p.id, life: wd.range / sp });
+        this.bullets.push({ id: this.nid++, x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: p.id, w: p.weapon.type, life: wd.range / sp });
       }
       this.events.push({ t: 'shot', by: p.id, w: p.weapon.type, x: p.x, y: p.y, a: p.angle });
     }
 
+    // Tira `pct`% da vida máxima. Se zerar, mata.
+    hurt(v, by, pct, how, a) {
+      if (!v.alive || this.phase !== 'live') return false;
+      v.hp = Math.max(0, v.hp - MAX_HP * pct / 100);
+      this.events.push({ t: 'hurt', id: v.id, x: v.x, y: v.y, a, hp: Math.round(v.hp), by: by ? by.id : null });
+      if (v.hp <= 0) this.kill(v, by, how, a);
+      return true;
+    }
     kill(v, by, how, a) {
       if (!v.alive || this.phase !== 'live') return;
       v.alive = false; v.down = false; v.fire = false;
@@ -371,7 +385,8 @@
       const o = this.players[1 - p.slot];
       let hit = false;
       if (o && o.alive && !o.down && o.x > rx - PR && o.x < rx + rw + PR && o.y > ry - PR && o.y < ry + rh + PR) {
-        this.knockdown(o, DOWN_TIME, d.o === 'h' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI)); hit = true;
+        const da = d.o === 'h' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
+        this.hurt(o, p, DOOR_DMG, 'door', da); this.knockdown(o, DOWN_TIME, da); hit = true;
       }
       this.events.push({ t: 'door', i: d.i, dir, x: cx, y: cy, hit });
     }
@@ -387,7 +402,7 @@
           if (this.level.solidAt(b.x, b.y)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }
           for (const p of this.players) {
             if (!p || !p.alive || p.id === b.owner) continue;
-            if (Math.hypot(p.x - b.x, p.y - b.y) < PR + 1) { dead = true; this.kill(p, this.byId(b.owner), 'bullet', Math.atan2(b.vy, b.vx)); break; }
+            if (Math.hypot(p.x - b.x, p.y - b.y) < PR + 1) { dead = true; this.hurt(p, this.byId(b.owner), WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
           }
         }
         b.life -= dt;
@@ -408,6 +423,7 @@
             for (const p of this.players) {
               if (!p || !p.alive || p.id === it.owner) continue;
               if (Math.hypot(p.x - it.x, p.y - it.y) < PR + 8) {
+                this.hurt(p, this.byId(it.owner), THROW_DMG, 'throw', Math.atan2(it.vy, it.vx));
                 if (!p.down) this.knockdown(p, DOWN_TIME, Math.atan2(it.vy, it.vx));
                 this.events.push({ t: 'thit', x: it.x, y: it.y });
                 stop = true; it.vx *= -0.1; it.vy *= -0.1; break;
@@ -434,7 +450,7 @@
         map: this.level ? this.level.id : null, win: this.winner,
         pl: this.players.filter(Boolean).map(p => ({
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
-          al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
+          hp: Math.round(p.hp), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, bot: p.bot ? 1 : 0
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy)]),
@@ -557,5 +573,5 @@
     }
   }
 
-  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });

@@ -75,6 +75,14 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #scoreboard .mid{display:flex;flex-direction:column;justify-content:center;align-items:center;padding:0 14px;background:var(--ink);border-top:3px solid var(--yellow);border-bottom:3px solid var(--yellow);color:var(--yellow)}
 #scoreboard .mid span{font-size:.8rem}
 #scoreboard .mid small{font:600 .75rem var(--body);color:#ffeb7a}
+#hpBars{position:absolute;top:80px;left:50%;transform:translateX(-50%);display:flex;gap:12px;width:min(560px,92vw)}
+.hp{flex:1;position:relative;height:22px;background:rgba(20,4,31,.85);border:3px solid;overflow:hidden}
+.hp i{position:absolute;top:0;bottom:0;left:0;width:100%;transition:width .15s}
+.hp span{position:relative;z-index:1;display:block;text-align:center;font:400 .8rem/16px var(--display);color:#fff;text-shadow:1px 1px 0 #000}
+.hp.me{border-color:var(--cyan)} .hp.me i{background:var(--cyan)}
+.hp.en{border-color:var(--pink)} .hp.en i{left:auto;right:0;background:var(--pink)}
+.hp.low i{background:var(--yellow)}
+.hp.low span{animation:blink .5s steps(2) infinite}
 #weaponHud{position:absolute;left:18px;bottom:18px;display:flex;align-items:baseline;gap:14px;padding:8px 16px;background:rgba(20,4,31,.85);border:3px solid var(--yellow);box-shadow:4px 4px 0 var(--pink)}
 #wName{font:400 1.1rem var(--display);color:var(--yellow)}
 #wAmmo{font:400 1.8rem var(--display);color:var(--white)}

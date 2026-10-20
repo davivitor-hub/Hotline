@@ -1,6 +1,6 @@
 # NEON DUEL
 
-Arena 1v1 top-down inspirada em Hotline Miami. Um tiro, uma morte. Primeiro a 5 rodadas vence.
+Arena 1v1 top-down inspirada em Hotline Miami. Cada jogador tem 5000 de vida (100%) e cada arma tira uma porcentagem. Primeiro a 5 rodadas vence.
 
 ## Como rodar
 
@@ -27,14 +27,14 @@ O cliente conecta sozinho no mesmo endereço. Se hospedar o `public/` em outro l
 | M | Música liga/desliga |
 
 ## Mecânicas
-- **Um golpe mata**: tiro, faca, taco e katana matam na hora.
-- **Soco derruba**: o inimigo cai por 1,7 s e solta a arma. Qualquer ataque em quem está no chão é uma execução.
+- **Vida**: 5000 pontos = 100%. Cada arma tira uma % (faca 40, taco 50, katana 70, pistola 35, SMG 12, fuzil 25, shotgun 15 por chumbinho x7, soco 5). Arremesso e porta tiram 10%. Ataque corpo a corpo em quem está caído causa o triplo. Tudo se ajusta no bloco `VIDA E DANO` do `shared.js`.
+- **Soco derruba**: o inimigo cai por 1,7 s e solta a arma. Golpe corpo a corpo em quem está no chão causa dano triplo.
 - **Arremesso**: arma arremessada derruba quem ela acertar. Arma vazia serve para isso.
 - **Portas**: empurre para abrir. Quem estiver do outro lado leva a porta na cara e cai.
 - **Visão**: você só vê o inimigo com linha de visão livre. Paredes e portas fechadas bloqueiam.
 - **Armas**: faca, taco, katana, pistola, SMG, fuzil e shotgun. Sem recarga: acabou a munição, arremesse.
 - **Rodadas**: todos começam desarmados e os mapas são simétricos (rotação de 180°), então ninguém leva vantagem.
-- **Mapas**: Escritório e Casa Noturna, alternando a cada rodada.
+- **Mapas**: Casa (quartos, banheiro, cozinha e sala com móveis) e Casa com Quintal (jardim, piscina, árvores e churrasqueira), alternando a cada rodada. Móveis são cobertura sólida: bloqueiam movimento, tiros e visão.
 - Sangue permanente, cadáveres que deslizam, cápsulas, tremor de tela, hit-stop e trilha synthwave gerada no navegador.
 
 ## Arquitetura

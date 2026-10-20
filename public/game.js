@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME } = Shared;
+const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -485,6 +485,10 @@ function handleEvent(e, now) {
       break;
     }
     case 'thit': sfx('hit', e.x, e.y); addShake(3); break;
+    case 'hurt': // levou dano (sem morrer)
+      sfx('hit', e.x, e.y); addBlood(e.x, e.y, e.a, 10, 220);
+      addShake(e.id === myId ? 4 : 1.5); if (e.id === myId) fx.red = Math.max(fx.red, 0.25);
+      break;
     case 'wall':
       for (let i = 0; i < 3; i++) fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(e.a + Math.PI + (Math.random() - .5) * 2) * 220, vy: Math.sin(e.a + Math.PI + (Math.random() - .5) * 2) * 220, life: 0.14, sz: 5, col: '#9ff7ff' });
       if (Math.random() < 0.35) sfx('wall', e.x, e.y);
@@ -764,9 +768,9 @@ function render(now, dt) {
   if (en && en.al) {
     const ie = interpEnemy(en.id) || { x: en.x, y: en.y, a: en.a };
     enemyVisible = !alive || (Math.hypot(ie.x - pred.x, ie.y - pred.y) < 1100 && level.los(pred.x, pred.y, ie.x, ie.y));
-    if (enemyVisible) drawPlayer(en, ie.x, ie.y, ie.a, false, now);
+    if (enemyVisible) { drawPlayer(en, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, en.hp ?? MAX_HP, false); }
   }
-  if (me && me.al) drawPlayer(me, pred.x, pred.y, aimAngle(), true, now);
+  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); }
 
   // efeitos
   for (const p of fx.parts) {
@@ -795,6 +799,11 @@ function render(now, dt) {
   if (!paused && me && me.al) drawCrosshair(me);
   updateHud(now);
 }
+function drawHpBar(x, y, hp, mine) {
+  const k = Math.max(0, Math.min(1, hp / MAX_HP)), w = 44;
+  ctx.fillStyle = 'rgba(10,0,20,.85)'; ctx.fillRect(x - w / 2 - 1.5, y - 37, w + 3, 8);
+  ctx.fillStyle = k > 0.3 ? (mine ? '#00e5ff' : '#ff2e97') : '#ffe600'; ctx.fillRect(x - w / 2, y - 35.5, w * k, 5);
+}
 function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
   ctx.save(); ctx.translate(mouse.x, mouse.y); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
@@ -803,6 +812,11 @@ function drawCrosshair(me) {
 
 /* -------------------------------------------------------------------- HUD */
 const hudCache = {};
+function setHp(id, hp) {
+  const p = Math.max(0, Math.round((hp ?? MAX_HP) / MAX_HP * 100));
+  setText(id + 't', p + '%');
+  if (hudCache[id + 'w'] !== p) { hudCache[id + 'w'] = p; $(id).style.width = p + '%'; $(id).parentNode.classList.toggle('low', p <= 30); }
+}
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 let bannerKey = '';
 function updateHud(now) {
@@ -810,18 +824,19 @@ function updateHud(now) {
   const me = myState(), en = enemyState();
   if (me) { setText('s1n', me.nm); setText('s1v', String(me.sc)); }
   setText('s2n', en ? en.nm : '—'); setText('s2v', en ? String(en.sc) : '0');
+  setHp('hp1', me ? me.hp : MAX_HP); setHp('hp2', en ? en.hp : MAX_HP);
   setText('rdTxt', snap.rd ? `Rodada ${snap.rd}` : 'Sala'); 
   setText('pingTxt', mode === 'online' ? `${pingMs} ms` : 'treino · offline');
   if (me) {
     const wd = me.w ? WEAPONS[me.w] : null;
-    setText('wName', wd ? wd.name : 'Mãos');
+    setText('wName', (wd ? wd.name : 'Mãos') + ' · ' + (wd ? wd.dmg : WEAPONS.FISTS.dmg) + '%' + (wd && wd.pellets > 1 ? ' x' + wd.pellets : ''));
     setText('wAmmo', wd && !wd.melee ? String(me.am) : '');
     $('wAmmo').classList.toggle('low', !!wd && !wd.melee && me.am <= 2);
     let hint = '';
     if (!me.al) hint = '';
     else if (wd && !wd.melee && me.am <= 0) hint = 'Vazia: arremesse com o botão direito';
     else if (wd) hint = 'Botão direito arremessa';
-    else hint = 'Soco derruba; ataque no chão mata';
+    else hint = 'Soco derruba; golpe no chão dá dano extra';
     setText('wHint', hint);
   }
   // banner
