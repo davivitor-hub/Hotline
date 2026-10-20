@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#14041f">
+  <title>NEON DUEL</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="scoreboard">
+      <div class="side me"><span id="s1n">VOCÊ</span><b id="s1v">0</b></div>
+      <div class="mid"><span id="rdTxt">Rodada 1</span><small>primeiro a 5</small></div>
+      <div class="side en"><b id="s2v">0</b><span id="s2n">INIMIGO</span></div>
+    </div>
+    <div id="weaponHud"><span id="wName">Mãos</span><b id="wAmmo"></b><small id="wHint"></small></div>
+    <div id="netHud"><span id="pingTxt"></span></div>
+  </div>
+
+  <div id="banner" class="hidden"><h2 id="bTitle"></h2><p id="bSub"></p></div>
+
+  <div id="pause" class="hidden">
+    <div class="box">
+      <h2>Pausado</h2>
+      <button id="btnResume" class="btn primary">Voltar ao jogo</button>
+      <button id="btnLeave" class="btn danger">Sair da partida</button>
+    </div>
+  </div>
+
+  <div id="menu">
+    <div class="sun"></div>
+    <div class="grid-floor"></div>
+    <section class="panel">
+      <h1><span class="t1">NEON</span><span class="t2">DUEL</span></h1>
+      <p class="tag">Um tiro, uma morte. Entre pela porta e faça a sua jogada.</p>
+
+      <label class="field">Seu nome
+        <input id="nameInput" maxlength="14" placeholder="Jacket" autocomplete="off" spellcheck="false">
+      </label>
+
+      <div class="field">Máscara
+        <div id="skins"></div>
+      </div>
+
+      <div class="actions">
+        <button id="btnOnline" class="btn primary">Duelo online 1v1</button>
+        <div class="bot-row">
+          <button id="btnBot" class="btn">Treino contra bot</button>
+          <select id="diffSel" aria-label="Dificuldade do bot">
+            <option value="EASY">Fácil</option>
+            <option value="NORMAL" selected>Normal</option>
+            <option value="HARD">Difícil</option>
+          </select>
+        </div>
+      </div>
+      <div id="status" role="status"></div>
+
+      <div class="controls">
+        <div><kbd>WASD</kbd><span>mover</span></div>
+        <div><kbd>Mouse</kbd><span>mirar e atacar</span></div>
+        <div><kbd>E</kbd><span>pegar arma</span></div>
+        <div><kbd>Botão direito / F</kbd><span>arremessar arma</span></div>
+        <div><kbd>Espaço</kbd><span>olhar mais longe</span></div>
+        <div><kbd>Esc</kbd><span>pausar</span></div>
+      </div>
+
+      <div class="toggles">
+        <label><input type="checkbox" id="optMusic" checked> Música</label>
+        <label><input type="checkbox" id="optSfx" checked> Efeitos</label>
+        <label><input type="checkbox" id="optShake" checked> Tremor de tela</label>
+        <label><input type="checkbox" id="optCrt" checked> Filtro CRT</label>
+      </div>
+    </section>
+  </div>
+
+  <div id="crt"></div>
+  <script src="shared.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
