@@ -1,4 +1,4 @@
- <!doctype html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
@@ -39,3 +39,56 @@
       <button id="btnLeave" class="btn danger">Sair da partida</button>
     </div>
   </div>
+
+  <div id="menu">
+    <div class="sun"></div>
+    <div class="grid-floor"></div>
+    <section class="panel">
+      <h1><span class="t1">NEON</span><span class="t2">DUEL</span></h1>
+      <p class="tag">5000 de vida e cada arma tira a sua parte. Entre pela porta e faça a sua jogada.</p>
+
+      <label class="field">Seu nome
+        <input id="nameInput" maxlength="14" placeholder="Jacket" autocomplete="off" spellcheck="false">
+      </label>
+
+      <div class="field">Máscara
+        <div id="skins"></div>
+      </div>
+
+      <div class="actions">
+        <button id="btnOnline" class="btn primary">Online (2 a 7 jogadores)</button>
+        <div class="bot-row">
+          <button id="btnBot" class="btn">Treino contra bot</button>
+          <select id="diffSel" aria-label="Dificuldade do bot">
+            <option value="EASY">Fácil</option>
+            <option value="NORMAL" selected>Normal</option>
+            <option value="HARD">Difícil</option>
+          </select>
+        </div>
+      </div>
+      <div id="status" role="status"></div>
+
+      <div class="controls">
+        <div><kbd>WASD</kbd><span>mover</span></div>
+        <div><kbd>Mouse</kbd><span>mirar e atacar</span></div>
+        <div><kbd>E</kbd><span>pegar arma</span></div>
+        <div><kbd>Botão direito / F</kbd><span>arremessar arma</span></div>
+        <div><kbd>Q</kbd><span>curar 20% (2 s parado)</span></div>
+        <div><kbd>Espaço</kbd><span>olhar mais longe</span></div>
+        <div><kbd>Esc</kbd><span>pausar</span></div>
+      </div>
+
+      <div class="toggles">
+        <label><input type="checkbox" id="optMusic" checked> Música</label>
+        <label><input type="checkbox" id="optSfx" checked> Efeitos</label>
+        <label><input type="checkbox" id="optShake" checked> Tremor de tela</label>
+        <label><input type="checkbox" id="optCrt" checked> Filtro CRT</label>
+      </div>
+    </section>
+  </div>
+
+  <div id="crt"></div>
+  <script src="shared.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
