@@ -94,7 +94,37 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #pause .box{display:grid;gap:12px;width:min(340px,90vw);padding:28px;background:var(--ink);border:3px solid var(--pink);box-shadow:8px 8px 0 var(--cyan)}
 #pause h2{margin:0 0 6px;font:400 2rem var(--display);color:var(--pink);text-align:center}
 
+/* sala online */
+#lobby{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:12px;overflow:auto;background:rgba(10,0,20,.82)}
+#lobby .box{display:grid;gap:10px;width:min(420px,100%);padding:24px;background:var(--ink);border:3px solid var(--pink);box-shadow:8px 8px 0 var(--cyan)}
+#lobby h2{margin:0;font:400 2rem var(--display);color:var(--pink);text-align:center}
+.lcount{margin:0;text-align:center;color:var(--cyan);font-weight:700}
+#lobbyList{display:grid;gap:6px}
+.lrow{display:flex;align-items:center;gap:10px;padding:7px 10px;background:#0b0214;border:2px solid var(--violet);font-weight:700}
+.lrow.me{border-color:var(--cyan);background:#12062a}
+.lrow i{flex:none;width:22px;height:22px;border-radius:50%;border:2px solid #000;display:block}
+.lrow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lrow em{flex:none;font:400 .7rem var(--display);font-style:normal;color:var(--ink);background:var(--yellow);padding:2px 7px}
+.lrow.empty{opacity:.4;border-style:dashed}
+.lrow.empty i{background:transparent;border:2px dashed var(--violet)}
+.lhint{margin:0;text-align:center;color:#ffd1ea;font-weight:600;min-height:22px}
+#lobby .btn{pointer-events:auto}
+#lobby .btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none}
+#hud.inlobby #weaponHud,#hud.inlobby #roster{display:none}
+
+/* lista de jogadores durante a partida */
+#roster{position:absolute;top:14px;left:14px;min-width:170px;max-width:240px;display:grid;gap:3px;padding:8px;background:rgba(20,4,31,.82);border:3px solid var(--violet)}
+.rhead{font:400 .75rem var(--display);color:var(--yellow);padding-bottom:4px;margin-bottom:2px;border-bottom:2px dashed rgba(255,46,151,.5)}
+.rrow{display:flex;align-items:center;gap:8px;font-weight:700;padding:2px 4px}
+.rrow.me{background:rgba(0,229,255,.14)}
+.rrow.dead{opacity:.45;text-decoration:line-through}
+.rrow i{flex:none;width:14px;height:14px;border-radius:50%;border:2px solid #000;display:block}
+.rrow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrow small{font-size:.8rem;color:#c9b3e0}
+.rrow b{font:400 1rem var(--display);color:var(--yellow);min-width:1ch;text-align:right}
+
 @media (max-width:640px){
+  #roster{min-width:0;max-width:150px;top:8px;left:8px;font-size:.85rem}
   .controls{grid-template-columns:1fr}
   #scoreboard .side span{display:none}
   #weaponHud{left:8px;bottom:8px}
