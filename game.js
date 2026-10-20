@@ -770,8 +770,9 @@ function render(now, dt) {
   let enemyVisible = false;
   if (en && en.al) {
     const ie = interpEnemy(en.id) || { x: en.x, y: en.y, a: en.a };
-    enemyVisible = !alive || (Math.hypot(ie.x - pred.x, ie.y - pred.y) < 1100 && level.los(pred.x, pred.y, ie.x, ie.y));
-    if (enemyVisible) { drawPlayer(en, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, en.hp ?? MAX_HP, false); }
+    // Sem névoa no mapa, o inimigo é sempre desenhado (antes sumia atrás de móveis/paredes).
+    enemyVisible = true;
+    drawPlayer(en, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, en.hp ?? MAX_HP, false);
   }
   if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); }
 

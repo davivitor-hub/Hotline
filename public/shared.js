@@ -9,6 +9,8 @@
   'use strict';
 
   const TILE = 50, PR = 14, SPEED = 235, WIN_SCORE = 5, DOWN_TIME = 1.7;
+  const MAX_PLAYERS = 7;   // máximo de jogadores na sala
+  const MIN_PLAYERS = 2;   // a partida começa com 2 ou mais
 
   /* ===== VIDA E DANO (tudo em % da vida máxima) ===== */
   const MAX_HP = 5000;     // vida máxima = 100%
@@ -49,7 +51,8 @@
     const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
     def({
       rect,
-      spawn: (x, y) => { spawn[0] = [x, y]; spawn[1] = [W - 1 - x, H - 1 - y]; },
+      // cada chamada cria 2 pontos de nascimento (o ponto e o seu espelho de 180°)
+      spawn: (x, y) => { spawn.push([x, y], [W - 1 - x, H - 1 - y]); },
       weapon: (x, y, k) => { wp.push({ x, y, k, pair }); wp.push({ x: W - 1 - x, y: H - 1 - y, k, pair }); pair++; },
       // móvel sólido (w x h tiles). O espelho de 180° é criado automaticamente.
       furn: (x, y, w, h, k, o = {}) => {
@@ -98,10 +101,11 @@
     m.furn(15, 9, 2, 2, 'coffee');
     m.furn(11, 7, 1, 2, 'bookshelf');
     m.furn(11, 17, 1, 1, 'plant'); m.furn(20, 8, 1, 1, 'plant');
-    m.spawn(4, 5);
+    m.spawn(4, 5); m.spawn(17, 3); m.spawn(4, 12); m.spawn(3, 16);
     m.weapon(3, 7, 'M'); m.weapon(2, 16, 'M');
     m.weapon(8, 3, 'G'); m.weapon(12, 6, 'G');
     m.weapon(8, 16, 'R'); m.weapon(13, 10, 'R');
+    m.weapon(7, 12, 'G'); m.weapon(17, 5, 'R');
   });
 
   // ---- CASA COM QUINTAL: casa no meio, jardim com piscina em volta.
@@ -120,9 +124,10 @@
     // quintal
     m.furn(3, 3, 3, 2, 'pool'); m.furn(12, 2, 2, 2, 'tree');
     m.furn(3, 14, 1, 3, 'hedge'); m.furn(8, 15, 1, 1, 'bbq');
-    m.spawn(2, 9);
+    m.spawn(2, 9); m.spawn(10, 3); m.spawn(2, 16); m.spawn(10, 10);
     m.weapon(2, 5, 'M'); m.weapon(5, 10, 'G'); m.weapon(10, 8, 'R');
     m.weapon(13, 4, 'R'); m.weapon(6, 17, 'M'); m.weapon(11, 16, 'G');
+    m.weapon(10, 12, 'G'); m.weapon(7, 2, 'R');
   });
 
   /* ---------------------------------------------------------------- NÍVEL */
@@ -190,26 +195,47 @@
   /* ----------------------------------------------------------------- JOGO */
   class Game {
     constructor() {
-      this.players = [null, null]; this.phase = 'waiting'; this.timer = 0; this.round = 0;
+      this.players = new Array(MAX_PLAYERS).fill(null); this.phase = 'waiting'; this.timer = 0; this.round = 0;
       this.mapIdx = -1; this.level = null; this.bullets = []; this.items = []; this.events = []; this.nid = 1; this.winner = -1;
     }
     get count() { return this.players.filter(Boolean).length; }
     byId(id) { return this.players.find(p => p && p.id === id) || null; }
 
     addPlayer(id, name, skin) {
-      const slot = !this.players[0] ? 0 : (!this.players[1] ? 1 : -1);
+      const slot = this.players.findIndex(q => !q);
       if (slot < 0) return null;
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
-        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false };
+        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1 };
       this.players[slot] = p;
-      if (this.count === 2) this.startMatch(); else this.phase = 'waiting';
+      if (this.phase === 'waiting' || !this.level) {
+        // sala vazia/aguardando: começa assim que houver o mínimo de jogadores
+        if (this.count >= MIN_PLAYERS) this.startMatch(); else this.phase = 'waiting';
+      } else if (this.phase === 'countdown') {
+        // ainda na contagem: entra normalmente na rodada
+        this.spawnPlayer(p, this.nextSpawn());
+      } else {
+        // rodada em andamento: assiste até a próxima rodada
+        const s = this.level.m.spawn[0];
+        p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE; p.alive = false;
+      }
       return p;
     }
     removePlayer(id) {
       const p = this.byId(id); if (!p) return;
       this.players[p.slot] = null;
-      for (const q of this.players) if (q) q.score = 0;
-      this.phase = 'waiting'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
+      if (this.count < MIN_PLAYERS) {
+        // sem adversários: volta para a sala de espera
+        for (const q of this.players) if (q) q.score = 0;
+        this.phase = 'waiting'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
+      }
+    }
+    nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
+    spawnPlayer(p, idx) {
+      const sp = this.level.m.spawn, s = sp[idx % sp.length];
+      p.spawnIdx = idx;
+      p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
+      p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
+      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false;
     }
     startMatch() { for (const p of this.players) if (p) p.score = 0; this.round = 0; this.startRound(); }
     startRound() {
@@ -217,12 +243,8 @@
       this.mapIdx = this.mapIdx < 0 ? Math.floor(Math.random() * MAP_IDS.length) : (this.mapIdx + 1) % MAP_IDS.length;
       this.level = new Level(MAP_IDS[this.mapIdx]);
       this.bullets = []; this.items = []; this.winner = -1;
-      this.players.forEach((p, i) => {
-        if (!p) return;
-        const s = this.level.m.spawn[i];
-        p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE; p.angle = i ? Math.PI : 0;
-        p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false;
-      });
+      let idx = 0;
+      for (const p of this.players) if (p) this.spawnPlayer(p, idx++);
       const types = {};
       for (const w of this.level.m.wp) {
         if (!types[w.pair]) types[w.pair] = pick(POOLS[w.k]);
@@ -283,7 +305,7 @@
 
     evalRound() {
       const a = this.players.filter(p => p && p.alive);
-      if (a.length === 2) return;
+      if (a.length >= 2) return;
       if (a.length === 0) { this.winner = -1; this.phase = 'over'; this.timer = 2.4; this.events.push({ t: 'end', w: -1 }); return; }
       const w = a[0]; w.score++; this.winner = w.slot;
       if (w.score >= WIN_SCORE) { this.phase = 'matchover'; this.timer = 5; } else { this.phase = 'over'; this.timer = 2.6; }
@@ -292,18 +314,18 @@
 
     attack(p) {
       const wd = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
-      const o = this.players[1 - p.slot];
       if (wd.melee) {
         p.cd = wd.cd; p.swing = 0.2;
         this.events.push({ t: 'swing', by: p.id, w: p.weapon ? p.weapon.type : 'FISTS', x: p.x, y: p.y, a: p.angle });
-        if (o && o.alive) {
+        // o golpe atinge todos os adversários dentro do arco
+        for (const o of this.players) {
+          if (!o || o === p || !o.alive) continue;
           const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
-          if (d <= wd.range + PR) {
-            const aa = Math.atan2(dy, dx);
-            if ((Math.abs(angDiff(aa, p.angle)) <= wd.arc / 2 || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
-              if (o.down) this.hurt(o, p, wd.dmg * EXEC_MULT, 'exec', aa);
-              else { this.hurt(o, p, wd.dmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
-            }
+          if (d > wd.range + PR) continue;
+          const aa = Math.atan2(dy, dx);
+          if ((Math.abs(angDiff(aa, p.angle)) <= wd.arc / 2 || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
+            if (o.down) this.hurt(o, p, wd.dmg * EXEC_MULT, 'exec', aa);
+            else { this.hurt(o, p, wd.dmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
           }
         }
         return;
@@ -382,11 +404,13 @@
       let rx, ry, rw, rh;
       if (d.o === 'h') { rx = d.x * TILE - 6; rw = TILE + 12; rh = TILE * 2; ry = dir > 0 ? d.y * TILE : (d.y - 1) * TILE; }
       else { ry = d.y * TILE - 6; rh = TILE + 12; rw = TILE * 2; rx = dir > 0 ? d.x * TILE : (d.x - 1) * TILE; }
-      const o = this.players[1 - p.slot];
       let hit = false;
-      if (o && o.alive && !o.down && o.x > rx - PR && o.x < rx + rw + PR && o.y > ry - PR && o.y < ry + rh + PR) {
-        const da = d.o === 'h' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-        this.hurt(o, p, DOOR_DMG, 'door', da); this.knockdown(o, DOWN_TIME, da); hit = true;
+      for (const o of this.players) {
+        if (!o || o === p || !o.alive || o.down) continue;
+        if (o.x > rx - PR && o.x < rx + rw + PR && o.y > ry - PR && o.y < ry + rh + PR) {
+          const da = d.o === 'h' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
+          this.hurt(o, p, DOOR_DMG, 'door', da); this.knockdown(o, DOWN_TIME, da); hit = true;
+        }
       }
       this.events.push({ t: 'door', i: d.i, dir, x: cx, y: cy, hit });
     }
@@ -492,8 +516,16 @@
       this.st = 1; this.stT = 0; this.pkCd = 0; this.thCd = 0;
     }
     think(dt) {
-      const g = this.g, me = g.players[this.slot], en = g.players[1 - this.slot];
-      if (!me || !en) return;
+      const g = this.g, me = g.players[this.slot];
+      if (!me) return;
+      // alvo: o adversário vivo mais próximo (se não houver vivo, o mais próximo qualquer)
+      let en = null, bestD = Infinity;
+      for (const q of g.players) {
+        if (!q || q === me) continue;
+        const dd = Math.hypot(q.x - me.x, q.y - me.y) + (q.alive ? 0 : 1e6);
+        if (dd < bestD) { bestD = dd; en = q; }
+      }
+      if (!en) return;
       const idle = { k: 0, a: this.ang, f: 0, fp: 0, pk: 0, th: 0 };
       if (g.phase !== 'live' || !me.alive || me.down || !g.level) { g.applyInput(me, idle, dt); return; }
       const L = g.level, D = this.d, T = TILE;
@@ -573,5 +605,5 @@
     }
   }
 
-  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });

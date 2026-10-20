@@ -91,6 +91,15 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 @keyframes blink{50%{opacity:.35}}
 #netHud{position:absolute;right:16px;top:14px;color:#c9b3e0;font-weight:700;font-size:.9rem;text-shadow:0 0 6px #000}
 
+#roster{position:absolute;left:16px;top:14px;display:grid;gap:4px;min-width:150px;font-weight:700}
+#roster .rrow{display:flex;align-items:center;gap:8px;padding:3px 10px 3px 8px;background:rgba(20,4,31,.82);border-left:4px solid var(--violet);font-size:.95rem}
+#roster .rrow.me{border-left-color:var(--cyan)}
+#roster .rrow i{width:12px;height:12px;border-radius:50%;border:2px solid #000;flex:none}
+#roster .rrow span{flex:1;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#roster .rrow b{font:400 1rem var(--display);color:var(--yellow)}
+#roster .rrow.dead{opacity:.45;text-decoration:line-through}
+@media (max-width:640px){#roster{display:none}}
+
 #banner{position:fixed;left:0;right:0;top:30%;z-index:12;text-align:center;pointer-events:none}
 #banner h2{margin:0;font:400 clamp(40px,9vw,96px)/1 var(--display);color:var(--white);text-shadow:5px 5px 0 var(--pink),-3px -3px 0 var(--cyan);transform:rotate(-2deg);animation:pop .25s cubic-bezier(.2,1.6,.4,1)}
 #banner p{margin:12px 0 0;font:700 1.3rem var(--body);color:var(--yellow);text-shadow:2px 2px 0 #000}
