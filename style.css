@@ -10,8 +10,10 @@ button,select,input{font:inherit}
 :focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
 
 /* ------------------------------------------------------------ CRT */
-/* Efeito CRT removido: sem linhas horizontais nem vinheta escura. */
-#crt{display:none!important}
+#crt{position:fixed;inset:0;z-index:50;pointer-events:none;
+  background:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,rgba(0,0,0,.22) 3px),
+             radial-gradient(ellipse at center,transparent 55%,rgba(10,0,20,.65) 100%);}
+body.nocrt #crt{display:none}
 
 /* ------------------------------------------------------------ MENU */
 #menu{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:16px;overflow:auto;
