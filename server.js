@@ -46,7 +46,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return res.end('ok');
+    return res.end(`ok · sala de ${S.MIN_PLAYERS} a ${S.MAX_PLAYERS} jogadores · ${game.count} conectado(s)`);
   }
 
   if (pathname === '/') pathname = '/index.html';
@@ -112,7 +112,7 @@ wss.on('connection', (ws) => {
 
     if (m.type === 'join') {
       if (c.p) return;
-      if (game.count >= 2) return send(ws, { type: 'full' });
+      if (game.count >= S.MAX_PLAYERS) return send(ws, { type: 'full' });
 
       const skin = SKINS.includes(m.skin) ? m.skin : 'ROOSTER';
       const name = String(m.name || 'JOGADOR').replace(/[<>]/g, '').slice(0, 14);
@@ -124,7 +124,7 @@ wss.on('connection', (ws) => {
       }
 
       send(ws, { type: 'joined', id: c.id, slot: c.p.slot });
-      console.log(`${name} entrou (${c.id}); jogadores: ${game.count}/2`);
+      console.log(`${name} entrou (${c.id}); jogadores: ${game.count}/${S.MAX_PLAYERS}`);
       return;
     }
 
@@ -141,8 +141,15 @@ wss.on('connection', (ws) => {
         f: m.f ? 1 : 0,
         fp: m.fp ? 1 : 0,
         pk: m.pk ? 1 : 0,
-        th: m.th ? 1 : 0
+        th: m.th ? 1 : 0,
+        hl: m.hl ? 1 : 0
       }, Math.max(0, Math.min(0.05, dt)));
+      return;
+    }
+
+    if (m.type === 'start' && c.p) {
+      if (!game.requestStart(c.id)) send(ws, { type: 'error', message: 'Só o anfitrião inicia, com 2 ou mais jogadores.' });
+      else console.log(`${c.id} iniciou a partida com ${game.count} jogadores`);
       return;
     }
 
@@ -152,7 +159,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (c.p) {
       game.removePlayer(c.id);
-      console.log(`${c.id} saiu; jogadores: ${game.count}/2`);
+      console.log(`${c.id} saiu; jogadores: ${game.count}/${S.MAX_PLAYERS}`);
     }
     clients.delete(ws);
   });
