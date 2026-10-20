@@ -481,7 +481,8 @@ function handleEvent(e, now) {
       const big = e.how === 'exec';
       addBlood(e.x, e.y, e.a, big ? 80 : 50, big ? 420 : 330);
       bloodPool(e.x, e.y, e.a, big);
-      fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId, col: jacketOf(e.id, e.id === myId) });
+      fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId, col: jacketOf(e.id, e.id === myId), t0: now });
+      fx.lights.push({ x: e.x, y: e.y, t: 0.14, r: 210, c: '255,200,120' });
       addShake(big ? 13 : 9); fx.flash = 0.35; hitstop = 0.09; zoomKick = 0.06;
       if (e.id === myId) fx.red = 0.6;
       break;
@@ -498,7 +499,7 @@ function handleEvent(e, now) {
     }
     case 'thit': sfx('hit', e.x, e.y); addShake(3); break;
     case 'hurt': // levou dano (sem morrer)
-      sfx('hit', e.x, e.y); addBlood(e.x, e.y, e.a, 10, 220);
+      sfx('hit', e.x, e.y); addBlood(e.x, e.y, e.a, 10, 220); animOf(e.id).hurt = 1;
       addShake(e.id === myId ? 4 : 1.5); if (e.id === myId) fx.red = Math.max(fx.red, 0.25);
       break;
     case 'wall':
@@ -624,7 +625,177 @@ function drawBody(skin, jacket, flat) {
   ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
 }
 
+/* ------------------------------------------------ SPRITES (sprite.png) ------------------------------------------------
+   Coloque o sprite sheet como "sprite.png" ao lado do index.html. Os quadros são detectados automaticamente:
+   linha de cima (da esquerda p/ direita): 0 parado · 1 mirando/atirando · 2 braços abertos · 3 braços erguidos · 4 andando de lado
+   linha de baixo: 0..4 caído / morrendo (cabeça à direita). Se o arquivo não existir, usa o desenho vetorial antigo.        */
+const SPR = { ready: false, st: [], ly: [], k: 1 };
+const SPR_H = 78;                    // altura do boneco em pé, em unidades do mapa
+const SPR_WALK_FACES_RIGHT = true;   // se o quadro "andando de lado" olhar para a esquerda, troque para false
+const DEATH_SEQ = [1, 3, 4, 2, 0], DEATH_MS = 70;
+const BG_T = 10;                     // pixels quase pretos ligados à borda viram transparentes
+
+function loadSprites() {
+  const img = new Image();
+  img.onload = () => { try { sliceSprites(img); } catch (err) { console.warn('sprite.png:', err); } };
+  img.onerror = () => console.warn('sprite.png não encontrado: usando o desenho vetorial.');
+  img.src = 'sprite.png';
+}
+function sliceSprites(img) {
+  const w = img.naturalWidth, h = img.naturalHeight, N = w * h;
+  const sc = document.createElement('canvas'); sc.width = w; sc.height = h;
+  const c = sc.getContext('2d', { willReadFrequently: true }); c.drawImage(img, 0, 0);
+  const id = c.getImageData(0, 0, w, h), d = id.data;
+  // 1) fundo preto -> transparente (só se a imagem ainda não tiver transparência)
+  let hasAlpha = false; for (let i = 3; i < d.length; i += 4) if (d[i] < 250) { hasAlpha = true; break; }
+  if (!hasAlpha) {
+    const bg = new Uint8Array(N), q = new Int32Array(N); let qh = 0, qt = 0;
+    const isBg = p => d[p * 4] <= BG_T && d[p * 4 + 1] <= BG_T && d[p * 4 + 2] <= BG_T;
+    const push = p => { if (!bg[p] && isBg(p)) { bg[p] = 1; q[qt++] = p; } };
+    for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+    while (qh < qt) { const p = q[qh++], x = p % w, y = (p / w) | 0; if (x > 0) push(p - 1); if (x < w - 1) push(p + 1); if (y > 0) push(p - w); if (y < h - 1) push(p + w); }
+    for (let p = 0; p < N; p++) if (bg[p] || (d[p * 4] <= 4 && d[p * 4 + 1] <= 4 && d[p * 4 + 2] <= 4)) d[p * 4 + 3] = 0;
+    c.putImageData(id, 0, 0);
+  }
+  // 2) componentes conectados -> caixas
+  const lab = new Int32Array(N), stack = new Int32Array(N); let boxes = [];
+  for (let s = 0; s < N; s++) {
+    if (d[s * 4 + 3] === 0 || lab[s]) continue;
+    const L = boxes.length + 1; let sp = 0, area = 0, x0 = w, y0 = h, x1 = 0, y1 = 0;
+    stack[sp++] = s; lab[s] = L;
+    while (sp) {
+      const p = stack[--sp], x = p % w, y = (p / w) | 0; area++;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const k = ny * w + nx; if (d[k * 4 + 3] !== 0 && !lab[k]) { lab[k] = L; stack[sp++] = k; }
+      }
+    }
+    boxes.push({ x0, y0, x1: x1 + 1, y1: y1 + 1, area });
+  }
+  boxes = boxes.filter(b => b.area >= 40);
+  // 3) junta pedaços próximos (cabelo, arma erguida, clarão do tiro...)
+  const GAP = 14; let merged = true;
+  while (merged) {
+    merged = false;
+    for (let i = 0; i < boxes.length && !merged; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      if (a.x0 - GAP < b.x1 && b.x0 - GAP < a.x1 && a.y0 - GAP < b.y1 && b.y0 - GAP < a.y1) {
+        a.x0 = Math.min(a.x0, b.x0); a.y0 = Math.min(a.y0, b.y0); a.x1 = Math.max(a.x1, b.x1); a.y1 = Math.max(a.y1, b.y1); a.area += b.area;
+        boxes.splice(j, 1); merged = true; break;
+      }
+    }
+  }
+  boxes = boxes.filter(b => b.area >= 250);
+  const frames = boxes.map(b => {
+    const cv = document.createElement('canvas'); cv.width = b.x1 - b.x0; cv.height = b.y1 - b.y0;
+    cv.getContext('2d').drawImage(sc, b.x0, b.y0, cv.width, cv.height, 0, 0, cv.width, cv.height);
+    return { cv, x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, w: cv.width, h: cv.height, cy: (b.y0 + b.y1) / 2, t: {} };
+  });
+  const byX = (a, b) => a.x0 - b.x0;
+  const st = frames.filter(f => f.cy < h * 0.40).sort(byX);
+  const ly = frames.filter(f => f.cy >= h * 0.65).sort(byX);
+  if (!st.length || !ly.length) throw new Error('quadros não encontrados (' + frames.length + ' blocos)');
+  // âncoras: em pé = pés; caído = linha do corpo e meio do comprimento
+  for (const f of st) { f.ax = f.w / 2; f.ay = f.h; }
+  const top = Math.min(...ly.map(f => f.y0)), bot = Math.max(...ly.map(f => f.y1)), minW = Math.min(...ly.map(f => f.w)), cyRow = (top + bot) / 2;
+  for (const f of ly) { f.ax = minW * 0.5; f.ay = cyRow - f.y0; }
+  SPR.st = st; SPR.ly = ly; SPR.k = SPR_H / st[0].h; SPR.ready = true;
+}
+function hexRgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function rgbHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; let h = 0, s = 0;
+  if (mx !== mn) { const d = mx - mn; s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; }
+  return [h, s, l];
+}
+function hslRgb(h, s, l) { const a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0) * 255, f(8) * 255, f(4) * 255]; }
+// versão do quadro com a jaqueta vermelha trocada pela cor do jogador (cache por cor)
+function sprFrame(f, color) {
+  if (!color) return f.cv;
+  if (f.t[color]) return f.t[color];
+  const tc = document.createElement('canvas'); tc.width = f.w; tc.height = f.h;
+  const t = tc.getContext('2d', { willReadFrequently: true }); t.drawImage(f.cv, 0, 0);
+  const im = t.getImageData(0, 0, f.w, f.h), p = im.data, th = rgbHsl(...hexRgb(color))[0];
+  for (let i = 0; i < p.length; i += 4) {
+    if (!p[i + 3]) continue;
+    const [h, s, l] = rgbHsl(p[i], p[i + 1], p[i + 2]);
+    if ((h < 16 || h > 340) && s > 0.4 && l > 0.08) { const [r, g, b] = hslRgb(th, s, l); p[i] = r; p[i + 1] = g; p[i + 2] = b; }
+  }
+  t.putImageData(im, 0, 0); return (f.t[color] = tc);
+}
+function drawWeaponOverlay(p, st, ang, now) {
+  const wt = p.w; if (!wt) return;
+  const wd = WEAPONS[wt]; ctx.save(); ctx.translate(0, -10);
+  if (wd.melee) {
+    const sp = Math.min(1, (now - st.sw0) / 200), a = sp < 1 ? (-wd.arc / 2 + sp * wd.arc) : -0.6;
+    ctx.rotate(ang + a); ctx.translate(10, 0);
+  } else { ctx.rotate(ang); ctx.translate(11 - st.recoil * 5, 0); }
+  ctx.scale(1.1, 1.1); drawWeaponSprite(wt); ctx.restore();
+}
+function drawPlayerSpr(p, x, y, ang, isMe, now) {
+  const st = animOf(p.id), k = SPR.k, col = jacketOf(p.id, isMe), S = SPR.st, F = i => S[Math.min(i, S.length - 1)];
+  if (!st.lx && !st.ly) { st.lx = x; st.ly = y; }
+  const mvx = x - st.lx, sp = Math.hypot(mvx, y - st.ly); st.lx = x; st.ly = y;
+  st.walk += sp * 0.14; st.recoil = Math.max(0, st.recoil - 0.12); st.hurt = Math.max(0, (st.hurt || 0) - 0.08);
+  st.mv = (st.mv || 0) + (Math.min(1, sp / 3) - (st.mv || 0)) * 0.25;
+  const ca = Math.cos(ang); if (!st.face) st.face = 1; if (Math.abs(ca) > 0.18) st.face = ca > 0 ? 1 : -1;
+  ctx.save(); ctx.translate(x, y); ctx.imageSmoothingEnabled = false;
+  // sombra + anel da cor do jogador sob os pés
+  ctx.fillStyle = 'rgba(0,0,0,.42)'; ctx.beginPath(); ctx.ellipse(0, 22, 21, 8, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = col; ctx.globalAlpha = 0.75; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(0, 22, 23, 9, 0, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
+  if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.4)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(0, 22, 29, 12, 0, 0, TAU); ctx.stroke(); }
+  if (p.dn) { // caído no chão (atordoado): quadro deitado + anel de recuperação
+    const f = SPR.ly[0]; ctx.save(); ctx.translate(0, 8); ctx.rotate(ang); ctx.globalAlpha = 0.95;
+    ctx.drawImage(sprFrame(f, col), -f.ax * k, -f.ay * k, f.w * k, f.h * k); ctx.restore();
+    const kk = 1 - Math.max(0, p.dt) / DOWN_TIME;
+    ctx.strokeStyle = '#ffe600'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 8, 30, -Math.PI / 2, -Math.PI / 2 + TAU * kk); ctx.stroke();
+    ctx.fillStyle = '#fff6a0'; for (let i = 0; i < 3; i++) { const a = now / 180 + i * 2.1; ctx.fillRect(Math.cos(a) * 18 - 2, Math.sin(a) * 8 - 30, 4, 4); }
+    ctx.restore(); return;
+  }
+  const wt = p.w, wd = wt ? WEAPONS[wt] : null, gun = wt && !wd.melee, swinging = now - st.sw0 < 220;
+  let f = F(0), flip = st.face;
+  if (p.hz > 0) f = F(2);                                   // curando: braços abertos
+  else if (swinging) f = wt ? F(3) : F(2);                  // golpe: braços erguidos / soco
+  else if (gun && st.recoil > 0.45) f = F(1);               // tiro: pose de mira
+  else if (st.mv > 0.3) { const step = Math.floor(st.walk / Math.PI) % 2; f = step ? F(4) : F(0); if (step && !SPR_WALK_FACES_RIGHT) flip = -flip; }
+  const bob = st.mv > 0.3 ? Math.abs(Math.sin(st.walk)) * 3.4 : Math.sin(now / 420 + p.sl) * 0.9;
+  const lean = Math.sign(mvx) * st.mv * 0.09, pop = 1 + st.recoil * 0.05 + st.hurt * 0.08;
+  const behind = Math.sin(ang) < -0.3;
+  if (behind) drawWeaponOverlay(p, st, ang, now);
+  ctx.save(); ctx.translate(0, 22 - bob); ctx.rotate(lean); ctx.scale(flip * pop, 2 - pop);
+  const img = sprFrame(f, col); ctx.drawImage(img, -f.ax * k, -f.ay * k, f.w * k, f.h * k);
+  if (st.hurt > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = st.hurt * 0.7; ctx.drawImage(img, -f.ax * k, -f.ay * k, f.w * k, f.h * k); }
+  ctx.restore();
+  if (!behind) drawWeaponOverlay(p, st, ang, now);
+  ctx.restore();
+}
+function drawCorpseSpr(c) {
+  const now = performance.now(), k = SPR.k; if (!c.t0) c.t0 = now;
+  const age = now - c.t0, n = DEATH_SEQ.length, idx = Math.floor(age / DEATH_MS);
+  const f = SPR.ly[Math.min(idx < n ? DEATH_SEQ[idx] : 0, SPR.ly.length - 1)];
+  if (!c.blobs) { c.blobs = []; for (let i = 0; i < 9; i++) c.blobs.push({ ox: (Math.random() - .5) * 34 + Math.cos(c.a) * 10, oy: (Math.random() - .5) * 34 + Math.sin(c.a) * 10, r: 9 + Math.random() * 13 }); }
+  // poça de sangue crescendo sob o corpo; depois de pronta vira marca permanente no chão
+  const gr = Math.min(1, age / 1400), e = 1 - Math.pow(1 - gr, 3);
+  if (gr < 1) {
+    ctx.save(); ctx.translate(c.x, c.y);
+    for (const b of c.blobs) { ctx.fillStyle = 'rgba(140,8,32,.82)'; ctx.beginPath(); ctx.arc(b.ox * e, b.oy * e, b.r * e, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = 'rgba(255,90,110,.18)'; ctx.beginPath(); ctx.ellipse(-4 * e, -4 * e, 14 * e, 8 * e, 0.5, 0, TAU); ctx.fill(); ctx.restore();
+  } else if (!c.pooled && dctx) {
+    c.pooled = true;
+    for (const b of c.blobs) { dctx.fillStyle = 'rgba(140,8,32,.82)'; dctx.beginPath(); dctx.arc(c.x + b.ox, c.y + b.oy, b.r, 0, TAU); dctx.fill(); }
+    dctx.fillStyle = 'rgba(255,90,110,.18)'; dctx.beginPath(); dctx.ellipse(c.x - 4, c.y - 4, 14, 8, 0.5, 0, TAU); dctx.fill();
+  }
+  const pop = age < 150 ? 1 + (1 - age / 150) * 0.2 : 1;
+  ctx.save(); ctx.translate(c.x, c.y); ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(2, 5, 40, 16, c.a, 0, TAU); ctx.fill();
+  ctx.rotate(c.a); ctx.scale(pop, pop);
+  ctx.drawImage(sprFrame(f, c.col), -f.ax * k, -f.ay * k, f.w * k, f.h * k);
+  ctx.restore();
+}
+
 function drawPlayer(p, x, y, ang, isMe, now) {
+  if (SPR.ready) return drawPlayerSpr(p, x, y, ang, isMe, now);
   const st = animOf(p.id);
   if (!st.lx && !st.ly) { st.lx = x; st.ly = y; }
   st.walk += Math.hypot(x - st.lx, y - st.ly) * 0.14; st.lx = x; st.ly = y;
@@ -671,6 +842,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.restore();
 }
 function drawCorpse(c) {
+  if (SPR.ready) return drawCorpseSpr(c);
   ctx.save(); ctx.translate(c.x, c.y); ctx.scale(CHAR_SCALE, CHAR_SCALE); ctx.rotate(c.a);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(2, 4, 18, 14, 0, 0, TAU); ctx.fill();
   drawBody(c.sk, c.col || (c.mine ? '#10c6e8' : '#ff2e97'), true);
@@ -711,6 +883,8 @@ function updateFx(dt) {
   for (const l of fx.lights) l.t -= d; fx.lights = fx.lights.filter(l => l.t > 0);
   for (const s of fx.slashes) s.t -= d; fx.slashes = fx.slashes.filter(s => s.t > 0);
   for (const c of fx.corpses) {
+    // esguicho de sangue nos primeiros instantes da morte
+    if (c.t0 && performance.now() - c.t0 < 600 && Math.random() < 0.6) addBlood(c.x, c.y, c.a + Math.PI + (Math.random() - .5), 2, 170);
     if (Math.abs(c.vx) + Math.abs(c.vy) > 8) {
       c.x += c.vx * d; c.y += c.vy * d;
       if (level && level.solidAt(c.x, c.y)) { c.x -= c.vx * d; c.y -= c.vy * d; c.vx = c.vy = 0; }
@@ -821,7 +995,7 @@ function render(now, dt) {
   updateHud(now);
 }
 function drawHpBar(x, y, hp, mine) {
-  y -= 14 * (CHAR_SCALE - 1);
+  y -= 14 * (CHAR_SCALE - 1) + (SPR.ready ? 22 : 0);
   const k = Math.max(0, Math.min(1, hp / MAX_HP)), w = 44;
   ctx.fillStyle = 'rgba(10,0,20,.85)'; ctx.fillRect(x - w / 2 - 1.5, y - 37, w + 3, 8);
   ctx.fillStyle = k > 0.3 ? (mine ? '#00e5ff' : '#ff2e97') : '#ffe600'; ctx.fillRect(x - w / 2, y - 35.5, w * k, 5);
@@ -829,7 +1003,7 @@ function drawHpBar(x, y, hp, mine) {
 // barra de cura: barra verde carregando acima da cabeça
 function drawHealBar(x, y, hz, now) {
   if (!(hz > 0)) return;
-  y -= 14 * (CHAR_SCALE - 1);
+  y -= 14 * (CHAR_SCALE - 1) + (SPR.ready ? 22 : 0);
   const k = Math.max(0, Math.min(1, 1 - hz / HEAL_TIME)), w = 56;
   ctx.save();
   ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 56, w + 4, 11);
@@ -939,6 +1113,8 @@ function frame(now) {
   render(now, paused ? 0 : dt);
 }
 requestAnimationFrame(frame);
+
+loadSprites();
 
 // Esc: só pausa quando o menu inicial NÃO está aberto
 addEventListener('keydown', e => {
