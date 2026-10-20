@@ -33,41 +33,87 @@
      Todos os mapas são simétricos (rotação de 180°) => 1v1 justo.
      Tudo que se define é espelhado automaticamente. 1 = parede, 2 = porta.   */
   const MAPS = {}, MAP_IDS = [];
+  // Tiles: 0 = livre, 1 = parede, 2 = porta, 3 = móvel (sólido, só muda o desenho).
   function buildMap(id, name, theme, def) {
-    const W = 32, H = 20, g = [];
-    for (let y = 0; y < H; y++) g.push(new Array(W).fill(0));
+    const W = 32, H = 20, g = [], fl = [];
+    for (let y = 0; y < H; y++) { g.push(new Array(W).fill(0)); fl.push(new Array(W).fill(theme.base)); }
     const set = (x, y, v) => { g[y][x] = v; g[H - 1 - y][W - 1 - x] = v; };
     const rect = (x1, y1, x2, y2, v = 1) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) set(x, y, v); };
-    const spawn = [], wp = []; let pair = 0;
+    const spawn = [], wp = [], furn = [], rugs = []; let pair = 0;
+    const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
     def({
       rect,
       spawn: (x, y) => { spawn[0] = [x, y]; spawn[1] = [W - 1 - x, H - 1 - y]; },
-      weapon: (x, y, k) => { wp.push({ x, y, k, pair }); wp.push({ x: W - 1 - x, y: H - 1 - y, k, pair }); pair++; }
+      weapon: (x, y, k) => { wp.push({ x, y, k, pair }); wp.push({ x: W - 1 - x, y: H - 1 - y, k, pair }); pair++; },
+      // móvel sólido (w x h tiles). O espelho de 180° é criado automaticamente.
+      furn: (x, y, w, h, k, o = {}) => {
+        const a = Object.assign({ x, y, w, h, k, r: 0 }, o), b = Object.assign({}, a, { x: W - x - w, y: H - y - h, r: 2 });
+        furn.push(a); if (!same(a, b)) furn.push(b);
+        for (const f of (same(a, b) ? [a] : [a, b])) for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) g[j][i] = 3;
+      },
+      // tapete (decoração sem colisão)
+      rug: (x, y, w, h, col) => {
+        const a = { x, y, w, h, col }, b = { x: W - x - w, y: H - y - h, w, h, col };
+        rugs.push(a); if (!same(a, b)) rugs.push(b);
+      },
+      // tipo de piso de uma região
+      floor: (x1, y1, x2, y2, kind) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) { fl[y][x] = kind; fl[H - 1 - y][W - 1 - x] = kind; } }
     });
-    MAPS[id] = { id, name, theme, W, H, g, spawn, wp };
+    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs };
     MAP_IDS.push(id);
   }
 
-  buildMap('OFFICE', 'ESCRITÓRIO', { a: '#00e5ff', b: '#ff2e97', f1: '#1a1530', f2: '#1f1938' }, m => {
-    m.rect(0, 0, 31, 0); m.rect(0, 0, 0, 19);
-    m.rect(10, 0, 10, 19);                   // parede esquerda do corredor
-    m.rect(10, 4, 10, 4, 2); m.rect(10, 14, 10, 14, 2);
-    m.rect(10, 9, 10, 10, 0);                // abertura
-    m.rect(1, 9, 9, 9); m.rect(5, 9, 5, 9, 2);
-    m.rect(14, 4, 15, 5);                    // coberturas no corredor
-    m.rect(13, 9, 14, 9);
-    m.spawn(4, 4);
-    m.weapon(2, 6, 'M'); m.weapon(8, 2, 'G'); m.weapon(8, 15, 'R');
-    m.weapon(2, 17, 'M'); m.weapon(14, 1, 'G'); m.weapon(12, 10, 'R');
+  // ---- CASA: quartos, banheiro e sala/cozinha no meio.
+  buildMap('HOUSE', 'CASA', { base: 'wood', wall: '#efe4cf', wallTop: '#fbf4e4', edge: '#5a4632', out: '#1c2128' }, m => {
+    m.rect(0, 0, 31, 0); m.rect(0, 0, 0, 19);          // paredes externas
+    m.rect(10, 1, 10, 18);                             // divisória esquerda da sala
+    m.rect(1, 9, 9, 9);                                // divisória quarto / banheiro
+    m.rect(10, 4, 10, 4, 2); m.rect(10, 14, 10, 14, 2); m.rect(5, 9, 5, 9, 2);   // portas
+    m.rect(10, 9, 10, 10, 0);                          // passagem larga
+    // pisos
+    m.floor(1, 1, 9, 8, 'carpet');                     // quarto
+    m.floor(1, 10, 9, 18, 'tile');                     // banheiro
+    m.floor(11, 1, 20, 5, 'ktile');                    // cozinha
+    // QUARTO
+    m.rug(3, 4, 5, 3, '#b8574a');
+    m.furn(1, 1, 2, 3, 'bed'); m.furn(3, 1, 1, 1, 'nightstand');
+    m.furn(5, 1, 3, 1, 'wardrobe'); m.furn(9, 1, 1, 1, 'plant');
+    m.furn(8, 8, 2, 1, 'desk');
+    // BANHEIRO
+    m.rug(3, 13, 5, 3, '#6fb8b4');
+    m.furn(1, 10, 3, 1, 'tub'); m.furn(8, 10, 1, 1, 'toilet'); m.furn(9, 10, 1, 1, 'sink');
+    m.furn(1, 18, 1, 1, 'washer'); m.furn(2, 18, 1, 1, 'washer'); m.furn(6, 18, 3, 1, 'shelf');
+    m.furn(9, 18, 1, 1, 'plant'); m.furn(5, 14, 2, 1, 'bench');
+    // SALA + COZINHA
+    m.rug(12, 8, 8, 4, '#3f5f8a');
+    m.furn(11, 1, 3, 1, 'counter'); m.furn(14, 1, 1, 1, 'fridge');
+    m.furn(13, 4, 2, 2, 'dining');
+    m.furn(14, 7, 4, 1, 'sofa');
+    m.furn(15, 9, 2, 2, 'coffee');
+    m.furn(11, 7, 1, 2, 'bookshelf');
+    m.furn(11, 17, 1, 1, 'plant'); m.furn(20, 8, 1, 1, 'plant');
+    m.spawn(4, 5);
+    m.weapon(3, 7, 'M'); m.weapon(2, 16, 'M');
+    m.weapon(8, 3, 'G'); m.weapon(12, 6, 'G');
+    m.weapon(8, 16, 'R'); m.weapon(13, 10, 'R');
   });
 
-  buildMap('CLUB', 'CASA NOTURNA', { a: '#ff2e97', b: '#ffe600', f1: '#241030', f2: '#2c1438' }, m => {
-    m.rect(0, 0, 31, 0); m.rect(0, 0, 0, 19);
-    m.rect(8, 6, 23, 6); m.rect(8, 6, 8, 13);   // prédio central
-    m.rect(15, 6, 15, 6, 2); m.rect(8, 9, 8, 9, 2);
-    m.rect(8, 11, 8, 11, 0);
-    m.rect(13, 9, 14, 9);                       // cobertura interna
-    m.rect(3, 3, 4, 4); m.rect(12, 2, 13, 3); m.rect(3, 14, 3, 16);
+  // ---- CASA COM QUINTAL: casa no meio, jardim com piscina em volta.
+  buildMap('YARD', 'CASA COM QUINTAL', { base: 'grass', wall: '#efe4cf', wallTop: '#fbf4e4', edge: '#5a4632', out: '#142418', hedge: true }, m => {
+    m.rect(0, 0, 31, 0); m.rect(0, 0, 0, 19);          // cerca viva
+    m.rect(8, 6, 23, 6); m.rect(8, 6, 8, 13);          // paredes da casa
+    m.rect(15, 6, 15, 6, 2); m.rect(8, 9, 8, 9, 2);    // portas
+    m.rect(8, 11, 8, 11, 0);                           // passagem
+    m.floor(9, 7, 22, 12, 'wood');
+    m.floor(15, 1, 16, 5, 'path'); m.floor(2, 2, 6, 5, 'deck');
+    // casa
+    m.rug(12, 8, 8, 4, '#a34a5e');
+    m.furn(10, 7, 1, 1, 'fridge'); m.furn(11, 7, 3, 1, 'counter');
+    m.furn(9, 7, 1, 1, 'plant');
+    m.furn(12, 10, 4, 1, 'sofa'); m.furn(13, 12, 2, 1, 'tv');
+    // quintal
+    m.furn(3, 3, 3, 2, 'pool'); m.furn(12, 2, 2, 2, 'tree');
+    m.furn(3, 14, 1, 3, 'hedge'); m.furn(8, 15, 1, 1, 'bbq');
     m.spawn(2, 9);
     m.weapon(2, 5, 'M'); m.weapon(5, 10, 'G'); m.weapon(10, 8, 'R');
     m.weapon(13, 4, 'R'); m.weapon(6, 17, 'M'); m.weapon(11, 16, 'G');
@@ -411,7 +457,7 @@
         const nx = cx + ox, ny = cy + oy;
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         const k = ny * W + nx;
-        if (prev[k] >= 0 || L.g[ny][nx] === 1) continue;
+        if (prev[k] >= 0 || L.g[ny][nx] === 1 || L.g[ny][nx] === 3) continue;
         prev[k] = c; q.push(k);
       }
     }
