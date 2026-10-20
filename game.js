@@ -763,6 +763,9 @@ function render(now, dt) {
     ctx.beginPath(); ctx.moveTo(x - b[3] / l * tl, y - b[4] / l * tl); ctx.lineTo(x, y); ctx.stroke();
   }
   ctx.shadowBlur = 0;
+  // paredes antes dos personagens: evita que a camada de paredes cubra o sprite
+  ctx.drawImage(wallCv, 0, 0);
+
   // jogadores
   let enemyVisible = false;
   if (en && en.al) {
@@ -789,8 +792,7 @@ function render(now, dt) {
     ctx.fillStyle = g; ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
   }
   ctx.globalCompositeOperation = 'source-over';
-  if (me && me.al) drawVision();
-  ctx.drawImage(wallCv, 0, 0);
+  // Névoa escura desativada; personagens permanecem visíveis.
 
   // tela
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
