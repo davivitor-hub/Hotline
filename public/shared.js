@@ -17,6 +17,8 @@
   const EXEC_MULT = 3;     // multiplicador do golpe corpo a corpo em quem está caído no chão
   const THROW_DMG = 10;    // % tirado por arma arremessada que acerta
   const DOOR_DMG = 10;     // % tirado por porta na cara
+  const HEAL_PCT = 30;     // % da vida máxima que a cura devolve
+  const HEAL_USES = 1;     // curas disponíveis por rodada
 
   /* ---------------------------------------------------------------- ARMAS */
   const WEAPONS = {
@@ -205,7 +207,7 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0) return null;
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
-        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1 };
+        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, heals: HEAL_USES };
       this.players[slot] = p;
       if (this.phase === 'waiting' || !this.level) {
         // sala vazia/aguardando: começa assim que houver o mínimo de jogadores
@@ -235,7 +237,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false;
+      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.heals = HEAL_USES;
     }
     startMatch() { for (const p of this.players) if (p) p.score = 0; this.round = 0; this.startRound(); }
     startRound() {
@@ -267,6 +269,7 @@
       if (this.phase === 'live' && p.alive && !p.down) {
         if (inp.pk) this.pickup(p);
         if (inp.th) this.throwWeapon(p);
+        if (inp.hl) this.heal(p);
       }
       if (canMove(this.phase, p.alive, p.down)) {
         const dd = Math.min(dt, 0.05, p.budget);
@@ -365,6 +368,14 @@
       if (!p.weapon) return;
       this.addItem(p.weapon.type, p.x, p.y, vx * 0.5 + (Math.random() - 0.5) * 60, vy * 0.5 + (Math.random() - 0.5) * 60, p.weapon.ammo);
       p.weapon = null;
+    }
+    // Cura: devolve HEAL_PCT% da vida máxima (limitado ao máximo). Usos limitados por rodada.
+    heal(p) {
+      if (!p.alive || p.down || p.heals <= 0 || p.hp >= MAX_HP) return false;
+      p.heals--;
+      p.hp = Math.min(MAX_HP, p.hp + MAX_HP * HEAL_PCT / 100);
+      this.events.push({ t: 'heal', id: p.id, x: p.x, y: p.y, hp: Math.round(p.hp) });
+      return true;
     }
     pickup(p) {
       let best = null, bd = 46;
@@ -474,7 +485,7 @@
         map: this.level ? this.level.id : null, win: this.winner,
         pl: this.players.filter(Boolean).map(p => ({
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
-          hp: Math.round(p.hp), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
+          hp: Math.round(p.hp), hs: p.heals, al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, bot: p.bot ? 1 : 0
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy)]),
@@ -601,9 +612,10 @@
       this.ang += Math.max(-m, Math.min(m, angDiff(wantAng, this.ang)));
       let k = 0;
       if (mx > 0.3) k |= 8; if (mx < -0.3) k |= 2; if (my > 0.3) k |= 4; if (my < -0.3) k |= 1;
-      g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th }, dt);
+      const hl = me.heals > 0 && me.hp <= MAX_HP * 0.4 ? 1 : 0;   // bot se cura quando a vida baixa de 40%
+      g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th, hl }, dt);
     }
   }
 
-  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_USES, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });

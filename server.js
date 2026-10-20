@@ -112,7 +112,7 @@ wss.on('connection', (ws) => {
 
     if (m.type === 'join') {
       if (c.p) return;
-      if (game.count >= 2) return send(ws, { type: 'full' });
+      if (game.count >= S.MAX_PLAYERS) return send(ws, { type: 'full' });
 
       const skin = SKINS.includes(m.skin) ? m.skin : 'ROOSTER';
       const name = String(m.name || 'JOGADOR').replace(/[<>]/g, '').slice(0, 14);
@@ -124,7 +124,7 @@ wss.on('connection', (ws) => {
       }
 
       send(ws, { type: 'joined', id: c.id, slot: c.p.slot });
-      console.log(`${name} entrou (${c.id}); jogadores: ${game.count}/2`);
+      console.log(`${name} entrou (${c.id}); jogadores: ${game.count}/${S.MAX_PLAYERS}`);
       return;
     }
 
@@ -141,7 +141,8 @@ wss.on('connection', (ws) => {
         f: m.f ? 1 : 0,
         fp: m.fp ? 1 : 0,
         pk: m.pk ? 1 : 0,
-        th: m.th ? 1 : 0
+        th: m.th ? 1 : 0,
+        hl: m.hl ? 1 : 0
       }, Math.max(0, Math.min(0.05, dt)));
       return;
     }
@@ -152,7 +153,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (c.p) {
       game.removePlayer(c.id);
-      console.log(`${c.id} saiu; jogadores: ${game.count}/2`);
+      console.log(`${c.id} saiu; jogadores: ${game.count}/${S.MAX_PLAYERS}`);
     }
     clients.delete(ws);
   });

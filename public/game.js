@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP } = Shared;
+const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, MAX_PLAYERS, MIN_PLAYERS } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -31,7 +31,7 @@ let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
 let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
-let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false }, edge = { fp: false, pk: false, th: false };
+let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false }, edge = { fp: false, pk: false, th: false, hl: false };
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], corpses: [], flash: 0, red: 0 };
 let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null;
@@ -107,6 +107,7 @@ function sfx(n, x, y) {
     case 'go': osc(d, 'sawtooth', 220, t, 0.35, 0.4, 660); osc(d, 'square', 330, t, 0.35, 0.2, 990); break;
     case 'end': osc(d, 'triangle', 440, t, 0.4, 0.4, 220); break;
     case 'tick': osc(d, 'square', 880, t, 0.06, 0.2); break;
+    case 'heal': osc(d, 'sine', 520, t, 0.25, 0.5 * v, 1040); osc(d, 'triangle', 780, t + 0.08, 0.25, 0.35 * v, 1560); break;
   }
 }
 
@@ -161,7 +162,7 @@ function startOnline() {
     let m; try { m = JSON.parse(e.data); } catch { return; }
     if (m.type === 'welcome') myId = m.id;
     else if (m.type === 'joined') hideMenu();
-    else if (m.type === 'full') { closeAll(); showMenu('A sala está cheia (2 jogadores). Tente de novo em instantes.'); }
+    else if (m.type === 'full') { closeAll(); showMenu('A sala está cheia (' + MAX_PLAYERS + ' jogadores). Tente de novo em instantes.'); }
     else if (m.type === 's') onSnapshot(m);
     else if (m.type === 'pong') pingMs = Math.round(performance.now() - m.t);
   };
@@ -175,7 +176,7 @@ function startLocal(diff) {
   const keysSk = Object.keys(SKINS).filter(k => k !== cfg.skin);
   const bot = g.addPlayer('bot', 'BOT ' + ({ EASY: 'fácil', NORMAL: 'normal', HARD: 'difícil' }[diff] || ''), keysSk[Math.floor(Math.random() * keysSk.length)]);
   bot.bot = true;
-  local = { g, me, bot: new Bot(g, 1, diff), t: 0 };
+  local = { g, me, bot: new Bot(g, bot.slot, diff), t: 0 };
   hideMenu();
 }
 function sendInput(inp) {
@@ -185,7 +186,13 @@ function sendInput(inp) {
 
 /* ------------------------------------------------------------- SNAPSHOT */
 const myState = () => (snap ? snap.pl.find(p => p.id === myId) : null);
-const enemyState = () => (snap ? snap.pl.find(p => p.id !== myId) : null);
+const foesOf = () => (snap ? snap.pl.filter(p => p.id !== myId) : []);
+// adversário em destaque no HUD: maior pontuação (empate: prefere o vivo)
+const enemyState = () => { let b = null; for (const p of foesOf()) if (!b || p.sc > b.sc || (p.sc === b.sc && p.al && !b.al)) b = p; return b; };
+// cor da jaqueta de cada adversário (ordem dos slots) para diferenciar até 6 inimigos
+const FOE_COLORS = ['#ff2e97', '#ff8a2b', '#7dff5a', '#b28cff', '#ffe600', '#ff5a5a'];
+let colorMap = {};
+const jacketOf = (id, isMe) => (isMe ? '#10c6e8' : (colorMap[id] || '#ff2e97'));
 
 function resetFx() {
   fx = { parts: [], lights: [], slashes: [], corpses: [], flash: 0, red: 0 };
@@ -417,6 +424,7 @@ function onSnapshot(s) {
   const now = performance.now();
   if (s.map !== mapId || s.rd !== round) newRound(s);
   snap = s; snapAt = now;
+  colorMap = {}; s.pl.filter(p => p.id !== myId).sort((a, b) => a.sl - b.sl).forEach((p, i) => { colorMap[p.id] = FOE_COLORS[i % FOE_COLORS.length]; });
   for (const e of s.ev) handleEvent(e, now);
   if (level) for (const [i, dir] of s.dr) { const d = level.doors[i]; if (d && !d.open) { level.openDoor(d, dir); d.openAt = now - 1000; } }
   buf.push({ t: now, pl: s.pl }); if (buf.length > 30) buf.shift();
@@ -469,7 +477,7 @@ function handleEvent(e, now) {
       const big = e.how === 'exec';
       addBlood(e.x, e.y, e.a, big ? 80 : 50, big ? 420 : 330);
       bloodPool(e.x, e.y, e.a, big);
-      fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId });
+      fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId, col: jacketOf(e.id, e.id === myId) });
       addShake(big ? 13 : 9); fx.flash = 0.35; hitstop = 0.09; zoomKick = 0.06;
       if (e.id === myId) fx.red = 0.6;
       break;
@@ -492,6 +500,11 @@ function handleEvent(e, now) {
     case 'wall':
       for (let i = 0; i < 3; i++) fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(e.a + Math.PI + (Math.random() - .5) * 2) * 220, vy: Math.sin(e.a + Math.PI + (Math.random() - .5) * 2) * 220, life: 0.14, sz: 5, col: '#9ff7ff' });
       if (Math.random() < 0.35) sfx('wall', e.x, e.y);
+      break;
+    case 'heal':
+      sfx('heal', e.x, e.y);
+      for (let i = 0; i < 14; i++) { const a = Math.random() * TAU; fx.parts.push({ k: 's', x: e.x + Math.cos(a) * 10, y: e.y + Math.sin(a) * 10, vx: Math.cos(a) * 90, vy: Math.sin(a) * 90 - 120, life: 0.5, sz: 4, col: '#7dff8a' }); }
+      fx.lights.push({ x: e.x, y: e.y, t: 0.3, r: 120, c: '90,255,140' });
       break;
     case 'pick': sfx('pick', e.x, e.y); break;
     case 'click': sfx('click', e.x, e.y); break;
@@ -524,12 +537,13 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'escape') return;
   if (!mode || paused) return;
-  if (['w', 'a', 's', 'd', 'e', 'f', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+  if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
   if (k === 'e') edge.pk = true;
   if (k === 'f') edge.th = true;
+  if (k === 'q') edge.hl = true;
   if (k === 'm') { cfg.music = !cfg.music; if (musG) musG.gain.value = cfg.music ? 0.17 : 0; $('optMusic').checked = cfg.music; saveCfg(); }
 });
 addEventListener('keyup', e => { const k = e.key.toLowerCase(); const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' }; keys[map[k] || k] = false; });
@@ -557,8 +571,8 @@ function doStep() {
 }
 function stepInput() {
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0 };
-  edge.fp = edge.pk = edge.th = false;
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0 };
+  edge.fp = edge.pk = edge.th = edge.hl = false;
   const me = myState();
   if (me && canMove(snap.ph, me.al, me.dn)) stepMove(level, pred, k, STEP);
   pending.push({ seq: inp.seq, dt: STEP, k }); if (pending.length > 120) pending.shift();
@@ -610,7 +624,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   if (!st.lx && !st.ly) { st.lx = x; st.ly = y; }
   st.walk += Math.hypot(x - st.lx, y - st.ly) * 0.14; st.lx = x; st.ly = y;
   st.recoil = Math.max(0, st.recoil - 0.12);
-  const jacket = isMe ? '#10c6e8' : '#ff2e97';
+  const jacket = jacketOf(p.id, isMe);
   ctx.save(); ctx.translate(x, y);
   if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); }
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill();
@@ -654,7 +668,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
 function drawCorpse(c) {
   ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(2, 4, 18, 14, 0, 0, TAU); ctx.fill();
-  drawBody(c.sk, c.mine ? '#10c6e8' : '#ff2e97', true);
+  drawBody(c.sk, c.col || (c.mine ? '#10c6e8' : '#ff2e97'), true);
   ctx.fillStyle = 'rgba(160,10,35,.85)'; circle(2, 0, 7); circle(-4, 5, 4);
   ctx.translate(-4, 0); drawHead(c.sk);
   ctx.fillStyle = 'rgba(160,10,35,.7)'; circle(1, 2, 5);
@@ -726,7 +740,7 @@ function drawIdle(now) {
 function render(now, dt) {
   if (!mode || !snap || !level || !levelCv) { drawIdle(now); updateHud(now); return; }
   updateFx(dt);
-  const me = myState(), en = enemyState(), alive = !me || me.al;
+  const me = myState(), alive = !me || me.al;
   Z = S * (1 + zoomKick);
   // câmera
   const look = keys[' '] ? 0.85 : 0.33, maxL = keys[' '] ? 520 : 290;
@@ -767,12 +781,11 @@ function render(now, dt) {
   ctx.drawImage(wallCv, 0, 0);
 
   // jogadores
-  let enemyVisible = false;
-  if (en && en.al) {
-    const ie = interpEnemy(en.id) || { x: en.x, y: en.y, a: en.a };
-    // Sem névoa no mapa, o inimigo é sempre desenhado (antes sumia atrás de móveis/paredes).
-    enemyVisible = true;
-    drawPlayer(en, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, en.hp ?? MAX_HP, false);
+  // Sem névoa no mapa, todos os adversários vivos são sempre desenhados.
+  for (const f of foesOf()) {
+    if (!f.al) continue;
+    const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
+    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false);
   }
   if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); }
 
@@ -821,7 +834,20 @@ function setHp(id, hp) {
   if (hudCache[id + 'w'] !== p) { hudCache[id + 'w'] = p; $(id).style.width = p + '%'; $(id).parentNode.classList.toggle('low', p <= 30); }
 }
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
-let bannerKey = '';
+let bannerKey = '', rosterKey = '';
+// lista de todos os jogadores com pontuação (vivo / caído)
+function updateRoster() {
+  const key = snap.pl.map(p => [p.id, p.nm, p.sc, p.al, p.sl].join(':')).join('|');
+  if (key === rosterKey) return; rosterKey = key;
+  const el = $('roster'); el.textContent = '';
+  for (const p of [...snap.pl].sort((a, b) => b.sc - a.sc || a.sl - b.sl)) {
+    const row = document.createElement('div'); row.className = 'rrow' + (p.al ? '' : ' dead') + (p.id === myId ? ' me' : '');
+    const dot = document.createElement('i'); dot.style.background = jacketOf(p.id, p.id === myId);
+    const nm = document.createElement('span'); nm.textContent = p.nm;
+    const sc = document.createElement('b'); sc.textContent = String(p.sc);
+    row.append(dot, nm, sc); el.appendChild(row);
+  }
+}
 function updateHud(now) {
   if (!snap) return;
   const me = myState(), en = enemyState();
@@ -829,7 +855,8 @@ function updateHud(now) {
   setText('s2n', en ? en.nm : '—'); setText('s2v', en ? String(en.sc) : '0');
   setHp('hp1', me ? me.hp : MAX_HP); setHp('hp2', en ? en.hp : MAX_HP);
   setText('rdTxt', snap.rd ? `Rodada ${snap.rd}` : 'Sala'); 
-  setText('pingTxt', mode === 'online' ? `${pingMs} ms` : 'treino · offline');
+  setText('pingTxt', mode === 'online' ? `${pingMs} ms · ${snap.pl.length}/${MAX_PLAYERS} jogadores` : 'treino · offline');
+  updateRoster();
   if (me) {
     const wd = me.w ? WEAPONS[me.w] : null;
     setText('wName', (wd ? wd.name : 'Mãos') + ' · ' + (wd ? wd.dmg : WEAPONS.FISTS.dmg) + '%' + (wd && wd.pellets > 1 ? ' x' + wd.pellets : ''));
@@ -840,23 +867,24 @@ function updateHud(now) {
     else if (wd && !wd.melee && me.am <= 0) hint = 'Vazia: arremesse com o botão direito';
     else if (wd) hint = 'Botão direito arremessa';
     else hint = 'Soco derruba; golpe no chão dá dano extra';
+    if (me.al) hint += (hint ? ' · ' : '') + `Q cura ${HEAL_PCT}% (${me.hs ?? 0})`;
     setText('wHint', hint);
   }
   // banner
   let t = '', s = '', cls = '';
   const mySlot = me ? me.sl : 0;
   switch (snap.ph) {
-    case 'waiting': t = 'Aguardando'; s = 'Esperando um adversário entrar na sala…'; break;
+    case 'waiting': t = 'Aguardando'; s = `Esperando jogadores (${snap.pl.length}/${MAX_PLAYERS}). A partida começa com ${MIN_PLAYERS} ou mais.`; break;
     case 'countdown': t = String(Math.max(1, Math.ceil(snap.tm))); s = `Rodada ${snap.rd} · ${MAPS[snap.map] ? MAPS[snap.map].name : ''}`; break;
     case 'live': if (now < goUntil) t = 'Vai!'; break;
     case 'over':
-      if (snap.win === -1) { t = 'Empate'; s = 'Os dois caíram.'; }
+      if (snap.win === -1) { t = 'Empate'; s = 'Todos caíram.'; }
       else if (snap.win === mySlot) { t = 'Rodada sua'; cls = 'win'; s = 'Prepare-se para a próxima.'; }
-      else { t = 'Você morreu'; cls = 'lose'; s = 'Prepare-se para a próxima.'; }
+      else { const w = snap.pl.find(p => p.sl === snap.win); t = 'Você morreu'; cls = 'lose'; s = (w ? w.nm + ' venceu a rodada. ' : '') + 'Prepare-se para a próxima.'; }
       break;
     case 'matchover':
       if (snap.win === mySlot) { t = 'Vitória!'; cls = 'win'; } else { t = 'Derrota'; cls = 'lose'; }
-      s = `${me ? me.sc : 0} a ${en ? en.sc : 0} · nova partida em instantes`; break;
+      { const w = snap.pl.find(p => p.sl === snap.win); s = `${w ? w.nm + ' venceu a partida · ' : ''}nova partida em instantes`; } break;
   }
   const key = t + '|' + s + '|' + cls;
   const b = $('banner');
