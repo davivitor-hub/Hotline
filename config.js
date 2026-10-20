@@ -1,1 +1,0 @@
-window.PONG_SERVER_URL = 'https://pong-neon-arena.onrender.com';
