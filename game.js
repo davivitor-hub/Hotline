@@ -1,6 +1,6 @@
 'use strict';
 /* ==========================================================================
-   NEON DUEL — cliente
+   7 SHADOWS — cliente
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
@@ -22,9 +22,9 @@ const SKINS = {
 };
 
 /* --------------------------------------------------------------- CONFIG */
-function loadCfg() { try { return JSON.parse(localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
+function loadCfg() { try { return JSON.parse(localStorage.getItem('7shadows') || localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
 const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
-function saveCfg() { try { localStorage.setItem('neonduel', JSON.stringify(cfg)); } catch { } }
+function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg)); } catch { } }
 if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
 
 /* ---------------------------------------------------------------- ESTADO */
@@ -1489,10 +1489,10 @@ function drawIntro(t, dt) {
     const cx = W / 2, cy = H * 0.3, fs = Math.min(W * 0.1, H * 0.14), sc2 = 1 + (1 - k) * 0.9;
     ic.save(); ic.translate(cx, cy + Math.sin(t * 2) * 3); ic.scale(sc2, sc2); ic.globalAlpha = k;
     ic.font = `400 ${fs}px Bungee, Impact, sans-serif`; ic.lineJoin = 'round';
-    ic.fillStyle = '#7a2cff'; ic.fillText('NEON', 5, -fs * 0.55 + 5);
-    ic.fillStyle = '#00e5ff'; ic.shadowColor = '#00e5ff'; ic.shadowBlur = 30; ic.fillText('NEON', 0, -fs * 0.55); ic.shadowBlur = 0;
-    ic.fillStyle = '#ffe600'; ic.fillText('DUEL', 5, fs * 0.55 + 5);
-    ic.fillStyle = '#ff2e97'; ic.shadowColor = '#ff2e97'; ic.shadowBlur = 30; ic.fillText('DUEL', 0, fs * 0.55); ic.shadowBlur = 0;
+    ic.fillStyle = '#7a2cff'; ic.fillText('7', 5, -fs * 0.55 + 5);
+    ic.fillStyle = '#00e5ff'; ic.shadowColor = '#00e5ff'; ic.shadowBlur = 30; ic.fillText('7', 0, -fs * 0.55); ic.shadowBlur = 0;
+    ic.fillStyle = '#ffe600'; ic.fillText('SHADOWS', 5, fs * 0.55 + 5);
+    ic.fillStyle = '#ff2e97'; ic.shadowColor = '#ff2e97'; ic.shadowBlur = 30; ic.fillText('SHADOWS', 0, fs * 0.55); ic.shadowBlur = 0;
     ic.restore();
     const a2 = iEase((t - 8.6) / 0.8);
     if (a2 > 0) { ic.save(); ic.globalAlpha = a2; ic.font = `700 ${Math.round(Math.max(16, H * 0.034))}px Rajdhani, sans-serif`; ic.fillStyle = '#ffe600'; ic.lineWidth = 4; ic.strokeStyle = '#000'; const s2 = 'Entre pela porta e faça a sua jogada.'; ic.strokeText(s2, cx, H * 0.3 + fs * 1.35); ic.fillText(s2, cx, H * 0.3 + fs * 1.35); ic.restore(); }
