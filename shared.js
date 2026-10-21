@@ -58,6 +58,30 @@
     for (const k of RARITY_KEYS) { r -= RARITY[k]; if (r <= 0) return k; }
     return RARITY_KEYS[0];
   }
+  // Cor aleatória por jogador: sorteia um matiz que não seja parecido com o dos outros
+  function hslHex(h, sat, l) {
+    h = ((h % 360) + 360) % 360; sat /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12, a = sat * Math.min(l, 1 - l), f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const x = v => Math.round(v * 255).toString(16).padStart(2, '0');
+    return '#' + x(f(0)) + x(f(8)) + x(f(4));
+  }
+  function hexHue(hex) {
+    const n = parseInt(hex.slice(1), 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+    if (!d) return 0;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  }
+  function randomColor(used) {
+    const hues = (used || []).filter(Boolean).map(hexHue);
+    let best = 0, bestD = -1;
+    for (let i = 0; i < 24; i++) {
+      const h = Math.random() * 360;
+      const dist = hues.reduce((m, u) => Math.min(m, Math.abs(((h - u + 540) % 360) - 180)), 180);
+      if (dist > bestD) { bestD = dist; best = h; }
+      if (dist >= 40) break;
+    }
+    return hslHex(best, 72 + Math.random() * 23, 52 + Math.random() * 8);
+  }
   const pick = a => a[Math.floor(Math.random() * a.length)];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -252,7 +276,7 @@
     addPlayer(id, name, skin) {
       const slot = this.players.findIndex(q => !q);
       if (slot < 0) return null;
-      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
+      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
         weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0 };
       this.players[slot] = p;
       if (this.phase === 'waiting' || this.phase === 'lobby' || !this.level) {
@@ -636,7 +660,7 @@
         type: 's', ph: this.phase, tm: Math.max(0, +this.timer.toFixed(2)), rd: this.round,
         map: this.level ? this.level.id : null, win: this.winner, host: this.hostId(),
         pl: this.players.filter(Boolean).map(p => ({
-          id: p.id, sl: p.slot, nm: p.name, sk: p.skin, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
+          id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1
         })),
@@ -771,5 +795,5 @@
     }
   }
 
-  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, BLADE_CHANCE, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, BLADE_CHANCE, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });
