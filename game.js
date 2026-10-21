@@ -90,16 +90,22 @@ function schedule() {
    Todos os nomes giram em torno da AURA. 'file: null' = sintetizador original do jogo. */
 const TRACKS = [
   { id: 'synth',      name: 'Aura Neon',          sub: 'Synthwave original do duelo', file: null },
-  { id: 'batalha',    name: 'Batalha de Aura',    sub: 'Rap, quem tem mais aura vence', file: 'music/aura-batalha.mp3' },
-  { id: 'hidrogenio', name: 'Aura de Hidrogênio', sub: 'Eletrônica pesada e acelerada', file: 'music/aura-hidrogenio.mp3' },
-  { id: 'tribunal',   name: 'Aura do Tribunal',   sub: 'Tensão de quem vai ser julgado', file: 'music/aura-tribunal.mp3' },
-  { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: 'music/aura-sombria.mp3' }
+  { id: 'batalha',    name: 'Batalha de Aura',    sub: 'Rap, quem tem mais aura vence', file: ['music/aura-batalha.mp3', 'aura-batalha.mp3', 'Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3', 'music/Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3'] },
+  { id: 'hidrogenio', name: 'Aura de Hidrogênio', sub: 'Eletrônica pesada e acelerada', file: ['music/aura-hidrogenio.mp3', 'aura-hidrogenio.mp3', 'M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3', 'music/M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3'] },
+  { id: 'tribunal',   name: 'Aura do Tribunal',   sub: 'Tensão de quem vai ser julgado', file: ['music/aura-tribunal.mp3', 'aura-tribunal.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3'] },
+  { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: ['music/aura-sombria.mp3', 'aura-sombria.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3'] }
 ];
 if (!TRACKS.some(t => t.id === cfg.track)) cfg.track = 'synth';
 if (!(cfg.vol >= 0 && cfg.vol <= 1)) cfg.vol = 0.6;
 const curTrack = () => TRACKS.find(t => t.id === cfg.track) || TRACKS[0];
 const bgm = new Audio(); bgm.loop = true; bgm.preload = 'none';
-let bgmLoaded = null, musicOn = false;
+let bgmLoaded = null, musicOn = false, bgmTry = 0;
+// se o arquivo não for achado, tenta o próximo caminho possível (pasta music/, raiz, nome original)
+bgm.addEventListener('error', () => {
+  const t = curTrack(); if (!t.file || bgmLoaded !== t.id) return;
+  if (++bgmTry < t.file.length) { bgm.src = t.file[bgmTry]; if (musicOn) { const pr = bgm.play(); if (pr && pr.catch) pr.catch(() => { }); } }
+  else { bgmLoaded = null; $('nowPlaying').innerHTML = '⚠ arquivo de música não encontrado'; $('nowPlaying').classList.remove('hidden'); status('Música não encontrada: ' + t.file[0]); }
+});
 function applyMusic() {
   const t = curTrack();
   bgm.volume = cfg.music ? cfg.vol : 0;
@@ -108,7 +114,7 @@ function applyMusic() {
 function playTrack() {
   const t = curTrack(); musicOn = true;
   if (t.file) {
-    if (bgmLoaded !== t.id) { bgm.src = t.file; bgmLoaded = t.id; }
+    if (bgmLoaded !== t.id) { bgmTry = 0; bgm.src = t.file[0]; bgmLoaded = t.id; }
     const pr = bgm.play(); if (pr && pr.catch) pr.catch(() => { });
   } else bgm.pause();
   applyMusic(); refreshTracks();
