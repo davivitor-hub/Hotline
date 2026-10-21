@@ -117,7 +117,8 @@ const TRACKS = [
   { id: 'batalha',    name: 'Batalha de Aura',    sub: 'Rap, quem tem mais aura vence', file: ['music/aura-batalha.mp3', 'aura-batalha.mp3', 'Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3', 'music/Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3'] },
   { id: 'hidrogenio', name: 'Aura de Hidrogênio', sub: 'Eletrônica pesada e acelerada', file: ['music/aura-hidrogenio.mp3', 'aura-hidrogenio.mp3', 'M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3', 'music/M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3'] },
   { id: 'tribunal',   name: 'Aura do Tribunal',   sub: 'Tensão de quem vai ser julgado', file: ['music/aura-tribunal.mp3', 'aura-tribunal.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3'] },
-  { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: ['music/aura-sombria.mp3', 'aura-sombria.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3'] }
+  { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: ['music/aura-sombria.mp3', 'aura-sombria.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3'] },
+  { id: 'chorona',    name: 'Aura Chorona',       sub: 'Rock pesado de quem chora e luta', file: ['music/aura-chorona.mp3', 'aura-chorona.mp3', 'Devil_May_Cry_3_-_Devils_Never_Cry_MP3_160K_.mp3', 'music/Devil_May_Cry_3_-_Devils_Never_Cry_MP3_160K_.mp3'] }
 ];
 if (!TRACKS.some(t => t.id === cfg.track)) cfg.track = 'synth';
 if (!(cfg.vol >= 0 && cfg.vol <= 1)) cfg.vol = 0.6;
