@@ -36,8 +36,10 @@ let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
 let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0 };
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
+// predição dos MEUS tiros (online): o tiro aparece na hora do clique; quando o do servidor chega, ele é escondido para não duplicar
+let pbul = [], pshots = [], hiddenB = new Set(), knownB = new Set(), gotShot = 0, pcd = 0, pbuf = 0;
 let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null;
-const INTERP = () => (mode === 'local' ? 40 : 60);   // online: snapshots a 60 Hz → ~3 amostras de buffer
+const INTERP = () => (mode === 'local' ? 34 : 50);   // online: snapshots a 60 Hz → ~3 amostras de buffer
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2); W = innerWidth; H = innerHeight;
@@ -236,12 +238,29 @@ $('optShake').onchange = e => { cfg.shake = e.target.checked; saveCfg(); };
 $('optCrt').onchange = e => { cfg.crt = e.target.checked; document.body.classList.toggle('nocrt', !cfg.crt); saveCfg(); };
 $('nameInput').oninput = e => { cfg.name = e.target.value; saveCfg(); };
 $('diffSel').onchange = e => { cfg.diff = e.target.value; saveCfg(); };
-$('btnOnline').onclick = () => { initAudio(); startOnline(); };
+$('btnOnline').onclick = () => { initAudio(); startOnline({ mode: 'quick' }); };
+$('btnCreateRoom').onclick = () => { initAudio(); startOnline({ mode: 'create' }); };
+const roomCodeOf = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+$('roomInput').oninput = e => { e.target.value = roomCodeOf(e.target.value); };
+$('roomInput').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') $('btnJoinRoom').click(); };
+$('btnJoinRoom').onclick = () => {
+  const code = roomCodeOf($('roomInput').value);
+  if (code.length !== 4) return status('Digite o código de 4 letras da sala.');
+  initAudio(); startOnline({ mode: 'code', room: code });
+};
+// link de convite: ?sala=ABCD já preenche o código
+{ const q = roomCodeOf(new URLSearchParams(location.search).get('sala')); if (q.length === 4) { $('roomInput').value = q; status('Convite para a sala ' + q + ': toque em Entrar.'); } }
 $('btnBot').onclick = () => { initAudio(); startLocal(cfg.diff); };
 $('btnResume').onclick = () => setPaused(false);
 $('btnLeave').onclick = () => { closeAll(); showMenu(''); };
 $('btnStart').onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start' })); };
 $('btnLobbyLeave').onclick = () => { closeAll(); showMenu(''); };
+$('lobbyCode').onclick = () => {
+  if (!roomCode) return;
+  const link = location.origin + location.pathname + '?sala=' + roomCode;
+  const done = () => { const sm = $('lobbyCode').querySelector('small'); if (sm) sm.textContent = 'LINK COPIADO!'; };
+  try { navigator.clipboard.writeText(link).then(done, () => { }); } catch { }
+};
 const status = t => { $('status').textContent = t; };
 function showMenu(msg) { stopTrack(); $('menu').classList.remove('hidden'); $('pause').classList.add('hidden'); $('lobby').classList.add('hidden'); $('hud').classList.add('hidden'); $('banner').classList.add('hidden'); status(msg || ''); }
 function hideMenu() { playTrack(); $('menu').classList.add('hidden'); $('hud').classList.remove('hidden'); }
@@ -277,19 +296,22 @@ function closeAll() {
   clearInterval(pingTimer); local = null; mode = null; snap = null; level = null; mapId = undefined; round = -1; buf = []; pending = [];
   paused = false; camInit = false; resetFx(); $('pause').classList.add('hidden');
 }
-function startOnline() {
-  closeAll(); mode = 'online'; status('Conectando ao servidor…');
+let roomCode = '';
+function startOnline(opt = { mode: 'quick' }) {
+  closeAll(); mode = 'online'; roomCode = ''; status('Conectando ao servidor…');
   try { ws = new WebSocket(SERVER_URL); } catch { mode = null; return status('Endereço do servidor inválido.'); }
   const sock = ws;
   sock.onopen = () => {
-    sock.send(JSON.stringify({ type: 'join', name: playerName(), skin: cfg.skin }));
+    sock.send(JSON.stringify({ type: 'join', name: playerName(), skin: cfg.skin, mode: opt.mode, room: opt.room || '' }));
     pingTimer = setInterval(() => { if (sock.readyState === 1) sock.send(JSON.stringify({ type: 'ping', t: performance.now() })); }, 2000);
   };
   sock.onmessage = e => {
     let m; try { m = JSON.parse(e.data); } catch { return; }
     if (m.type === 'welcome') myId = m.id;
-    else if (m.type === 'joined') hideMenu();
-    else if (m.type === 'full') { closeAll(); showMenu('A sala está cheia (' + MAX_PLAYERS + ' jogadores). Tente de novo em instantes.'); }
+    else if (m.type === 'joined') { roomCode = m.room || ''; hideMenu(); }
+    else if (m.type === 'full') { closeAll(); showMenu('A sala está cheia (' + MAX_PLAYERS + ' jogadores).'); }
+    else if (m.type === 'noroom') { closeAll(); showMenu('Sala não encontrada. Confira o código.'); }
+    else if (m.type === 'busy') { closeAll(); showMenu('O servidor está com o máximo de salas abertas. Tente de novo em instantes.'); }
     else if (m.type === 's') onSnapshot(m);
     else if (m.type === 'pong') pingMs = Math.round(performance.now() - m.t);
   };
@@ -342,6 +364,7 @@ const jacketOf = (id) => colorMap[id] || '#ff2e97';
 
 function resetFx() {
   fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
+  pbul = []; pshots = []; hiddenB.clear(); knownB = new Set(); gotShot = 0; pcd = 0; pbuf = 0;
   if (dctx && decal) dctx.clearRect(0, 0, decal.width, decal.height);
 }
 /* ------------------------------------------------- CASA: pisos, paredes e móveis */
@@ -571,7 +594,13 @@ function onSnapshot(s) {
   if (s.map !== mapId || s.rd !== round) newRound(s);
   snap = s; snapAt = now;
   { const cm = {}; for (const p of s.pl) cm[p.id] = p.cl || colorMap[p.id] || randomColor([...Object.values(cm), ...Object.values(colorMap)]); colorMap = cm; }
+  gotShot = 0;
   for (const e of s.ev) handleEvent(e, now);
+  if (mode === 'online') {
+    const mp = s.pl.find(p => p.id === myId), ids = new Set();
+    for (const b of s.b) { ids.add(b[0]); if (mp && b[5] === mp.sl && !knownB.has(b[0]) && gotShot > 0) hiddenB.add(b[0]); }
+    knownB = ids; for (const id of hiddenB) if (!ids.has(id)) hiddenB.delete(id);
+  }
   if (level) {
     const open = new Map(s.dr.map(e => [e[0], e]));
     for (const d of level.doors) {
@@ -609,6 +638,7 @@ function addShake(v) { if (cfg.shake) shake = Math.min(18, shake + v); }
 function handleEvent(e, now) {
   switch (e.t) {
     case 'shot': {
+      if (!e.pred && e.by === myId && mode === 'online' && pshots.length) { pshots.shift(); gotShot++; break; }   // já mostrei esse tiro na hora do clique
       sfx(e.w, e.x, e.y);
       const wdx = WEAPONS[e.w], mz = (wdx && wdx.muz) || 30, mx = e.x + Math.cos(e.a) * mz, my = e.y + Math.sin(e.a) * mz;
       fx.lights.push({ x: mx, y: my, t: e.w === 'SNIPER' ? 0.14 : 0.08, r: e.w === 'SNIPER' ? 260 : 170, c: e.w === 'SNIPER' ? '255,120,150' : '255,225,130' });
@@ -785,7 +815,7 @@ function doStep() {
     // monta e aplica a entrada do jogador, depois bot + tick
     if (snap && level) stepInput();
     local.bot.think(STEP); local.g.tick(STEP);
-    if (++local.t % 2 === 0) { const s = local.g.snapshot(); s.ack = local.me.ack; local.g.events = []; onSnapshot(s); }
+    if (++local.t > 0) { const s = local.g.snapshot(); s.ack = local.me.ack; local.g.events = []; onSnapshot(s); }
     return;
   }
   if (snap && level) stepInput();
@@ -797,7 +827,32 @@ function stepInput() {
   const me = myState();
   if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP, me.hz > 0 ? HEAL_SLOW : 1);
   pending.push({ seq: inp.seq, dt: STEP, k, sm: me && me.hz > 0 ? HEAL_SLOW : 1 }); if (pending.length > 120) pending.shift();
+  predictShots(inp);
   sendInput(inp);
+}
+// Tiro previsto: replica a regra do servidor (cooldown, clique guardado 0.16 s, automática segurada, munição) e mostra clarão, som, recuo e a bala NA HORA.
+function predictShots(inp) {
+  if (mode !== 'online' || !snap || !level) return;
+  const nowT = performance.now();
+  while (pshots.length && nowT - pshots[0] > 700) pshots.shift();   // o servidor não confirmou: descarta
+  if (snap.ph !== 'live') return;
+  const me = myState(); if (!me || !me.al || me.dn || me.hz > 0 || me.ch >= 0) return;
+  pcd -= STEP; pbuf -= STEP;
+  if (inp.pk || inp.sw || inp.ss || inp.th || inp.hl) { pcd = Math.max(pcd, 0.25); pbuf = 0; return; }   // trocou/pegou/jogou/curou: espera o servidor
+  if (inp.fp) pbuf = 0.16;
+  const wd = me.w ? WEAPONS[me.w] : null;
+  if (!wd || wd.melee || me.am - pshots.length <= 0) return;
+  if (!(pcd <= 0 && (pbuf > 0 || (inp.f && wd.auto)))) return;
+  pbuf = 0; pcd = wd.cd;
+  const a = inp.a; let mz = wd.muz || 12;
+  if (!level.los(pred.x, pred.y, pred.x + Math.cos(a) * mz, pred.y + Math.sin(a) * mz)) mz = 8;
+  const sx = pred.x + Math.cos(a) * mz, sy = pred.y + Math.sin(a) * mz;
+  for (let i = 0; i < wd.pellets; i++) {
+    const aa = a + (Math.random() - 0.5) * 2 * wd.spread, sp = wd.speed * (wd.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
+    pbul.push({ x: sx, y: sy, vx: Math.cos(aa) * sp, vy: Math.sin(aa) * sp, life: wd.range / sp });
+  }
+  pshots.push(nowT);
+  handleEvent({ t: 'shot', by: myId, w: me.w, x: pred.x, y: pred.y, a, pred: 1 }, nowT);
 }
 
 /* ------------------------------------------------------------------ DESENHO */
@@ -1153,6 +1208,18 @@ function updateFx(dt) {
   fx.parts = fx.parts.filter(p => p.life > 0);
   for (const l of fx.lights) l.t -= d; fx.lights = fx.lights.filter(l => l.t > 0);
   fx.slashes = fx.slashes.filter(s => performance.now() - s.t0 < swDur(s.w) + 40);
+  if (pbul.length && level) {
+    const foes = foesOf().filter(f => f.al).map(f => interpEnemy(f.id) || f);
+    for (const b of pbul) {
+      b.life -= dt; const n = Math.max(1, Math.ceil(Math.hypot(b.vx, b.vy) * dt / 6));
+      for (let i = 0; i < n && b.life > 0; i++) {
+        b.x += b.vx * dt / n; b.y += b.vy * dt / n;
+        if (level.solidAt(b.x, b.y) || level.doorAt(b.x, b.y, 1.5)) { b.life = 0; break; }
+        for (const f of foes) if (Math.hypot(f.x - b.x, f.y - b.y) < PR) { b.life = 0; break; }
+      }
+    }
+    pbul = pbul.filter(b => b.life > 0);
+  }
   for (const q of fx.pops) q.t -= d; fx.pops = fx.pops.filter(q => q.t > 0);
   if (level) for (const dr of level.doors) level.stepDoor(dr, dt);
   for (const c of fx.corpses) {
@@ -1234,9 +1301,15 @@ function render(now, dt) {
   const age = Math.min(0.06, (now - snapAt) / 1000);
   ctx.lineCap = 'round';
   for (const b of snap.b) {
+    if (hiddenB.has(b[0])) continue;   // é uma bala minha: já estou desenhando a prevista
     const x = b[1] + b[3] * age, y = b[2] + b[4] * age, l = Math.hypot(b[3], b[4]) || 1, snipe = l > 2000, tl = snipe ? 110 : Math.min(42, l * 0.032);
     ctx.strokeStyle = snipe ? '#ffd0da' : '#fff3a8'; ctx.lineWidth = snipe ? 4 : 2.8; ctx.shadowColor = snipe ? '#ff5a7a' : '#ffd23f'; ctx.shadowBlur = snipe ? 14 : 8;
     ctx.beginPath(); ctx.moveTo(x - b[3] / l * tl, y - b[4] / l * tl); ctx.lineTo(x, y); ctx.stroke();
+  }
+  for (const b of pbul) {
+    const l = Math.hypot(b.vx, b.vy) || 1, snipe = l > 2000, tl = snipe ? 110 : Math.min(42, l * 0.032);
+    ctx.strokeStyle = snipe ? '#ffd0da' : '#fff3a8'; ctx.lineWidth = snipe ? 4 : 2.8; ctx.shadowColor = snipe ? '#ff5a7a' : '#ffd23f'; ctx.shadowBlur = snipe ? 14 : 8;
+    ctx.beginPath(); ctx.moveTo(b.x - b.vx / l * tl, b.y - b.vy / l * tl); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.shadowBlur = 0;
   // paredes antes dos personagens: evita que a camada de paredes cubra o sprite
@@ -1362,6 +1435,7 @@ function updateLobby() {
   if (key !== lobbyKey) {
     lobbyKey = key;
     $('lobbyCount').textContent = `${n}/${MAX_PLAYERS} conectados`;
+    { const lc = $('lobbyCode'); lc.textContent = roomCode; const sm = document.createElement('small'); sm.textContent = 'CÓDIGO DA SALA · toque para copiar o link'; lc.appendChild(sm); }
     const el = $('lobbyList'); el.textContent = '';
     const list = [...snap.pl].sort((a, b) => a.sl - b.sl);
     for (let i = 0; i < MAX_PLAYERS; i++) {
