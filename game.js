@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -37,7 +37,7 @@ let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, rig
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
 let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null;
-const INTERP = () => (mode === 'local' ? 40 : 100);
+const INTERP = () => (mode === 'local' ? 40 : 60);   // online: snapshots a 60 Hz → ~3 amostras de buffer
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2); W = innerWidth; H = innerHeight;
@@ -585,7 +585,7 @@ function onSnapshot(s) {
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
     const t = { x: me.x, y: me.y };
-    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt);
+    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt, p.sm);
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
     if (first || err > 40) { pred.x = t.x; pred.y = t.y; first = false; }
     else { pred.x += (t.x - pred.x) * 0.35; pred.y += (t.y - pred.y) * 0.35; }
@@ -795,8 +795,8 @@ function stepInput() {
   const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
   edge.fp = edge.pk = edge.th = edge.hl = edge.sw = false; edge.ss = 0;
   const me = myState();
-  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP);
-  pending.push({ seq: inp.seq, dt: STEP, k }); if (pending.length > 120) pending.shift();
+  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP, me.hz > 0 ? HEAL_SLOW : 1);
+  pending.push({ seq: inp.seq, dt: STEP, k, sm: me && me.hz > 0 ? HEAL_SLOW : 1 }); if (pending.length > 120) pending.shift();
   sendInput(inp);
 }
 
@@ -1181,7 +1181,7 @@ function render(now, dt) {
     if (!f.al) continue;
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
     if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
-    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, f.id); drawHealBar(ie.x, ie.y, f.hz, now); drawChargeBar(ie.x, ie.y, f.ch);
+    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, f.id);   // barras de cura e de carga da lança só aparecem para o próprio jogador
   }
   if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawName(pred.x, pred.y, me.nm, me.id); drawHealBar(pred.x, pred.y, me.hz, now); drawChargeBar(pred.x, pred.y, me.ch); }
 

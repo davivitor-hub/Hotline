@@ -18,9 +18,24 @@
   const THROW_DMG = 10;    // % tirado por arma arremessada que acerta
   const DOOR_DMG = 0;      // % tirado por porta na cara (como no Hotline Miami: só derruba/atordoa)
   const HEAL_PCT = 20;     // % da vida máxima que a cura devolve
-  const HEAL_TIME = 2;     // segundos parado (e invulnerável) enquanto cura; a cura é ilimitada
+  const HEAL_TIME = 1.5;   // segundos de cura (o boneco anda devagar); a cura é ilimitada e pode ser cancelada
+  const HEAL_SLOW = 0.3;   // multiplicador da velocidade de movimento enquanto cura
   const SWAP_TIME = 0.2;      // segundos para sacar a outra arma do inventário (2 espaços)
   const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: mata na hora (senão acerta o cabo)
+  // Lâmina arremessada: só a MACHETE mata na hora (BLADE_CHANCE); faca e katana acertando a lâmina tiram só uma fatia da vida.
+  // (a lança arremessada já chega a 100% quando carregada no máximo: SPEAR_THROW_MAX)
+  const BLADE_KILL = { MACHETE: true };
+  const BLADE_DMG = { KNIFE: 35, KATANA: 50 };   // % de vida tirada pela lâmina de quem não mata na hora
+  // Atordoamento (s) de quem leva uma arma arremessada: corpo a corpo não atordoa (só o taco), armas de fogo 1 s
+  const THROW_DOWN = {
+    KNIFE: 0, MACHETE: 0, KATANA: 0, SPEAR: 0,    // corpo a corpo: sem atordoamento
+    BAT: 1.5, MINIGUN: 1.5,
+    PISTOL: 0.5,
+    SMG: 1, REVOLVER: 1, RIFLE: 1, SHOTGUN: 1, SNIPER: 1
+  };
+  // Peso (kg aprox.) de cada arma: define o alcance do arremesso. Mais leve = voa mais longe; mais pesada = cai perto.
+  const WEIGHT = { FISTS: 0, KNIFE: 0.4, PISTOL: 1, MACHETE: 1, KATANA: 1.1, REVOLVER: 1.3, SPEAR: 1.5, BAT: 1.6, SMG: 2.2, RIFLE: 3.5, SHOTGUN: 3.8, SNIPER: 5, MINIGUN: 9 };
+  const throwFactor = type => 1.4 / (1 + 0.25 * (WEIGHT[type] || 1));   // multiplicador da velocidade (e portanto do alcance) do arremesso
   const SPEAR_CHARGE = 1.1;   // segundos segurando o arremesso para a lança chegar na força máxima
   const SPEAR_THROW_MIN = 20, SPEAR_THROW_MAX = 100;   // % de vida tirada pela lança arremessada: toque rápido -> segurando até o fim
   /* ===== PORTAS (física) ===== */
@@ -251,14 +266,14 @@
     }
   }
 
-  function canMove(phase, alive, down, healing) { return !!alive && !down && !healing && (phase === 'live' || phase === 'over' || phase === 'matchover'); }
+  function canMove(phase, alive, down, healing) { return !!alive && !down && (phase === 'live' || phase === 'over' || phase === 'matchover'); }
 
   // k = bitmask: W=1 A=2 S=4 D=8
-  function stepMove(level, p, k, dt) {
+  function stepMove(level, p, k, dt, sm = 1) {   // sm = multiplicador de velocidade (curando = HEAL_SLOW)
     let dx = ((k & 8) ? 1 : 0) - ((k & 2) ? 1 : 0), dy = ((k & 4) ? 1 : 0) - ((k & 1) ? 1 : 0);
     if (!dx && !dy) return null;
     const l = Math.hypot(dx, dy); dx /= l; dy /= l;
-    const mx = dx * SPEED * dt, my = dy * SPEED * dt;
+    const mx = dx * SPEED * sm * dt, my = dy * SPEED * sm * dt;
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my)) / 6));
     for (let i = 0; i < n; i++) { p.x += mx / n; p.y += my / n; level.push(p, PR); }
     return { dx, dy };
@@ -355,18 +370,21 @@
       if (Number.isFinite(inp.a)) p.angle = inp.a;
       p.fire = !!inp.f; p.tc = !!inp.tc;
       if (inp.fp) p.buf = 0.16;
+      // cancelar a cura: apertar cura de novo, atacar, arremessar, pegar arma ou trocar de arma (não recebe a vida)
+      let healCanceled = false;
+      if (p.healT > 0 && this.phase === 'live' && (inp.hl || inp.fp || inp.th || inp.pk || inp.sw || inp.ss)) { this.cancelHeal(p); healCanceled = true; }
       if (this.phase === 'live' && p.alive && !p.down && !(p.healT > 0)) {
         if (inp.pk) this.pickup(p);
         if (inp.sw) this.swapTo(p, 1 - p.sel);              // scroll do mouse: alterna entre as 2 armas
         else if (inp.ss) this.swapTo(p, (inp.ss | 0) - 1);  // teclas 1 / 2: escolhe o espaço direto
         if (inp.th) this.startThrow(p);
-        if (inp.hl) this.heal(p);
+        if (inp.hl && !healCanceled) this.heal(p);
       }
       if (canMove(this.phase, p.alive, p.down, p.healT > 0)) {
         const dd = Math.min(dt, 0.05, p.budget);
         if (dd > 0) {
           p.budget -= dd;
-          const r = stepMove(this.level, p, inp.k | 0, dd);
+          const r = stepMove(this.level, p, inp.k | 0, dd, p.healT > 0 ? HEAL_SLOW : 1);
           if (r) { this.tryDoors(p, r.dx, r.dy); this.doorContact(p, dd); }
         }
       }
@@ -503,7 +521,13 @@
       this.events.push({ t: 'swap', by: p.id, w: p.inv[idx].type, x: p.x, y: p.y });
       return true;
     }
-    // Cura ilimitada: o jogador fica parado (e vulnerável) por HEAL_TIME s; ao fim recebe HEAL_PCT% da vida máxima.
+    // Cura ilimitada: por HEAL_TIME s o jogador anda devagar (HEAL_SLOW); ao fim recebe HEAL_PCT% da vida máxima. Pode ser cancelada.
+    cancelHeal(p) {
+      if (!(p.healT > 0)) return false;
+      p.healT = 0;
+      this.events.push({ t: 'hcancel', id: p.id, x: p.x, y: p.y });
+      return true;
+    }
     heal(p) {
       if (!p.alive || p.down || p.healT > 0 || p.hp >= MAX_HP) return false;
       p.healT = HEAL_TIME; p.fire = false; p.buf = 0; p.charging = false; p.chg = 0;
@@ -534,7 +558,7 @@
       const type = p.weapon.type, jav = !!WEAPONS[type].jav, a = p.angle;
       let sx = p.x + Math.cos(a) * 24, sy = p.y + Math.sin(a) * 24;
       if (!this.level.los(p.x, p.y, sx, sy)) { sx = p.x; sy = p.y; }
-      const sp = jav ? 900 + 600 * charge : 820;
+      const sp = (jav ? 900 + 600 * charge : 820) * throwFactor(type);   // alcance depende do peso da arma
       const it = this.addItem(type, sx, sy, Math.cos(a) * sp, Math.sin(a) * sp, p.weapon.ammo);
       it.thrown = true; it.owner = p.id; it.t = jav ? 0.45 + 0.45 * charge : 0.45; it.spin = jav ? 0 : 22; it.pow = charge;
       if (jav) it.rot = a;                       // a lança voa reta, com a ponta para frente
@@ -640,6 +664,16 @@
         for (let s = 0; s < n && !dead; s++) {
           const px = b.x, py = b.y;
           b.x += b.vx * dt / n; b.y += b.vy * dt / n;
+          {   // porta fechada (parada) levando tiro: destrava e abre um pouco para o lado oposto ao de quem atirou
+            const tx = Math.floor(b.x / TILE), ty = Math.floor(b.y / TILE);
+            const ld = this.level.doors.find(d => d.latched && d.x === tx && d.y === ty);
+            if (ld) {
+              const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
+              const dir = ld.o === 'h' ? (py < cy ? 1 : -1) : (px < cx ? 1 : -1);
+              this.level.kickDoor(ld, dir, 2.5); ld.nl = 0.8; ld.by = b.owner;
+              this.events.push({ t: 'door', i: ld.i, dir, x: cx, y: cy, hit: false });
+            }
+          }
           if (this.level.solidAt(b.x, b.y)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }
           { const dh = this.level.doorHit(b.x, b.y, 1.5); if (dh) this.shotDoor(dh, b); }
           if (this.level.doorAt(b.x, b.y, 1.5)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }   // porta destravada também barra tiro
@@ -669,12 +703,15 @@
                 const wd = WEAPONS[it.type], ang = Math.atan2(it.vy, it.vx);
                 let pct = THROW_DMG, how = 'throw', bl = 0, cb = 0, pw = 0;
                 if (wd.blade) {                       // pontiaguda arremessada: sorte decide se acerta a LÂMINA (morte) ou o CABO (pancada comum)
-                  if (Math.random() < BLADE_CHANCE) { pct = 100; how = 'blade'; bl = 1; } else cb = 1;
+                  if (Math.random() < BLADE_CHANCE) {
+                    if (BLADE_KILL[it.type]) { pct = 100; how = 'blade'; bl = 1; }       // só a machete é hit kill
+                    else pct = BLADE_DMG[it.type] || THROW_DMG;                           // faca/katana: lâmina machuca, não mata na hora
+                  } else cb = 1;
                 } else if (wd.jav) {                  // lança: dano cresce com o tempo que o jogador segurou
                   pct = Math.round(SPEAR_THROW_MIN + (SPEAR_THROW_MAX - SPEAR_THROW_MIN) * (it.pow || 0)); how = 'spear'; pw = pct;
                 }
                 this.hurt(p, this.byId(it.owner), pct, how, ang);
-                if (!bl && p.alive && !p.down) this.knockdown(p, DOWN_TIME, ang);
+                { const td = it.type in THROW_DOWN ? THROW_DOWN[it.type] : 1; if (!bl && td > 0 && p.alive && !p.down) this.knockdown(p, td, ang); }
                 this.events.push({ t: 'thit', x: it.x, y: it.y, bl, cb, pw });
                 stop = true; it.vx *= -0.1; it.vy *= -0.1; break;
               }
@@ -837,5 +874,5 @@
     }
   }
 
-  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, BLADE_CHANCE, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });

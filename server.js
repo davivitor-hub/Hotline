@@ -74,7 +74,9 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const wss = new WebSocket.Server({ server, maxPayload: 2048 });
+// Latência: sem compressão por mensagem (deflate adiciona atraso e CPU) e sem Nagle (TCP_NODELAY) em todo socket.
+server.on('connection', (sock) => sock.setNoDelay(true));
+const wss = new WebSocket.Server({ server, maxPayload: 2048, perMessageDeflate: false });
 const game = new S.Game();
 const clients = new Map();
 let nextId = 1;
@@ -172,14 +174,18 @@ function broadcast() {
   const snap = game.snapshot();
   game.events = [];
 
+  // Serializa uma única vez e só anexa o ack de cada cliente (evita N× JSON.stringify a 60 Hz).
+  const base = JSON.stringify(snap).slice(0, -1);
   for (const [ws, c] of clients) {
     if (!c.p || ws.readyState !== WebSocket.OPEN) continue;
-    // Cria um objeto por cliente para não compartilhar/mutar o mesmo snapshot.
-    send(ws, { ...snap, ack: c.p.ack });
+    try { ws.send(base + ',"ack":' + (c.p.ack | 0) + '}'); } catch (err) {
+      console.error('Falha ao enviar snapshot:', err.message);
+    }
   }
 }
 
-// Loop fixo de 60 Hz; snapshots enviados a 30 Hz.
+// Loop fixo de 60 Hz; snapshots enviados a 60 Hz (SNAP_EVERY=2 volta para 30 Hz se a banda do host for curta).
+const SNAP_EVERY = Math.max(1, Number(process.env.SNAP_EVERY) || 1);
 let last = Date.now();
 let acc = 0;
 let tickN = 0;
@@ -193,7 +199,7 @@ setInterval(() => {
   while (acc >= DT) {
     game.tick(DT);
     acc -= DT;
-    if (++tickN % 2 === 0) broadcast();
+    if (++tickN % SNAP_EVERY === 0) broadcast();
   }
 }, 8);
 
