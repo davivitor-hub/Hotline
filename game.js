@@ -695,6 +695,7 @@ addEventListener('keydown', e => {
   if (!mode || paused) return;
   if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
+  if (k === 'shift') lockStep();
   if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
@@ -727,21 +728,38 @@ function enemyVel(id) {
 // Dragão Dourado: segure ESPAÇO para travar a mira no inimigo vivo mais próximo (prefere quem está à vista).
 // Sem ESPAÇO a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
 const isDragon = () => cfg.skin === 'DRAGON' && !!cfg.secret;
-function aimBotPoint(me) {
-  if (!me || !me.al || !isDragon() || !keys[' '] || !level) return null;
+// SHIFT (com ESPAÇO apertado) troca o alvo da mira: passa pro próximo inimigo vivo, na ordem dos slots. Soltar o ESPAÇO volta ao automático.
+let lockId = null;
+function nearestFoe() {
   let best = null, bs = Infinity;
   for (const f of foesOf()) {
     if (!f.al) continue;
     const d = Math.hypot(f.x - pred.x, f.y - pred.y), sc = d + (level.los(pred.x, pred.y, f.x, f.y) ? 0 : 1600);
     if (sc < bs) { bs = sc; best = f; }
   }
+  return best;
+}
+function lockStep() {
+  const me = myState();
+  if (!me || !me.al || !isDragon() || !keys[' '] || !level) return;
+  const l = foesOf().filter(f => f.al).sort((a, b) => a.sl - b.sl); if (l.length < 2) return;
+  const cur = (lockId && l.find(f => f.id === lockId)) || nearestFoe();
+  const i = cur ? l.findIndex(f => f.id === cur.id) : -1;
+  lockId = l[(i + 1) % l.length].id;
+  sfx('tick');
+}
+function aimBotPoint(me) {
+  if (!keys[' ']) lockId = null;
+  if (!me || !me.al || !isDragon() || !keys[' '] || !level) return null;
+  let best = lockId ? foesOf().find(f => f.id === lockId && f.al) : null;
+  if (!best) { lockId = null; best = nearestFoe(); }
   if (!best) return null;
   // posição desenhada do inimigo (interpolada): é nela que a mira fica centralizada
   const ie = interpEnemy(best.id) || { x: best.x, y: best.y };
   const wd = me.w ? WEAPONS[me.w] : null, v = enemyVel(best.id), d = Math.hypot(best.x - pred.x, best.y - pred.y);
   // adianta o tiro: tempo de voo + ida e volta da rede (online), pois o servidor decide o acerto
   const t = wd && !wd.melee ? Math.min(0.8, d / wd.speed + (mode === 'online' ? pingMs / 1000 : 0)) : 0;
-  return { x: best.x + v.x * t, y: best.y + v.y * t, dx: ie.x, dy: ie.y };
+  return { x: best.x + v.x * t, y: best.y + v.y * t, dx: ie.x, dy: ie.y, nm: best.nm };
 }
 function aimAngle() {
   const t = aimBotPoint(myState());
@@ -1224,6 +1242,7 @@ function drawCrosshair(me) {
   if (lk) { cx = W / 2 + (lk.dx - cam.x) * Z; cy = H / 2 + (lk.dy - cam.y) * Z; }   // ESPAÇO: mira centrada no inimigo
   ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 900); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
   ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.moveTo(-15, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(15, 0); ctx.moveTo(0, -15); ctx.lineTo(0, -5); ctx.moveTo(0, 5); ctx.lineTo(0, 15); ctx.stroke(); ctx.restore();
+  if (lk && lk.nm) { ctx.save(); ctx.font = '700 13px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#ffe600'; ctx.strokeText(lk.nm, cx, cy + 30); ctx.fillText(lk.nm, cx, cy + 30); ctx.restore(); }
 }
 
 /* -------------------------------------------------------------------- HUD */
