@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -527,9 +527,9 @@ function drawRug(c, r, T) {
 }
 
 function buildStatic() {
-  const m = level.m, th = m.theme, T = TILE, g = m.g, W = level.W, H = level.H;
-  levelCv = document.createElement('canvas'); levelCv.width = W * T; levelCv.height = H * T;
-  const c = levelCv.getContext('2d');
+  const m = level.m, th = m.theme, T = 50, K = TILE / T, g = m.g, W = level.W, H = level.H;   // pisos/móveis são desenhados em 50px por tile e escalados (K) para o TILE real
+  levelCv = document.createElement('canvas'); levelCv.width = W * TILE; levelCv.height = H * TILE;
+  const c = levelCv.getContext('2d'); c.scale(K, K);
   const wall = (x, y) => x < 0 || y < 0 || x >= W || y >= H || g[y][x] === 1;
   const border = (x, y) => x === 0 || y === 0 || x === W - 1 || y === H - 1;
   // pisos
@@ -540,8 +540,8 @@ function buildStatic() {
   }
   for (const r of m.rugs) drawRug(c, r, T);
   // paredes (sem brilho nem sombra): camada própria, desenhada por cima da névoa
-  wallCv = document.createElement('canvas'); wallCv.width = W * T; wallCv.height = H * T;
-  const wc = wallCv.getContext('2d');
+  wallCv = document.createElement('canvas'); wallCv.width = W * TILE; wallCv.height = H * TILE;
+  const wc = wallCv.getContext('2d'); wc.scale(K, K);
   wc.lineCap = 'square';
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (g[y][x] === 1) {
     const X = x * T, Y = y * T, hedge = th.hedge && border(x, y);
@@ -560,7 +560,7 @@ function buildStatic() {
   wc.lineCap = 'butt';
   // móveis
   for (const f of m.furn) drawFurn(c, f, T);
-  decal = document.createElement('canvas'); decal.width = W * T; decal.height = H * T; dctx = decal.getContext('2d');
+  decal = document.createElement('canvas'); decal.width = W * TILE; decal.height = H * TILE; dctx = decal.getContext('2d');
 }
 function newRound(s) {
   mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx();
@@ -623,7 +623,7 @@ function handleEvent(e, now) {
     case 'swing': {
       const st = animOf(e.by); st.sw0 = now; st.sw = e.w; st.punch *= -1;
       sfx('swing', e.x, e.y);
-      fx.slashes.push({ x: e.x, y: e.y, a: e.a, t: 0.2, w: e.w });
+      fx.slashes.push({ x: e.x, y: e.y, a: e.a, t: 1, w: e.w, by: e.by, dir: st.punch, t0: now });
       break;
     }
     case 'kill': {
@@ -984,6 +984,26 @@ function drawBody(skin, jacket, flat) {
   blob(3.4, 0, 3, 6, '#efe6d0', 1.4);                                                                                              // gola
 }
 
+/* ---------- animação do golpe corpo a corpo (estilo Hotline Miami) ----------
+   preparação (puxa para trás) -> varrida rápida com leve passada do corpo -> acompanha o golpe e volta ao repouso.
+   O sentido alterna a cada golpe (ida e volta), como o taco/faca do jogo original. */
+const SWDUR = { FISTS: 200, KNIFE: 230, MACHETE: 270, BAT: 340, KATANA: 300, SPEAR: 300 };
+const swDur = t => SWDUR[t] || 240;
+const lerpN = (a, b, t) => a + (b - a) * t;
+function swingAng(sp, arc, dir) {
+  const rest = -0.6, a0 = -dir * arc / 2, wind = a0 - dir * 0.45, a1 = dir * arc / 2, over = a1 + dir * 0.18;
+  if (sp < 0.16) { const t = sp / 0.16; return lerpN(rest, wind, 1 - (1 - t) * (1 - t)); }
+  if (sp < 0.6) { const t = (sp - 0.16) / 0.44; return lerpN(wind, over, 1 - Math.pow(1 - t, 3)); }
+  const t = (sp - 0.6) / 0.4; return lerpN(over, rest, t * t * (3 - 2 * t));
+}
+// quanto o corpo avança durante o golpe (0 -> 1 -> 0), forte na hora da varrida
+// comprimento do braço que golpeia (px locais): dobrado no repouso -> estica atrás na preparação -> estica tudo na varrida -> recolhe
+function swingArm(sp) {
+  if (sp < 0.16) return lerpN(10.2, 17, sp / 0.16);
+  if (sp < 0.6) { const t = (sp - 0.16) / 0.44; return lerpN(17, 25, 1 - Math.pow(1 - t, 3)); }
+  const t = (sp - 0.6) / 0.4; return lerpN(25, 10.2, t * t * (3 - 2 * t));
+}
+const swingLunge = sp => (sp < 0.12 ? -0.25 * (sp / 0.12) : Math.sin(Math.min(1, (sp - 0.12) / 0.6) * Math.PI) * 1);
 function drawPlayer(p, x, y, ang, isMe, now) {
   const st = animOf(p.id);
   if (!st.lx && !st.ly) { st.lx = x; st.ly = y; }
@@ -997,13 +1017,33 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   const jacket = jacketOf(p.id, isMe);
   ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
   if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); }
-  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill();
+  if (level && level.waterAt(x, y)) {   // dentro da piscina: sem sombra, ondas se abrindo em volta dos pés
+    ctx.save(); ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) { const t = ((now / 650 + i / 3) % 1); ctx.globalAlpha = (1 - t) * 0.7; ctx.strokeStyle = '#e8fbff'; ctx.beginPath(); ctx.ellipse(0, 4, 12 + t * 17, 9 + t * 12, 0, 0, TAU); ctx.stroke(); }
+    ctx.restore();
+  } else { ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill(); }
   if (p.sk === 'DRAGON' && !p.dn) {   // aura dourada pulsante do personagem lendário
     const pu = 0.75 + 0.25 * Math.sin(now / 260); ctx.save(); ctx.globalCompositeOperation = 'lighter';
     const ag = ctx.createRadialGradient(0, 0, 6, 0, 0, 36); ag.addColorStop(0, `rgba(255,200,60,${0.38 * pu})`); ag.addColorStop(1, 'rgba(255,200,60,0)');
     ctx.fillStyle = ag; ctx.beginPath(); ctx.arc(0, 0, 36, 0, TAU); ctx.fill(); ctx.restore();
   }
+  const healing = p.hz > 0 && !p.dn;
+  if (healing) {   // aura verde pulsante + cruzes subindo (por baixo do boneco)
+    const pu = 0.5 + 0.5 * Math.sin(now / 130), pr = 1 - Math.max(0, Math.min(1, p.hz / HEAL_TIME));
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const hg = ctx.createRadialGradient(0, 0, 4, 0, 0, 34); hg.addColorStop(0, `rgba(60,255,150,${0.28 + 0.2 * pu})`); hg.addColorStop(1, 'rgba(60,255,150,0)');
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(0, 0, 34, 0, TAU); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.fillStyle = '#7dffb4'; ctx.shadowColor = '#2dff8a'; ctx.shadowBlur = 8;
+    for (let i = 0; i < 4; i++) {
+      const t = ((now / 700 + i / 4) % 1), px2 = Math.sin(i * 2.4 + 1) * 17, py2 = 6 - t * 38; ctx.globalAlpha = Math.sin(t * Math.PI) * 0.95;
+      ctx.fillRect(px2 - 1.2, py2 - 4, 2.4, 8); ctx.fillRect(px2 - 4, py2 - 1.2, 8, 2.4);
+    }
+    ctx.restore();
+  }
   ctx.rotate(ang);
+  if (healing) ctx.scale(0.94, 0.94);   // agachadinho enquanto se cura
+  const swW = st.sw || 'FISTS', swSp = Math.min(1, (now - st.sw0) / swDur(p.w || 'FISTS')), swOn = swSp < 1;
+  if (swOn && !p.dn && (!p.w || (WEAPONS[p.w] && WEAPONS[p.w].melee))) ctx.translate(swingLunge(swSp) * (p.w === 'SPEAR' ? 5 : p.w ? 8 : 6), 0);   // passada do corpo
   if (p.dn) {
     ctx.globalAlpha = 0.95; drawBody(p.sk, jacket, true); ctx.translate(-3, 0); drawHead(p.sk); ctx.globalAlpha = 1;
     ctx.restore();
@@ -1023,19 +1063,45 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     blob(fxp + 2.5, s * 5.2, 5.6 * lift, 4 * lift, '#f4f1ea', 1.6); ctx.fillStyle = '#d62a45'; ctx.fillRect(fxp + 0, s * 5.2 - 0.7, 4.8, 1.4);   // tênis + faixa
   }
   ctx.restore();
-  const sp = Math.min(1, (now - st.sw0) / 200), swinging = sp < 1;
+  const sp = swSp, swinging = swOn; let twist = 0;
   const wt = p.w, wd = wt ? WEAPONS[wt] : null, melee = !wt || wd.melee;
   // braços + arma
-  if (!wt) {
-    const side = st.punch, ext = swinging ? Math.sin(sp * Math.PI) * 16 : 0;
-    limb(0, side * 10, 10 + ext, side * 6.5, jacket); limb(0, -side * 10, 9, -side * 7.5, jacket);
-    hand(12 + ext, side * 6.5); hand(10.5, -side * 7.5);
+  if (healing) {
+    // cura: segura um kit médico com as duas mãos junto ao peito, arma guardada de lado
+    const pu = Math.sin(now / 130) * 0.5 + 0.5, hb = Math.sin(now / 150) * 1.1;
+    if (wt) { ctx.save(); ctx.translate(-1, 12); ctx.rotate(2.5); ctx.scale(0.8, 0.8); drawWeaponSprite(wt); ctx.restore(); }
+    limb(0, 10, 11 + hb, 4.8, jacket); limb(0, -10, 11 + hb, -4.8, jacket);
+    ctx.save(); ctx.translate(14 + hb, 0); ctx.rotate(Math.sin(now / 240) * 0.08);
+    shape([-5.5, -4.5, 5.5, -4.5, 5.5, 4.5, -5.5, 4.5], '#f4f1ea', 1.5);
+    ctx.fillStyle = `rgb(${Math.round(30 + 60 * pu)},${Math.round(200 + 55 * pu)},${Math.round(110 + 40 * pu)})`; ctx.fillRect(-1.2, -3.4, 2.4, 6.8); ctx.fillRect(-3.4, -1.2, 6.8, 2.4);
+    ctx.restore();
+    hand(11 + hb, 4.8); hand(11 + hb, -4.8);
+    twist = Math.sin(now / 260) * 0.07;   // respiração
+  } else if (!wt) {
+    // soco: a mão que bate puxa para trás, dispara para frente cruzando a mira e volta; a outra fica de guarda
+    const side = st.punch, bump = swinging ? Math.sin(Math.min(1, Math.max(0, (sp - 0.18) / 0.82)) * Math.PI) : 0;
+    const ext = swinging ? (sp < 0.18 ? -5 * (sp / 0.18) : lerpN(-5, 0, (sp - 0.18) / 0.82) + 30 * Math.pow(bump, 0.7)) : 0, cross = bump * 5;
+    limb(0, side * 10, 10 + ext, side * (6.5 - cross), jacket); limb(0, -side * 10, 9 - bump * 3, -side * 7.5, jacket);
+    hand(12 + ext, side * (6.5 - cross)); hand(10.5 - bump * 3, -side * 7.5);
+    if (swinging) twist = -side * bump * 0.28;
   } else if (melee) {
-    const spear = wt === 'SPEAR', arc = wd.arc, a = spear ? 0 : (swinging ? (-arc / 2 + sp * arc) : -0.6);
-    const chg = spear && p.ch > 0 ? p.ch : 0, lunge = (spear && swinging ? Math.sin(sp * Math.PI) * 16 : 0) - chg * 12, hy = spear ? 5 : 8;
-    limb(0, 10, 10 + lunge, hy, jacket);
-    ctx.save(); ctx.translate(10 + lunge, hy); ctx.rotate(a); drawWeaponSprite(wt); hand(1, 0); ctx.restore();
-    limb(0, -10, 9, -7.5, jacket); hand(10.5, -7.5);
+    const spear = wt === 'SPEAR', arc = wd.arc, dir = st.punch || 1, a = spear ? 0 : (swinging ? swingAng(sp, arc, dir) : -0.6);
+    // lança: puxa o braço, estoca para frente e recolhe
+    const thrust = spear && swinging ? (sp < 0.2 ? -9 * (sp / 0.2) : lerpN(-9, 0, (sp - 0.2) / 0.8) + 38 * Math.sin(Math.min(1, (sp - 0.2) / 0.5) * Math.PI / 2) * (sp < 0.7 ? 1 : 1 - (sp - 0.7) / 0.3)) : 0;
+    const chg = spear && p.ch > 0 ? p.ch : 0, lunge = thrust - chg * 12, hy = spear ? 5 : 8;
+    if (swinging && !spear) {
+      // golpe como no Hotline Miami: o braço INTEIRO gira a partir do ombro (estica atrás, varre, estica ao máximo, recolhe) e a arma segue em linha com ele
+      const bl = sp < 0.12 ? sp / 0.12 : sp > 0.85 ? (1 - sp) / 0.15 : 1, ha = lerpN(-0.2, a, bl), len = lerpN(10.2, swingArm(sp), bl);
+      const hx = Math.cos(ha) * len, hy2 = 10 + Math.sin(ha) * len, cnt = Math.sin(Math.min(1, sp / 0.7) * Math.PI);
+      twist = (a + 0.6) * 0.42;   // tronco gira junto com a varrida
+      limb(0, -10, 9 - cnt * 3, -7.5 + cnt * 1.5, jacket); hand(10.5 - cnt * 3, -7.5 + cnt * 1.5);   // braço de trás recua
+      limb(0, 10, hx, hy2, jacket);
+      ctx.save(); ctx.translate(hx, hy2); ctx.rotate(a); drawWeaponSprite(wt); hand(1, 0); ctx.restore();
+    } else {
+      limb(0, 10, 10 + lunge, hy, jacket);
+      ctx.save(); ctx.translate(10 + lunge, hy); ctx.rotate(a); drawWeaponSprite(wt); hand(1, 0); ctx.restore();
+      limb(0, -10, 9, -7.5, jacket); hand(10.5, -7.5);
+    }
   } else {
     const back = st.recoil * 4;
     const fx2 = { PISTOL: 15, REVOLVER: 15, SMG: 24, RIFLE: 26, SHOTGUN: 28, SNIPER: 32, MINIGUN: 28 }[wt] || 22, small = wt === 'PISTOL' || wt === 'REVOLVER';
@@ -1044,7 +1110,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     ctx.save(); ctx.translate(8 - back, 0); drawWeaponSprite(wt); ctx.restore();
     hand(15 - back, by); hand(fx2 - back, fy);
   }
-  ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv);   // o tronco balança de leve a cada passo
+  ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
   drawBody(p.sk, jacket, false);
   ctx.save(); ctx.translate(2.5, 0); ctx.scale(0.8, 0.8); drawHead(p.sk); ctx.restore();
   ctx.restore();
@@ -1062,11 +1128,12 @@ function drawCorpse(c) {
 function drawDoor(d) {
   const T = TILE, a = d.o === 'h' ? d.phi : Math.PI / 2 - d.phi;
   ctx.save(); ctx.translate(d.hx, d.hy); ctx.rotate(a);
-  ctx.fillStyle = '#8b5a2b'; ctx.fillRect(0, -3.5, T - 2, 7);
-  ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(2, -2, T - 8, 2);
-  ctx.strokeStyle = '#4a2e14'; ctx.lineWidth = 1.5; ctx.strokeRect(0, -3.5, T - 2, 7);
-  ctx.fillStyle = '#f3d27a'; ctx.beginPath(); ctx.arc(T - 9, 0, 2, 0, TAU); ctx.fill();   // maçaneta
-  ctx.fillStyle = '#c9a24a'; ctx.beginPath(); ctx.arc(1.5, 0, 3, 0, TAU); ctx.fill();      // dobradiça
+  const ht = DOOR_HT;
+  ctx.fillStyle = '#8b5a2b'; ctx.fillRect(0, -ht, T - 2, ht * 2);
+  ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(2, -ht + 1.5, T - 8, 2.4);
+  ctx.strokeStyle = '#4a2e14'; ctx.lineWidth = 1.8; ctx.strokeRect(0, -ht, T - 2, ht * 2);
+  ctx.fillStyle = '#f3d27a'; ctx.beginPath(); ctx.arc(T - 11, 0, 2.6, 0, TAU); ctx.fill();   // maçaneta
+  ctx.fillStyle = '#c9a24a'; ctx.beginPath(); ctx.arc(2, 0, 3.8, 0, TAU); ctx.fill();      // dobradiça
   ctx.restore();
 }
 
@@ -1085,7 +1152,7 @@ function updateFx(dt) {
   }
   fx.parts = fx.parts.filter(p => p.life > 0);
   for (const l of fx.lights) l.t -= d; fx.lights = fx.lights.filter(l => l.t > 0);
-  for (const s of fx.slashes) s.t -= d; fx.slashes = fx.slashes.filter(s => s.t > 0);
+  fx.slashes = fx.slashes.filter(s => performance.now() - s.t0 < swDur(s.w) + 40);
   for (const q of fx.pops) q.t -= d; fx.pops = fx.pops.filter(q => q.t > 0);
   if (level) for (const dr of level.doors) level.stepDoor(dr, dt);
   for (const c of fx.corpses) {
@@ -1143,12 +1210,12 @@ function render(now, dt) {
   for (const c of fx.corpses) drawCorpse(c);
 
   // itens no chão
-  let near = null, nd = 54;
+  let near = null, nd = PICK_R;
   for (const it of snap.it) {
     const [, x, y, type, , rot, thrown] = it;
     ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
     ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; ctx.scale(CS * 1.05, CS * 1.05); if (thrown && type === 'SPEAR') ctx.translate(-55, 0); drawWeaponSprite(type); ctx.restore();
-    if (!thrown && me && me.al) { const d = Math.hypot(x - pred.x, y - pred.y); if (d < nd) { nd = d; near = it; } }
+    if (!thrown && me && me.al) { const d = itemDist(type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
   }
   if (near) {
     ctx.save(); ctx.font = '700 15px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.fillStyle = '#ffe600';
@@ -1192,9 +1259,25 @@ function render(now, dt) {
     else if (p.k === 'c') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = '#ffd86b'; ctx.fillRect(-2, -1, 4, 2); ctx.restore(); }
   }
   for (const s of fx.slashes) {
-    const wd = WEAPONS[s.w], k = 1 - s.t / 0.2; ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.a);
-    ctx.strokeStyle = wd.col; ctx.globalAlpha = (1 - k) * 0.8; ctx.lineWidth = 3; ctx.shadowColor = wd.col; ctx.shadowBlur = 10;
-    ctx.beginPath(); ctx.arc(0, 0, wd.range * 0.85, -wd.arc / 2 + k * wd.arc - 0.5, -wd.arc / 2 + k * wd.arc); ctx.stroke(); ctx.restore();
+    const wd = WEAPONS[s.w];
+    if (!wd || s.w === 'FISTS') continue;
+    const sp = Math.min(1, (performance.now() - s.t0) / swDur(s.w)), fade = Math.max(0, 1 - Math.max(0, sp - 0.35) / 0.65);
+    if (fade <= 0 || sp < 0.1) continue;
+    const pp = s.by === myId ? pred : (interpEnemy(s.by) || s), L = swingLunge(sp) * (s.w === 'SPEAR' ? 5 : 8) * CS;
+    ctx.save(); ctx.translate(pp.x + Math.cos(s.a) * L, pp.y + Math.sin(s.a) * L); ctx.rotate(s.a);
+    ctx.shadowColor = wd.col; ctx.shadowBlur = 14; ctx.lineCap = 'round';
+    if (s.w === 'SPEAR') {   // estocada: rastro reto saindo da ponta
+      const tip = wd.range * (0.55 + 0.45 * Math.sin(Math.min(1, sp / 0.5) * Math.PI / 2)), g = ctx.createLinearGradient(wd.range * 0.25, 0, tip, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, wd.col);
+      ctx.globalAlpha = fade * 0.85; ctx.strokeStyle = g; ctx.lineWidth = 5 * fade + 1; ctx.beginPath(); ctx.moveTo(wd.range * 0.25, 0); ctx.lineTo(tip, 0); ctx.stroke();
+    } else {                 // varrida: meia-lua que acompanha a ponta da arma e some
+      const arc = wd.arc, dir = s.dir || 1;
+      const head = swingAng(Math.min(sp, 0.62), arc, dir), tail = head - dir * Math.min(1.5, arc * 0.7) * (0.35 + 0.65 * Math.min(1, sp / 0.45));
+      const r1 = wd.range * 0.95, r0 = wd.range * 0.5, a0 = Math.min(head, tail), a1 = Math.max(head, tail);
+      ctx.globalAlpha = fade * 0.55; ctx.fillStyle = wd.col; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.arc(0, 0, r0, a1, a0, true); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = fade * 0.95; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.stroke();
+    }
+    ctx.restore();
   }
   for (const q of fx.pops) {
     const k = 1 - q.t / 0.9; ctx.save(); ctx.globalAlpha = Math.min(1, q.t * 3);

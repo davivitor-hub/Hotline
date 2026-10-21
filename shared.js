@@ -8,7 +8,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const TILE = 50, PR = 18, CS = 1.35, SPEED = 235, WIN_SCORE = 5, DOWN_TIME = 1.7;
+  const TILE = 72, PR = 18, CS = 1.35, SPEED = 290, WIN_SCORE = 5, DOWN_TIME = 1.7;
   const MAX_PLAYERS = 7;   // máximo de jogadores na sala
   const MIN_PLAYERS = 2;   // a partida começa com 2 ou mais
 
@@ -39,19 +39,20 @@
   const SPEAR_CHARGE = 1.1;   // segundos segurando o arremesso para a lança chegar na força máxima
   const SPEAR_THROW_MIN = 20, SPEAR_THROW_MAX = 100;   // % de vida tirada pela lança arremessada: toque rápido -> segurando até o fim
   /* ===== PORTAS (física) ===== */
-  const DOOR_HT = 3.5;     // meia espessura da folha da porta
+  const DOOR_HT = 5;     // meia espessura da folha da porta
+  const WATER_SLOW = 0.5;  // multiplicador da velocidade dentro da piscina
   const DOOR_LIM = 1.52;   // abertura máxima (rad, ~87°) para cada lado
   const DOOR_DAMP = 3.6;   // atrito da dobradiça (1/s)
 
   /* ---------------------------------------------------------------- ARMAS */
   // muz = distância do centro do personagem até a ponta do cano (para o tiro sair da ponta da arma)
   const WEAPONS = {
-    FISTS:   { name: 'MÃOS',    dmg: 5,  melee: true, range: 40, arc: 1.8, cd: 0.40, col: '#ffd7b0' },
-    KNIFE:   { name: 'FACA',    dmg: 40, melee: true, blade: true, range: 50, arc: 1.5, cd: 0.26, col: '#e6f1ff' },
-    MACHETE: { name: 'MACHETE', dmg: 55, melee: true, blade: true, range: 66, arc: 2.0, cd: 0.34, col: '#b9ff79' },
-    BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 74, arc: 2.1, cd: 0.50, col: '#ffb35c' },
-    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, blade: true, range: 86, arc: 2.3, cd: 0.40, col: '#9ff7ff' },
-    SPEAR:   { name: 'LANÇA',   dmg: 60, melee: true, jav: true, range: 116, arc: 0.75, cd: 0.55, col: '#ffd9a0' },
+    FISTS:   { name: 'MÃOS',    dmg: 5,  melee: true, range: 52, arc: 2.0, cd: 0.40, col: '#ffd7b0' },
+    KNIFE:   { name: 'FACA',    dmg: 40, melee: true, blade: true, range: 70, arc: 1.7, cd: 0.26, col: '#e6f1ff' },
+    MACHETE: { name: 'MACHETE', dmg: 55, melee: true, blade: true, range: 90, arc: 2.2, cd: 0.34, col: '#b9ff79' },
+    BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 98, arc: 2.4, cd: 0.50, col: '#ffb35c' },
+    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, blade: true, range: 116, arc: 2.6, cd: 0.40, col: '#9ff7ff' },
+    SPEAR:   { name: 'LANÇA',   dmg: 60, melee: true, jav: true, range: 148, arc: 0.95, cd: 0.55, col: '#ffd9a0' },
     PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff', muz: 32 },
     REVOLVER:{ name: 'REVÓLVER',dmg: 55, ammo: 6,  cd: 0.60,  spread: 0.02, speed: 1300, pellets: 1, range: 1100, auto: false, col: '#ffcf5a', muz: 34 },
     SMG:     { name: 'SMG',     dmg: 12, ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8', muz: 44 },
@@ -68,6 +69,7 @@
     SNIPER: 1.2, MINIGUN: 0.8                       // épicas
   };
   const RARITY_KEYS = Object.keys(RARITY);
+  for (const k of RARITY_KEYS) RARITY[k] = Math.pow(RARITY[k], 0.6);   // achata os pesos: sorteio bem mais variado
   const RARITY_TOTAL = RARITY_KEYS.reduce((a, k) => a + RARITY[k], 0);
   function rollWeapon() {
     let r = Math.random() * RARITY_TOTAL;
@@ -98,6 +100,16 @@
     }
     return hslHex(best, 72 + Math.random() * 23, 52 + Math.random() * 8);
   }
+  // Hitbox das armas no chão: em vez de um círculo no centro, é o COMPRIMENTO da arma (cabo -> ponta) + uma folga.
+  // ext = [trás, frente] do sprite (px do mundo, já com a escala do desenho). Armas compridas (lança, sniper, katana) agora são fáceis de pegar.
+  const ITEM_EXT = { PISTOL: [4, 23], REVOLVER: [7, 26], SMG: [12, 42], RIFLE: [14, 60], SHOTGUN: [14, 62], SNIPER: [17, 82], MINIGUN: [9, 60],
+    KNIFE: [6, 38], MACHETE: [6, 61], BAT: [6, 61], KATANA: [10, 78], SPEAR: [16, 102] };
+  const PICK_R = 46;   // folga (px) ao redor da arma
+  // distância de (px,py) até a arma deitada no chão (segmento cabo -> ponta, girado por rot)
+  function itemDist(type, ix, iy, rot, px, py) {
+    const e = ITEM_EXT[type] || [8, 30], c = Math.cos(rot), s = Math.sin(rot);
+    return segDist(px, py, ix - c * e[0], iy - s * e[0], ix + c * e[1], iy + s * e[1]);
+  }
   const pick = a => a[Math.floor(Math.random() * a.length)];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -112,7 +124,9 @@
     for (let y = 0; y < H; y++) { g.push(new Array(W).fill(0)); fl.push(new Array(W).fill(theme.base)); }
     const set = (x, y, v) => { g[y][x] = v; g[H - 1 - y][W - 1 - x] = v; };
     const rect = (x1, y1, x2, y2, v = 1) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) set(x, y, v); };
-    const spawn = [], wp = [], furn = [], rugs = []; let pair = 0;
+    const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = []; let pair = 0;
+    // móveis redondos (árvore, vaso, churrasqueira) colidem como CÍRCULO, não como o quadrado inteiro; a piscina (tile 4) é água: dá pra andar, mais devagar
+    const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, plant: () => 0.36, bbq: () => 0.38 };
     const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
     def({
       rect,
@@ -123,7 +137,11 @@
       furn: (x, y, w, h, k, o = {}) => {
         const a = Object.assign({ x, y, w, h, k, r: 0 }, o), b = Object.assign({}, a, { x: W - x - w, y: H - y - h, r: 2 });
         furn.push(a); if (!same(a, b)) furn.push(b);
-        for (const f of (same(a, b) ? [a] : [a, b])) for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) g[j][i] = 3;
+        for (const f of (same(a, b) ? [a] : [a, b])) {
+          const rf = ROUND[f.k];
+          if (rf) circ.push({ x: (f.x + f.w / 2) * TILE, y: (f.y + f.h / 2) * TILE, r: rf(f) * TILE });
+          for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) { g[j][i] = f.k === 'pool' ? 4 : 3; if (rf) rnd.push(j * W + i); }
+        }
       },
       // tapete (decoração sem colisão)
       rug: (x, y, w, h, col) => {
@@ -133,7 +151,7 @@
       // tipo de piso de uma região
       floor: (x1, y1, x2, y2, kind) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) { fl[y][x] = kind; fl[H - 1 - y][W - 1 - x] = kind; } }
     });
-    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs };
+    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs, circ, rnd };
     MAP_IDS.push(id);
   }
 
@@ -206,7 +224,7 @@
   class Level {
     constructor(id) {
       const m = MAPS[id];
-      this.id = id; this.m = m; this.W = m.W; this.H = m.H;
+      this.id = id; this.m = m; this.W = m.W; this.H = m.H; this.circ = m.circ; this.rnd = new Set(m.rnd);
       this.g = m.g.map(r => r.slice());
       this.doors = [];
       for (let y = 0; y < this.H; y++) for (let x = 0; x < this.W; x++) if (this.g[y][x] === 2) {
@@ -215,8 +233,19 @@
           hx: h ? x * TILE : (x + 0.5) * TILE, hy: h ? (y + 0.5) * TILE : y * TILE });
       }
     }
-    solid(tx, ty) { return tx < 0 || ty < 0 || tx >= this.W || ty >= this.H || this.g[ty][tx] !== 0; }
-    solidAt(px, py) { return this.solid(Math.floor(px / TILE), Math.floor(py / TILE)); }
+    // tiles: 0 livre, 1 parede, 2 porta, 3 móvel sólido, 4 água (livre, mais lenta). Móvel redondo: o tile só vale como sólido dentro do círculo.
+    solid(tx, ty) {
+      if (tx < 0 || ty < 0 || tx >= this.W || ty >= this.H) return true;
+      const v = this.g[ty][tx];
+      return v !== 0 && v !== 4 && !(v === 3 && this.rnd.has(ty * this.W + tx));
+    }
+    solidAt(px, py) {
+      const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+      if (this.solid(tx, ty)) return true;
+      if (this.rnd.size && this.rnd.has(ty * this.W + tx)) for (const c of this.circ) if (Math.hypot(px - c.x, py - c.y) < c.r) return true;
+      return false;
+    }
+    waterAt(px, py) { const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE); return tx >= 0 && ty >= 0 && tx < this.W && ty < this.H && this.g[ty][tx] === 4; }
     // ---- portas com física: a folha gira em torno da dobradiça (phi = ângulo, w = velocidade angular).
     // Fechada = "travada" (tile sólido). Destravada = folha solta que balança, empurra e pode ser fechada de novo.
     doorEnd(d) { const a = d.o === 'h' ? d.phi : Math.PI / 2 - d.phi; return [d.hx + Math.cos(a) * TILE, d.hy + Math.sin(a) * TILE]; }
@@ -247,6 +276,13 @@
           }
         }
       }
+      this.pushCircles(p, r);
+    }
+    pushCircles(p, r) {
+      for (const c of this.circ) {
+        const dx = p.x - c.x, dy = p.y - c.y, rr = c.r + r;
+        if (dx * dx + dy * dy < rr * rr) { const d = Math.hypot(dx, dy) || 1e-3; p.x = c.x + dx / d * rr; p.y = c.y + dy / d * rr; }
+      }
     }
     los(x1, y1, x2, y2) {
       const d = Math.hypot(x2 - x1, y2 - y1), n = Math.ceil(d / 8);
@@ -273,6 +309,7 @@
     let dx = ((k & 8) ? 1 : 0) - ((k & 2) ? 1 : 0), dy = ((k & 4) ? 1 : 0) - ((k & 1) ? 1 : 0);
     if (!dx && !dy) return null;
     const l = Math.hypot(dx, dy); dx /= l; dy /= l;
+    if (level.waterAt(p.x, p.y)) sm *= WATER_SLOW;   // piscina: anda mais devagar
     const mx = dx * SPEED * sm * dt, my = dy * SPEED * sm * dt;
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my)) / 6));
     for (let i = 0; i < n; i++) { p.x += mx / n; p.y += my / n; level.push(p, PR); }
@@ -347,14 +384,25 @@
       this.bullets = []; this.items = []; this.winner = -1;
       let idx = 0;
       for (const p of this.players) if (p) this.spawnPlayer(p, idx++);
-      // cada par de pontos (espelhados = justo) sorteia uma arma por raridade; alguns pontos ficam vazios a cada rodada
-      const types = {}, pairs = [...new Set(this.level.m.wp.map(w => w.pair))];
-      const skip = new Set(pairs.filter(() => Math.random() < 0.25));
-      while (pairs.length - skip.size < 3 && skip.size) skip.delete([...skip][Math.floor(Math.random() * skip.size)]);   // garante o mínimo de armas
-      for (const w of this.level.m.wp) {
-        if (skip.has(w.pair)) continue;
-        if (!types[w.pair]) types[w.pair] = rollWeapon();
-        this.addItem(types[w.pair], (w.x + 0.5) * TILE, (w.y + 0.5) * TILE);
+      // armas totalmente aleatórias a cada rodada: posições sorteadas em qualquer chão livre (sempre em PARES espelhados = justo),
+      // quantidade de 4 a 9 pares, tipo sorteado por raridade em cada par e leve deslocamento dentro do tile
+      const L = this.level, sp = L.m.spawn, cand = [];
+      for (let y = 0; y < L.H; y++) for (let x = 0; x < L.W; x++) {
+        if (L.g[y][x] !== 0) continue;
+        if (sp.some(s => Math.hypot(s[0] - x, s[1] - y) < 1.8)) continue;   // não nasce em cima de quem acabou de nascer
+        cand.push([x, y]);
+      }
+      const want = 4 + Math.floor(Math.random() * 6), placed = [];
+      for (let tries = 0; tries < 400 && placed.length < want && cand.length; tries++) {
+        const [x, y] = pick(cand), mx = L.W - 1 - x, my = L.H - 1 - y;
+        if (placed.some(q => Math.hypot(q[0] - x, q[1] - y) < 2.2 || Math.hypot(q[0] - mx, q[1] - my) < 2.2)) continue;
+        if (Math.hypot(x - mx, y - my) < 1.5) continue;
+        placed.push([x, y]);
+      }
+      for (const [x, y] of placed) {
+        const type = rollWeapon(), jx = (Math.random() - 0.5) * 24, jy = (Math.random() - 0.5) * 24;
+        this.addItem(type, (x + 0.5) * TILE + jx, (y + 0.5) * TILE + jy);
+        this.addItem(type, (L.W - x - 0.5) * TILE - jx, (L.H - y - 0.5) * TILE - jy);
       }
       this.phase = 'countdown'; this.timer = 2.8;
       this.events.push({ t: 'round' });
@@ -535,8 +583,12 @@
       return true;
     }
     pickup(p) {
-      let best = null, bd = 54;
-      for (const it of this.items) { if (it.thrown) continue; const d = Math.hypot(it.x - p.x, it.y - p.y); if (d < bd) { bd = d; best = it; } }
+      let best = null, bd = PICK_R;
+      for (const it of this.items) {
+        if (it.thrown) continue;
+        const d = itemDist(it.type, it.x, it.y, it.rot, p.x, p.y);
+        if (d < bd && this.level.los(p.x, p.y, it.x, it.y)) { bd = d; best = it; }   // não pega arma do outro lado da parede
+      }
       if (!best) return false;
       // mão ocupada e o outro espaço livre -> guarda no espaço livre e já saca a nova; os dois cheios -> troca com a da mão
       const target = (p.inv[p.sel] && !p.inv[1 - p.sel]) ? 1 - p.sel : p.sel;
@@ -695,6 +747,18 @@
           const sx = it.vx * dt / n, sy = it.vy * dt / n; let stop = false;
           for (let s = 0; s < n && !stop; s++) {
             const nx = it.x + sx, ny = it.y + sy;
+            {   // arma arremessada bate na porta: porta fechada destrava e abre; porta solta leva um empurrão (mais pesada = empurra mais)
+              const wgt = WEIGHT[it.type] || 1, tx = Math.floor(nx / TILE), ty = Math.floor(ny / TILE);
+              const ld = this.level.doors.find(d => d.latched && d.x === tx && d.y === ty);
+              if (ld) {
+                const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE, dir = ld.o === 'h' ? (it.y < cy ? 1 : -1) : (it.x < cx ? 1 : -1);
+                this.level.kickDoor(ld, dir, Math.min(8, 3.5 + wgt * 0.7)); ld.nl = 0.8; ld.by = it.owner;
+                this.events.push({ t: 'door', i: ld.i, dir, x: cx, y: cy, hit: false });
+                stop = true; it.vx *= -0.15; it.vy *= -0.15; break;
+              }
+              const dh = this.level.doorHit(nx, ny, 3);
+              if (dh) { const m = 0.6 + wgt * 0.3; this.shotDoor(dh, { x: nx, y: ny, vx: it.vx * m, vy: it.vy * m, owner: it.owner }); this.events.push({ t: 'door', i: dh.i, dir: 0, x: nx, y: ny, hit: false }); }
+            }
             if (this.level.solidAt(nx, ny) || this.level.doorAt(nx, ny, 3)) { stop = true; it.vx *= -0.15; it.vy *= -0.15; break; }
             it.x = nx; it.y = ny;
             for (const p of this.players) {
@@ -874,5 +938,5 @@
     }
   }
 
-  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, WATER_SLOW, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });
