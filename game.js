@@ -23,7 +23,7 @@ const SKINS = {
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('7shadows') || localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', map: 'RANDOM', spLink: '', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', map: 'RANDOM', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
 function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg)); } catch { } }
 if (cfg.map !== 'RANDOM' && !MAPS[cfg.map]) cfg.map = 'RANDOM';
 if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
@@ -52,7 +52,6 @@ addEventListener('resize', resize); resize();
 /* ------------------------------------------------------------------ ÁUDIO */
 let ac = null, master, musG, sfxG, noiseBuf, nextT = 0, step16 = 0;
 function initAudio() {
-  if (spPlayer) { try { spPlayer.activateElement(); } catch { } }
   if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
   try {
     ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -114,134 +113,9 @@ function schedule() {
   if (!$('nowPlaying')) { const n = document.createElement('div'); n.id = 'nowPlaying'; n.className = 'hidden'; const hud = $('hud'); if (hud) hud.appendChild(n); }
 })();
 
-/* ------------------------------------------------------------ SPOTIFY
-   Login com PKCE (sem servidor) + Web Playback SDK. Precisa de Spotify Premium.
-   1) Crie um app em https://developer.spotify.com/dashboard
-   2) Em "Redirect URIs" cadastre EXATAMENTE o endereço do jogo (ex.: https://hotline-m6gx.onrender.com/ e http://127.0.0.1:3000/)
-   3) Cole o "Client ID" abaixo. */
-const SPOTIFY_CLIENT_ID = 'd8e275f85ae84610a68b07ee9bd7ea42';
-const SP_SCOPES = 'streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-library-read';
-const SP_REDIR = location.origin + location.pathname;
-const spStore = {
-  get: k => { try { return localStorage.getItem('sp_' + k); } catch { return null; } },
-  set: (k, v) => { try { if (v == null) localStorage.removeItem('sp_' + k); else localStorage.setItem('sp_' + k, v); } catch { } }
-};
-let spPlayer = null, spDevice = null, spReady = false, spSdkLoading = false, spLoadedKey = null, spTitle = '', spUser = '';
-const spConnected = () => !!(spStore.get('refresh') || spStore.get('token'));
-function spRand(n) { const a = new Uint8Array(n), cs = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; crypto.getRandomValues(a); return Array.from(a, x => cs[x % cs.length]).join(''); }
-async function spChallenge(v) {
-  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v));
-  return btoa(String.fromCharCode(...new Uint8Array(h))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-async function spConnect() {
-  if (!SPOTIFY_CLIENT_ID) { status('Spotify: falta colocar o Client ID no game.js.'); spUi(); return; }
-  if (!window.crypto || !crypto.subtle) { status('Spotify: precisa de https (ou 127.0.0.1).'); return; }
-  const v = spRand(64), st = spRand(16);
-  spStore.set('verifier', v); spStore.set('state', st);
-  location.href = 'https://accounts.spotify.com/authorize?' + new URLSearchParams({
-    client_id: SPOTIFY_CLIENT_ID, response_type: 'code', redirect_uri: SP_REDIR, scope: SP_SCOPES,
-    code_challenge_method: 'S256', code_challenge: await spChallenge(v), state: st
-  });
-}
-async function spTokenReq(body) {
-  const r = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams(Object.assign({ client_id: SPOTIFY_CLIENT_ID }, body))
-  });
-  if (!r.ok) throw new Error('token ' + r.status);
-  const j = await r.json();
-  spStore.set('token', j.access_token); spStore.set('exp', String(Date.now() + j.expires_in * 1000 - 60000));
-  if (j.refresh_token) spStore.set('refresh', j.refresh_token);
-  return j.access_token;
-}
-async function spToken() {
-  const t = spStore.get('token');
-  if (t && Date.now() < Number(spStore.get('exp') || 0)) return t;
-  const rf = spStore.get('refresh'); if (!rf) return null;
-  try { return await spTokenReq({ grant_type: 'refresh_token', refresh_token: rf }); } catch { spLogout(); status('Spotify: sessão expirou, conecte de novo.'); return null; }
-}
-async function spHandleRedirect() {
-  const q = new URLSearchParams(location.search);
-  if (!q.has('code') && !q.has('error')) return false;
-  history.replaceState(null, '', location.pathname);
-  if (q.get('error')) { status('Spotify: login cancelado.'); return true; }
-  if (q.get('state') !== spStore.get('state')) { status('Spotify: resposta inválida, tente de novo.'); return true; }
-  try {
-    await spTokenReq({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: SP_REDIR, code_verifier: spStore.get('verifier') });
-    spStore.set('verifier', null); spStore.set('state', null);
-    cfg.track = 'spotify'; saveCfg(); status('Spotify conectado! A música toca quando a partida começar.');
-  } catch { status('Spotify: falha ao conectar. Confira o Client ID e o Redirect URI.'); }
-  return true;
-}
-async function spApi(path, opt) {
-  const t = await spToken(); if (!t) throw new Error('sem token');
-  return fetch('https://api.spotify.com/v1' + path, Object.assign({}, opt, { headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' } }));
-}
-async function spFetchUser() {
-  try { const r = await spApi('/me'); if (r.ok) { const j = await r.json(); spUser = j.display_name || j.id || ''; if (j.product && j.product !== 'premium') status('Spotify: sua conta não é Premium, o player não vai tocar.'); spUi(); } } catch { }
-}
-function spLoadSdk() {
-  if (spPlayer || spSdkLoading) return; spSdkLoading = true;
-  window.onSpotifyWebPlaybackSDKReady = () => {
-    spPlayer = new Spotify.Player({ name: '7 Shadows', getOAuthToken: cb => { spToken().then(t => cb(t || '')); }, volume: cfg.music ? cfg.vol : 0 });
-    spPlayer.addListener('ready', ({ device_id }) => { spDevice = device_id; spReady = true; spUi(); if (musicOn && cfg.track === 'spotify') playTrack(); });
-    spPlayer.addListener('not_ready', () => { spReady = false; spUi(); });
-    spPlayer.addListener('player_state_changed', st => {
-      const t = st && st.track_window && st.track_window.current_track;
-      spTitle = t ? t.name + ' · ' + t.artists.map(a => a.name).join(', ') : ''; refreshTracks();
-    });
-    for (const e of ['initialization_error', 'authentication_error', 'account_error', 'playback_error'])
-      spPlayer.addListener(e, ({ message }) => status('Spotify: ' + message + (e === 'account_error' ? ' (precisa de Premium)' : '')));
-    spPlayer.connect();
-  };
-  const sc = document.createElement('script'); sc.src = 'https://sdk.scdn.co/spotify-player.js'; sc.async = true; document.head.appendChild(sc);
-}
-function spParse(s) {
-  s = (s || '').trim();
-  const m = s.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(playlist|album|artist|track)\/([A-Za-z0-9]+)/) || s.match(/^spotify:(playlist|album|artist|track):([A-Za-z0-9]+)/);
-  return m ? { type: m[1], uri: 'spotify:' + m[1] + ':' + m[2] } : null;
-}
-async function spPlay() {
-  if (!spPlayer || !spReady) return;
-  try { spPlayer.activateElement(); } catch { }
-  const link = spParse(cfg.spLink), key = link ? link.uri : 'LIKED';
-  if (spLoadedKey === key) { spPlayer.resume().catch(() => { }); return; }
-  let body;
-  try {
-    if (link) body = link.type === 'track' ? { uris: [link.uri] } : { context_uri: link.uri };
-    else {
-      const r = await spApi('/me/tracks?limit=50'), j = r.ok ? await r.json() : null, uris = j ? j.items.map(i => i.track.uri) : [];
-      if (!uris.length) { status('Spotify: sem músicas curtidas. Cole o link de uma playlist na aba Músicas.'); return; }
-      body = { uris };
-    }
-    spApi('/me/player/shuffle?state=true&device_id=' + spDevice, { method: 'PUT' }).catch(() => { });
-    const r2 = await spApi('/me/player/play?device_id=' + spDevice, { method: 'PUT', body: JSON.stringify(body) });
-    if (r2.ok) { spLoadedKey = key; spPlayer.setVolume(cfg.music ? cfg.vol : 0).catch(() => { }); }
-    else status('Spotify: não consegui tocar (' + r2.status + ').');
-  } catch { status('Spotify: falha de rede.'); }
-}
-function spPause() { if (spPlayer && spReady) spPlayer.pause().catch(() => { }); }
-function spLogout() {
-  for (const k of ['token', 'exp', 'refresh', 'verifier', 'state']) spStore.set(k, null);
-  if (spPlayer) { try { spPlayer.disconnect(); } catch { } }
-  spPlayer = null; spDevice = null; spReady = false; spSdkLoading = false; spLoadedKey = null; spTitle = ''; spUser = '';
-  if (cfg.track === 'spotify') { cfg.track = 'synth'; saveCfg(); if (musicOn) playTrack(); }
-  spUi(); refreshTracks();
-}
-function spUi() {
-  const st = $('spState'), btn = $('spBtn'), note = $('spNote'); if (!st) return;
-  const on = spConnected();
-  st.textContent = !SPOTIFY_CLIENT_ID ? 'não configurado' : on ? (spReady ? 'conectado' + (spUser ? ' · ' + spUser : '') : 'conectando…') : 'desconectado';
-  st.className = on && spReady ? 'ok' : '';
-  btn.textContent = on ? 'Desconectar' : 'Conectar Spotify';
-  btn.disabled = !SPOTIFY_CLIENT_ID;
-  note.textContent = !SPOTIFY_CLIENT_ID ? 'Falta colocar o Client ID do app Spotify no início do bloco SPOTIFY em game.js.' : 'Precisa do Spotify Premium. Sem link, toca suas músicas curtidas em modo aleatório.';
-}
-
 /* ------------------------------------------------------------ TRILHAS
    Todos os nomes giram em torno da AURA. 'file: null' = sintetizador original do jogo. */
 const TRACKS = [
-  { id: 'spotify',    name: 'Spotify',            sub: 'Toque as suas músicas (conta Premium)', file: null, spotify: true },
   { id: 'synth',      name: 'Aura Neon',          sub: 'Synthwave original do duelo', file: null },
   { id: 'batalha',    name: 'Batalha de Aura',    sub: 'Rap, quem tem mais aura vence', file: ['music/aura-batalha.mp3', 'aura-batalha.mp3', 'Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3', 'music/Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3'] },
   { id: 'hidrogenio', name: 'Aura de Hidrogênio', sub: 'Eletrônica pesada e acelerada', file: ['music/aura-hidrogenio.mp3', 'aura-hidrogenio.mp3', 'M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3', 'music/M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3'] },
@@ -249,7 +123,7 @@ const TRACKS = [
   { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: ['music/aura-sombria.mp3', 'aura-sombria.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3'] },
   { id: 'chorona',    name: 'Aura Chorona',       sub: 'Rock pesado de quem chora e luta', file: ['music/aura-chorona.mp3', 'aura-chorona.mp3', 'Devil_May_Cry_3_-_Devils_Never_Cry_MP3_160K_.mp3', 'music/Devil_May_Cry_3_-_Devils_Never_Cry_MP3_160K_.mp3'] }
 ];
-if (!TRACKS.some(t => t.id === cfg.track) || (cfg.track === 'spotify' && !spConnected())) cfg.track = 'synth';
+if (!TRACKS.some(t => t.id === cfg.track)) cfg.track = 'synth';
 if (!(cfg.vol >= 0 && cfg.vol <= 1)) cfg.vol = 0.6;
 const curTrack = () => TRACKS.find(t => t.id === cfg.track) || TRACKS[0];
 const bgm = new Audio(); bgm.loop = false; bgm.preload = 'none';   // sem loop: quando acaba, começa a próxima faixa
@@ -263,17 +137,14 @@ bgm.addEventListener('error', () => {
 function applyMusic() {
   const t = curTrack();
   bgm.volume = cfg.music ? cfg.vol : 0;
-  if (spPlayer) spPlayer.setVolume(cfg.music ? cfg.vol : 0).catch(() => { });
-  if (musG) musG.gain.value = (cfg.music && musicOn && !t.file && !t.spotify) ? 0.17 * cfg.vol / 0.6 : 0;
+  if (musG) musG.gain.value = (cfg.music && musicOn && !t.file) ? 0.17 * cfg.vol / 0.6 : 0;
 }
 function playTrack() {
   const t = curTrack(); musicOn = true;
-  if (t.spotify) { bgm.pause(); if (cfg.music) spPlay(); }
-  else if (t.file) {
+  if (t.file) {
     if (bgmLoaded !== t.id) { bgmTry = 0; bgm.src = t.file[0]; bgmLoaded = t.id; }
     const pr = bgm.play(); if (pr && pr.catch) pr.catch(() => { });
   } else bgm.pause();
-  if (!t.spotify) spPause();
   applyMusic(); refreshTracks();
 }
 // acabou a faixa: toca a próxima que tem arquivo (o synth original é infinito, então fica de fora do revezamento)
@@ -284,17 +155,15 @@ bgm.addEventListener('ended', () => {
   if (nx.id === cfg.track) { bgm.currentTime = 0; const pr = bgm.play(); if (pr && pr.catch) pr.catch(() => { }); return; }
   cfg.track = nx.id; saveCfg(); playTrack();
 });
-function stopTrack() { musicOn = false; bgm.pause(); spPause(); applyMusic(); refreshTracks(); }
+function stopTrack() { musicOn = false; bgm.pause(); applyMusic(); refreshTracks(); }
 function pickTrack(id) {
-  if (id === 'spotify' && !spConnected()) { spConnect(); return; }
   cfg.track = id; saveCfg();
   if (!cfg.music) { cfg.music = true; $('optMusic').checked = true; }
   initAudio(); playTrack();
 }
 function nextTrack() {
-  let i = TRACKS.findIndex(t => t.id === cfg.track), t;
-  do { i = (i + 1) % TRACKS.length; t = TRACKS[i]; } while (t.spotify && !spConnected());
-  cfg.track = t.id; saveCfg(); playTrack();
+  const i = TRACKS.findIndex(t => t.id === cfg.track);
+  cfg.track = TRACKS[(i + 1) % TRACKS.length].id; saveCfg(); playTrack();
 }
 function refreshTracks() {
   for (const b of $('trackList').children) {
@@ -303,7 +172,7 @@ function refreshTracks() {
     b.querySelector('.ic').textContent = on && musicOn && cfg.music ? '❚❚' : '▶';
   }
   const np = $('nowPlaying');
-  { const ct = curTrack(); np.innerHTML = '♪ <span></span>'; np.firstElementChild.textContent = ct.spotify && spTitle ? spTitle : ct.name; }
+  np.innerHTML = '♪ <span>' + curTrack().name + '</span>';
   np.classList.toggle('hidden', !(mode && musicOn && cfg.music));
 }
 // voz de dano: toca uma vez por vez (sem loop); não reinicia enquanto ainda está tocando
@@ -412,7 +281,7 @@ function showTab(which) {
 const MAP_PICK = ['RANDOM', ...Shared.MAP_IDS];
 function mapThumb(id) {
   const m = MAPS[id], T = 12, cv2 = document.createElement('canvas'); cv2.width = m.W * T; cv2.height = m.H * T;
-  const c = cv2.getContext('2d'), FL = { wood: '#b57e48', carpet: '#8b6a8c', tile: '#d6e8ea', ktile: '#efe8d6', grass: '#54964a', deck: '#c9a06a', path: '#bdb7aa' };
+  const c = cv2.getContext('2d'), FL = { wood: '#b57e48', carpet: '#8b6a8c', tile: '#d6e8ea', ktile: '#efe8d6', sand: '#e2c78f', stone: '#cdb88e', grass: '#54964a', deck: '#c9a06a', path: '#bdb7aa' };
   for (let y = 0; y < m.H; y++) for (let x = 0; x < m.W; x++) {
     const v = m.g[y][x];
     c.fillStyle = v === 1 ? (m.theme.hedge && (x === 0 || y === 0 || x === m.W - 1 || y === m.H - 1) ? '#2f6b2a' : m.theme.wall) : v === 2 ? '#6e4a28' : v === 4 ? '#27b8e0' : (FL[m.fl[y][x]] || '#b57e48');
@@ -534,7 +403,7 @@ function resetFx() {
 /* ------------------------------------------------- CASA: pisos, paredes e móveis */
 const PAL = {
   wood: ['#b57e48', '#ab7440'], carpet: ['#8b6a8c', '#836284'], tile: ['#d6e8ea', '#c4dadd'],
-  ktile: ['#efe8d6', '#ddd4bb'], grass: ['#54964a', '#4e8d44'], deck: ['#c9a06a', '#bd945d'], path: ['#bdb7aa', '#b2ac9e']
+  ktile: ['#efe8d6', '#ddd4bb'], sand: ['#e2c78f', '#dbbf86'], stone: ['#cdb88e', '#c3ad80'], grass: ['#54964a', '#4e8d44'], deck: ['#c9a06a', '#bd945d'], path: ['#bdb7aa', '#b2ac9e']
 };
 const OUT = 'rgba(40,24,10,.7)';
 function hash(x, y) { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
@@ -574,6 +443,12 @@ function floorTile(c, kind, x, y, T) {
     c.lineCap = 'butt';
   } else if (kind === 'deck') {
     for (let i = 0; i < 5; i++) { c.fillStyle = i & 1 ? 'rgba(0,0,0,.05)' : 'rgba(255,255,255,.05)'; c.fillRect(X + i * 10, Y, 10, T); c.fillStyle = 'rgba(60,30,10,.35)'; c.fillRect(X + i * 10 + 9, Y, 1, T); }
+  } else if (kind === 'sand') {
+    for (let i = 0; i < 9; i++) { const r1 = hash(x * 11 + i, y), r2 = hash(x, y * 11 + i); c.fillStyle = r1 < .5 ? 'rgba(255,245,210,.35)' : 'rgba(150,110,50,.18)'; c.fillRect(X + r1 * (T - 3) + 1, Y + r2 * (T - 3) + 1, 2, 2); }
+    if (hash(x * 3 + 1, y * 5 + 2) > .8) { c.strokeStyle = 'rgba(150,110,50,.2)'; c.lineWidth = 1.5; c.beginPath(); c.arc(X + T / 2, Y + T + 6, 20 + hash(x, y) * 10, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); }
+  } else if (kind === 'stone') {
+    c.fillStyle = 'rgba(90,60,25,.25)'; c.fillRect(X, Y + T - 1.5, T, 1.5); c.fillRect(X + T - 1.5, Y, 1.5, T);
+    c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(X, Y, T, 1);
   } else if (kind === 'path') {
     for (let i = 0; i < 4; i++) rrect(c, X + (i & 1) * 25 + 2, Y + (i >> 1) * 25 + 2, 21, 21, 5, 'rgba(255,255,255,.12)', 'rgba(70,60,50,.3)', 1);
   }
@@ -696,7 +571,50 @@ const FURN = {
     c.strokeStyle = '#8a8f98'; c.lineWidth = 1.2; for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(w / 2 - 11, h / 2 - 4 + i * 4); c.lineTo(w / 2 + 11, h / 2 - 4 + i * 4); c.stroke(); }
     dot(c, w / 2, h / 2 - 4, 4, 'rgba(255,122,43,.8)');
   },
-  box(c, w, h) { rrect(c, 3, 3, w - 6, h - 6, 4, '#8a6a4a', OUT); }
+  box(c, w, h) { rrect(c, 3, 3, w - 6, h - 6, 4, '#8a6a4a', OUT); },
+  palm(c, w, h) {
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 1;
+    c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(cx + 5, cy + 6, R * .9, R * .8, 0, 0, TAU); c.fill();
+    for (let i = 0; i < 9; i++) {
+      c.save(); c.translate(cx, cy); c.rotate(i * TAU / 9 + .2);
+      c.fillStyle = i & 1 ? '#2d8a3e' : '#3aa24c'; c.strokeStyle = 'rgba(10,50,20,.7)'; c.lineWidth = 1.2;
+      c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(R * .5, -R * .28, R, -R * .04); c.quadraticCurveTo(R * .5, R * .2, 0, 0); c.closePath(); c.fill(); c.stroke();
+      c.strokeStyle = 'rgba(20,80,30,.8)'; c.beginPath(); c.moveTo(0, 0); c.lineTo(R * .95, -R * .03); c.stroke(); c.restore();
+    }
+    dot(c, cx, cy, 7, '#7a5230', OUT, 1.5); dot(c, cx - 2, cy - 2, 2, '#c99a62'); dot(c, cx + 4, cy + 3, 3, '#4a2c14');
+  },
+  oasis(c, w, h) {
+    rrect(c, 0, 0, w, h, 44, '#e9d4a0', OUT, 2); rrect(c, 8, 8, w - 16, h - 16, 38, '#2fb8d8', '#17829f', 2.5);
+    const g = c.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 2); g.addColorStop(0, 'rgba(120,230,245,.55)'); g.addColorStop(1, 'rgba(20,110,150,0)'); c.fillStyle = g; c.fillRect(8, 8, w - 16, h - 16);
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 2;
+    for (let k = 0; k < 4; k++) { const y = 34 + k * (h - 68) / 3; c.beginPath(); c.moveTo(24, y); for (let x = 24; x <= w - 24; x += 6) c.lineTo(x, y + Math.sin(x / 10 + k * 1.7) * 3); c.stroke(); }
+    for (const [x, y, r] of [[40, 40, 9], [w - 48, h - 44, 11], [w - 36, 50, 7]]) { dot(c, x, y, r, '#3f9a4a', '#1f5a28', 1.5); dot(c, x, y, r * .35, '#ff9ac0'); }
+    for (const [x, y, r] of [[22, h - 30, 7], [w - 26, 26, 6]]) dot(c, x, y, r, '#a89a80', OUT, 1.2);
+  },
+  crate(c, w, h) {
+    rrect(c, 3, 3, w - 6, h - 6, 3, '#b98550', OUT); rrect(c, 7, 7, w - 14, h - 14, 2, '#d6a86a', 'rgba(60,30,10,.55)', 1.5);
+    c.strokeStyle = 'rgba(90,55,20,.6)'; c.lineWidth = 2; c.beginPath(); c.moveTo(8, 8); c.lineTo(w - 8, h - 8); c.moveTo(w - 8, 8); c.lineTo(8, h - 8); c.stroke();
+  },
+  pipes(c, w, h) {
+    c.save(); if (h > w) { c.translate(w, 0); c.rotate(Math.PI / 2); const t = w; w = h; h = t; }
+    rrect(c, 1, 1, w - 2, h - 2, 4, '#3a3f48', OUT); const n = 4, th = (h - 8) / n;
+    for (let i = 0; i < n; i++) { const y = 4 + i * th; rrect(c, 4, y + 1, w - 8, th - 2, th / 2.4, '#aeb6bf', 'rgba(20,24,30,.8)', 1.2); c.fillStyle = 'rgba(255,255,255,.45)'; c.fillRect(8, y + 3, w - 16, 2); dot(c, w - 8, y + th / 2, th / 2 - 2, '#6a727c', OUT, 1); }
+    c.fillStyle = '#2a2d33'; c.fillRect(w * .28, 2, 4, h - 4); c.fillRect(w * .68, 2, 4, h - 4); c.restore();
+  },
+  barrel(c, w, h) {
+    dot(c, w / 2, h / 2, 18, '#8a3a2a', OUT, 1.8); dot(c, w / 2, h / 2, 13, '#a24a36');
+    c.strokeStyle = 'rgba(30,10,6,.6)'; c.lineWidth = 2; c.beginPath(); c.arc(w / 2, h / 2, 9, 0, TAU); c.stroke(); dot(c, w / 2 - 4, h / 2 - 4, 3, 'rgba(255,255,255,.35)');
+  },
+  stall(c, w, h) {
+    rrect(c, 2, 4, w - 4, h - 8, 3, '#7a5230', OUT); const n = Math.round(w / 12);
+    for (let i = 0; i < n; i++) { c.fillStyle = i & 1 ? '#f4ead0' : '#d0463c'; c.fillRect(3 + i * (w - 6) / n, 5, (w - 6) / n, h - 10); }
+    c.strokeStyle = OUT; c.lineWidth = 1.2; c.strokeRect(3, 5, w - 6, h - 10);
+    for (const [x, col] of [[.25, '#e8b14a'], [.5, '#6cc070'], [.75, '#ff8a5a']]) dot(c, w * x, h / 2, 5, col, OUT, 1);
+  },
+  sandbags(c, w, h) {
+    const n = Math.max(2, Math.round(w / 22));
+    for (let r = 0; r < 2; r++) for (let i = 0; i < n; i++) rrect(c, 3 + i * (w - 6) / n, 4 + r * (h - 8) / 2, (w - 6) / n - 2, (h - 8) / 2 - 1, 6, r ? '#c8ad78' : '#d4ba84', OUT, 1.2);
+  }
 };
 function drawFurn(c, f, T) {
   const w = f.w * T, h = f.h * T;
@@ -733,6 +651,7 @@ function buildStatic() {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (g[y][x] === 1) {
     const X = x * T, Y = y * T, hedge = th.hedge && border(x, y);
     wc.fillStyle = hedge ? '#2f6b2a' : th.wall; wc.fillRect(X, Y, T, T);
+    if (th.brick && !hedge) { wc.fillStyle = 'rgba(90,60,25,.2)'; wc.fillRect(X, Y + T / 2 - .5, T, 1); wc.fillRect(X + ((y & 1) ? T * .25 : T * .75), Y, 1, T / 2); wc.fillRect(X + ((y & 1) ? T * .75 : T * .25), Y + T / 2, 1, T / 2); }
     if (hedge) for (let i = 0; i < 4; i++) dot(wc, X + 8 + hash(x * 4 + i, y) * (T - 16), Y + 8 + hash(x, y * 4 + i) * (T - 16), 9, i & 1 ? '#3d8a36' : '#357c30');
     const ex = [];
     if (!wall(x, y - 1)) ex.push([X, Y + 1.5, X + T, Y + 1.5, 0, 3]);
@@ -1975,16 +1894,3 @@ addEventListener('keyup', e => { if (swallowSpace && e.key === ' ') { e.preventD
 addEventListener('keydown', e => {
   if (e.key === 'Escape' && mode && $('menu').classList.contains('hidden')) { e.preventDefault(); setPaused(!paused); }
 }, true);
-
-/* ------------------------------------------------ SPOTIFY: botões e inicialização */
-$('spLink').value = cfg.spLink || '';
-$('spLink').onkeydown = e => e.stopPropagation();
-$('spLink').oninput = e => { cfg.spLink = e.target.value; saveCfg(); };
-$('spLink').onchange = () => { if (musicOn && cfg.track === 'spotify') spPlay(); };
-$('spBtn').onclick = () => { if (spConnected()) spLogout(); else spConnect(); };
-(async function spInit() {
-  const ret = await spHandleRedirect();
-  if (spConnected()) { spLoadSdk(); spFetchUser(); }
-  spUi(); refreshTracks();
-  if (ret) { endIntro(); showTab('music'); }
-})();

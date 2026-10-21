@@ -126,7 +126,7 @@
     const rect = (x1, y1, x2, y2, v = 1) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) set(x, y, v); };
     const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = []; let pair = 0;
     // móveis redondos (árvore, vaso, churrasqueira) colidem como CÍRCULO, não como o quadrado inteiro; a piscina (tile 4) é água: dá pra andar, mais devagar
-    const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, plant: () => 0.36, bbq: () => 0.38 };
+    const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, plant: () => 0.36, bbq: () => 0.38, palm: () => 0.34, barrel: () => 0.36 };
     const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
     def({
       rect,
@@ -140,7 +140,7 @@
         for (const f of (same(a, b) ? [a] : [a, b])) {
           const rf = ROUND[f.k];
           if (rf) circ.push({ x: (f.x + f.w / 2) * TILE, y: (f.y + f.h / 2) * TILE, r: rf(f) * TILE });
-          for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) { g[j][i] = f.k === 'pool' ? 4 : 3; if (rf) rnd.push(j * W + i); }
+          for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) { g[j][i] = (f.k === 'pool' || f.k === 'oasis') ? 4 : 3; if (rf) rnd.push(j * W + i); }
         }
       },
       // tapete (decoração sem colisão)
@@ -211,6 +211,44 @@
     m.weapon(2, 5, 'M'); m.weapon(5, 10, 'G'); m.weapon(10, 8, 'R');
     m.weapon(13, 4, 'R'); m.weapon(6, 17, 'M'); m.weapon(11, 16, 'G');
     m.weapon(10, 12, 'G'); m.weapon(7, 2, 'R');
+  });
+
+  // ---- AURA AREIUDA: vila de arenito com oásis no centro (inspirada em Oasis/Dust). Só a metade esquerda é desenhada; o resto é o espelho de 180°.
+  buildMap('DESERT', 'AURA AREIUDA', { base: 'sand', wall: '#d9b878', wallTop: '#efd9a8', edge: '#6b4e28', out: '#2a1d0e', brick: true }, m => {
+    const rows = [
+      '################',
+      '#....#....#.....',
+      '#....#....#..#..',
+      '#....#.......#..',
+      '#....#....#..#..',
+      '#.........#.....',
+      '#.........#.....',
+      '####D###.##.....',
+      '#...............',
+      '#...............',
+      '#..###...#......',
+      '#........#......',
+      '#........#......',
+      '#...............',
+      '###D###.........',
+      '#.....#....###..',
+      '#.....#.........',
+      '#...............',
+      '#.....#.........',
+      '################'
+    ];
+    rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) { if (r[x] === '#') m.rect(x, y, x, y, 1); else if (r[x] === 'D') m.rect(x, y, x, y, 2); } });
+    m.floor(1, 1, 9, 6, 'stone'); m.floor(1, 15, 5, 18, 'stone');
+    m.furn(14, 8, 4, 4, 'oasis');                                   // oásis no centro (água: dá pra atravessar, mais devagar)
+    m.furn(1, 1, 1, 1, 'crate'); m.furn(1, 2, 1, 1, 'crate'); m.furn(6, 1, 2, 1, 'pipes');
+    m.furn(9, 2, 1, 1, 'barrel'); m.furn(9, 5, 1, 1, 'barrel'); m.furn(2, 5, 2, 1, 'sandbags');
+    m.furn(2, 8, 2, 1, 'stall'); m.furn(6, 8, 1, 1, 'crate'); m.furn(6, 9, 1, 1, 'crate');
+    m.furn(11, 5, 2, 2, 'palm'); m.furn(12, 8, 2, 2, 'palm'); m.furn(14, 12, 2, 2, 'palm'); m.furn(8, 15, 2, 2, 'palm');
+    m.furn(10, 13, 1, 1, 'barrel'); m.furn(11, 13, 1, 1, 'barrel');
+    m.furn(1, 12, 2, 1, 'pipes'); m.furn(9, 17, 2, 1, 'sandbags');
+    m.furn(7, 15, 1, 1, 'crate'); m.furn(7, 16, 1, 1, 'crate');
+    m.furn(1, 18, 2, 1, 'pipes'); m.furn(5, 15, 1, 1, 'crate'); m.furn(5, 18, 1, 1, 'barrel');
+    m.spawn(3, 3); m.spawn(12, 3); m.spawn(4, 16); m.spawn(11, 10);
   });
 
   // menor distância de um ponto (cx,cy) ao segmento (ax,ay)-(bx,by)
@@ -321,6 +359,7 @@
     // autoStart: true => começa sozinho com 2+ jogadores (treino); false => sala com botão Iniciar (online)
     constructor(opts = {}) {
       this.autoStart = !!opts.autoStart;
+      this.mapPref = MAPS[opts.map] ? opts.map : null;   // fase escolhida (null = aleatória a cada rodada)
       this.players = new Array(MAX_PLAYERS).fill(null); this.phase = this.autoStart ? 'waiting' : 'lobby'; this.timer = 0; this.round = 0;
       this.mapIdx = -1; this.level = null; this.bullets = []; this.items = []; this.events = []; this.nid = 1; this.winner = -1;
     }
@@ -379,7 +418,7 @@
     startMatch() { for (const p of this.players) if (p) p.score = 0; this.round = 0; this.startRound(); }
     startRound() {
       this.round++;
-      this.mapIdx = Math.floor(Math.random() * MAP_IDS.length);   // mapa sorteado a cada rodada (pode repetir)
+      this.mapIdx = this.mapPref ? MAP_IDS.indexOf(this.mapPref) : Math.floor(Math.random() * MAP_IDS.length);   // fase escolhida, ou sorteada a cada rodada
       this.level = new Level(MAP_IDS[this.mapIdx]);
       this.bullets = []; this.items = []; this.winner = -1;
       let idx = 0;
