@@ -17,13 +17,15 @@ if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'n
 const STEP = 1 / 60, TAU = Math.PI * 2;
 const SKINS = {
   ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
-  MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }
+  MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' },
+  DRAGON: { c: '#ffcf3a', n: 'Dragão Dourado', secret: true }
 };
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', diff: 'NORMAL', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
 function saveCfg() { try { localStorage.setItem('neonduel', JSON.stringify(cfg)); } catch { } }
+if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
 
 /* ---------------------------------------------------------------- ESTADO */
 const cv = $('game'), ctx = cv.getContext('2d', { alpha: false });
@@ -194,21 +196,27 @@ function sfx(n, x, y) {
     case 'go': osc(d, 'sawtooth', 220, t, 0.35, 0.4, 660); osc(d, 'square', 330, t, 0.35, 0.2, 990); break;
     case 'end': osc(d, 'triangle', 440, t, 0.4, 0.4, 220); break;
     case 'tick': osc(d, 'square', 880, t, 0.06, 0.2); break;
+    case 'unlock': [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { osc(d, 'triangle', f, t + i * 0.09, 0.6, 0.35); osc(d, 'sine', f * 2, t + i * 0.09, 0.5, 0.12); }); nz(d, t, 0.5, 0.25, 'highpass', 5000); break;
     case 'heal': osc(d, 'sine', 520, t, 0.25, 0.5 * v, 1040); osc(d, 'triangle', 780, t + 0.08, 0.25, 0.35 * v, 1560); break;
   }
 }
 
 /* ---------------------------------------------------------------- MENU/UI */
 const skinsEl = $('skins');
-for (const k in SKINS) {
-  const b = document.createElement('button');
-  b.className = 'skin'; b.dataset.skin = k; b.type = 'button';
-  b.innerHTML = `<i style="background:${SKINS[k].c}"></i>${SKINS[k].n}`;
-  b.onclick = () => { cfg.skin = k; saveCfg(); refreshSkins(); };
-  skinsEl.appendChild(b);
+function buildSkins() {
+  skinsEl.textContent = '';
+  for (const k in SKINS) {
+    if (SKINS[k].secret && !cfg.secret) continue;   // personagem secreto: só aparece depois de desbloqueado
+    const b = document.createElement('button');
+    b.className = 'skin' + (SKINS[k].secret ? ' legend' : ''); b.dataset.skin = k; b.type = 'button';
+    b.innerHTML = `<i style="background:${SKINS[k].c}"></i>${SKINS[k].n}`;
+    b.onclick = () => { cfg.skin = k; saveCfg(); refreshSkins(); };
+    skinsEl.appendChild(b);
+  }
+  refreshSkins();
 }
 function refreshSkins() { for (const b of skinsEl.children) b.setAttribute('aria-pressed', b.dataset.skin === cfg.skin ? 'true' : 'false'); }
-refreshSkins();
+buildSkins();
 $('nameInput').value = cfg.name; $('diffSel').value = cfg.diff;
 $('optMusic').checked = cfg.music; $('optSfx').checked = cfg.sfx; $('optShake').checked = cfg.shake; $('optCrt').checked = cfg.crt;
 document.body.classList.toggle('nocrt', !cfg.crt);
@@ -826,6 +834,7 @@ function drawHead(skin) {
     for (const s of [-1, 1]) { blob(-1.5, s * 9.2, r, r, c); blob(-1, s * 9.2, r * 0.5, r * 0.5, skin === 'BEAR' ? '#d9b48c' : '#f3c6d6', 0); }
   }
   if (skin === 'TIGER') for (const s of [-1, 1]) { shape([-1.5, s * 5.5, -6, s * 13, 3, s * 9], c); shape([-2, s * 7.5, -4.6, s * 11.2, 1, s * 9], '#2a1200', 0.01); }
+  if (skin === 'DRAGON') for (const s of [-1, 1]) { shape([0, s * 6, -8, s * 9, -16, s * 16, -9, s * 5.4], '#fff2b8', 1.6); shape([-1, s * 7, -7, s * 9.4, -12, s * 13.4, -7, s * 7], '#e8a82a', 0.01); }
   if (skin === 'WOLF') for (const s of [-1, 1]) { shape([0, s * 5, -4, s * 14, 5, s * 8.5], c); shape([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', 0.01); }
   // máscara
   blob(0, 0, 9.6, 9.8, c, 2.1);
@@ -855,8 +864,15 @@ function drawHead(skin) {
     ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(14, 0); ctx.stroke();
     for (const s of [-1, 1]) shape([-2, s * 9, -7, s * 11.2, -4, s * 7.4], '#dfe8f2', 1);   // tufos de pelo
   }
+  if (skin === 'DRAGON') {
+    for (let i = 0; i < 4; i++) shape([-8 + i * 3.2, 0, -6.2 + i * 3.2, -2.2, -4.4 + i * 3.2, 0, -6.2 + i * 3.2, 2.2], i & 1 ? '#ff9a1f' : '#ff6a1a', 1);   // crista de escamas
+    blob(7.2, 0, 4.4, 4.8, shade(c, 0.92), 1.4); blob(10.4, -1.6, 1, 1, '#2a1200', 0); blob(10.4, 1.6, 1, 1, '#2a1200', 0);                     // focinho
+    shape([8.6, -3.6, 10.6, -4.4, 10, -2.6], '#fff', 0.8); shape([8.6, 3.6, 10.6, 4.4, 10, 2.6], '#fff', 0.8);                                   // presas
+    ctx.strokeStyle = 'rgba(120,60,0,.55)'; ctx.lineWidth = 0.9; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-4 + i * 3.2, 0, 3.6, -1.2, 1.2); ctx.stroke(); }   // escamas
+  }
   // olhos: buracos escuros com olhar branco
   for (const s of [-1, 1]) { blob(3.8, s * 3.7, 2.7, 3, '#0b0710', 0); blob(4.4, s * 3.7, 1.6, 2, '#fff', 0); blob(5, s * 3.7, 0.95, 1.2, '#000', 0); }
+  if (skin === 'DRAGON') for (const s of [-1, 1]) { blob(4.4, s * 3.7, 1.7, 2.2, '#ff5a1f', 0); blob(5, s * 3.7, 0.6, 1.5, '#200800', 0); }
 }
 // tronco visto de cima: ombros largos, jaqueta com gola, costura e listra nas costas
 function drawBody(skin, jacket, flat) {
@@ -890,6 +906,11 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
   if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); }
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill();
+  if (p.sk === 'DRAGON' && !p.dn) {   // aura dourada pulsante do personagem lendário
+    const pu = 0.75 + 0.25 * Math.sin(now / 260); ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const ag = ctx.createRadialGradient(0, 0, 6, 0, 0, 36); ag.addColorStop(0, `rgba(255,200,60,${0.38 * pu})`); ag.addColorStop(1, 'rgba(255,200,60,0)');
+    ctx.fillStyle = ag; ctx.beginPath(); ctx.arc(0, 0, 36, 0, TAU); ctx.fill(); ctx.restore();
+  }
   ctx.rotate(ang);
   if (p.dn) {
     ctx.globalAlpha = 0.95; drawBody(p.sk, jacket, true); ctx.translate(-3, 0); drawHead(p.sk); ctx.globalAlpha = 1;
@@ -1244,7 +1265,129 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
+/* ------------------------------------------------ MENU: partículas + sequência secreta */
+const mfx = $('menuFx'), mctx = mfx.getContext('2d');
+let mfW = 0, mfH = 0, motes = [], bursts = [];
+function mfResize() { mfW = mfx.width = innerWidth; mfH = mfx.height = innerHeight; }
+addEventListener('resize', mfResize); mfResize();
+function newMote(init) {
+  return { x: Math.random() * mfW, y: init ? Math.random() * mfH : mfH + 12, r: 1.4 + Math.random() * 2.8, vy: -(12 + Math.random() * 30), ph: Math.random() * 6.28, sp: 0.6 + Math.random() * 1.4, col: Math.random() < 0.7 ? '255,226,140' : '120,255,220' };
+}
+for (let i = 0; i < 70; i++) motes.push(newMote(true));
+function menuBurst() {
+  const cx = mfW / 2, cy = mfH * 0.4;
+  for (let i = 0; i < 140; i++) {
+    const a = Math.random() * TAU, sp = 90 + Math.random() * 520;
+    bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1.2 + Math.random() * 1.2, max: 2.4, r: 1.5 + Math.random() * 3, col: Math.random() < 0.75 ? '255,214,90' : '255,250,210' });
+  }
+}
+let mfLast = performance.now();
+function menuLoop(now) {
+  requestAnimationFrame(menuLoop);
+  const dt = Math.min(0.05, (now - mfLast) / 1000); mfLast = now;
+  if ($('menu').classList.contains('hidden')) return;
+  mctx.clearRect(0, 0, mfW, mfH); mctx.globalCompositeOperation = 'lighter';
+  const glow = (x, y, r, col, a) => { const g = mctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`); mctx.fillStyle = g; mctx.fillRect(x - r, y - r, r * 2, r * 2); };
+  for (const m of motes) {
+    m.ph += dt * m.sp; m.y += m.vy * dt; m.x += Math.sin(m.ph) * 18 * dt;
+    if (m.y < -20) Object.assign(m, newMote(false));
+    glow(m.x, m.y, m.r * 5, m.col, 0.35 + 0.35 * Math.sin(m.ph * 2));
+  }
+  for (const b of bursts) { b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 220 * dt; b.vx *= Math.pow(0.35, dt); glow(b.x, b.y, b.r * 4, b.col, Math.max(0, b.life / b.max) * 0.9); }
+  bursts = bursts.filter(b => b.life > 0);
+  mctx.globalCompositeOperation = 'source-over';
+}
+requestAnimationFrame(menuLoop);
+
+// Sequência secreta no menu: W, A, S, D e depois ESPAÇO
+const SECRET = ['w', 'a', 's', 'd', ' '];
+let secIdx = 0, secAt = 0, swallowSpace = false, unlockTimer = 0;
+function secDots() { [...$('seqDots').children].forEach((d, i) => d.classList.toggle('on', i < secIdx)); }
+function unlockSecret() {
+  cfg.secret = true; cfg.skin = 'DRAGON'; saveCfg(); buildSkins();
+  initAudio(); sfx('unlock'); menuBurst();
+  const u = $('unlock'); u.classList.remove('show'); void u.offsetWidth; u.classList.add('show');
+  clearTimeout(unlockTimer); unlockTimer = setTimeout(() => u.classList.remove('show'), 4500);
+}
+addEventListener('keydown', e => {
+  if (mode || $('menu').classList.contains('hidden') || e.repeat) return;
+  const tg = e.target && e.target.tagName;
+  if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key, now = performance.now();
+  if (now - secAt > 2500) secIdx = 0;
+  secAt = now;
+  if (k === SECRET[secIdx]) secIdx++; else secIdx = k === SECRET[0] ? 1 : 0;
+  secDots();
+  if (secIdx === SECRET.length) {
+    secIdx = 0; if (e.key === ' ') { e.preventDefault(); swallowSpace = true; }
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    setTimeout(secDots, 700); unlockSecret();
+  }
+});
+addEventListener('keyup', e => { if (swallowSpace && e.key === ' ') { e.preventDefault(); swallowSpace = false; } });
+
 // Esc: só pausa quando o menu inicial NÃO está aberto
 addEventListener('keydown', e => {
   if (e.key === 'Escape' && mode && $('menu').classList.contains('hidden')) { e.preventDefault(); setPaused(!paused); }
 }, true);
+
+/* ------------------------------------------------ CURSOR: fadinha luminosa
+   Vale no menu, na pausa, na sala e no jogo. Na partida a mira continua desenhada no ponto exato
+   do mouse; a fadinha só voa em volta dela. */
+(function fairyCursor() {
+  if (matchMedia('(pointer:coarse)').matches) return;   // celular/tablet: sem cursor
+  const st = document.createElement('style');
+  st.textContent = '*,*::before,*::after{cursor:none!important}#fairyCv{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:70}';
+  document.head.appendChild(st);
+  const fc = document.createElement('canvas'); fc.id = 'fairyCv'; document.body.appendChild(fc);
+  const c = fc.getContext('2d');
+  let w = 0, h = 0, d = 1;
+  const rs = () => { d = Math.min(window.devicePixelRatio || 1, 2); w = innerWidth; h = innerHeight; fc.width = Math.floor(w * d); fc.height = Math.floor(h * d); };
+  addEventListener('resize', rs); rs();
+  let tx = -100, ty = -100, fx = -100, fy = -100, seen = false, vis = true, over = 0, overT = 0, trail = [], last = performance.now(), vx = 0;
+  addEventListener('mousemove', e => {
+    tx = e.clientX; ty = e.clientY;
+    if (!seen) { seen = true; fx = tx; fy = ty; }
+    overT = (e.target && e.target.closest && e.target.closest('button,select,input,label,.skin,.track,.tab')) ? 1 : 0;
+  }, { passive: true });
+  document.addEventListener('mouseleave', () => { vis = false; });
+  document.addEventListener('mouseenter', () => { vis = true; });
+  const R = Math.random;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
+    if (!seen || !vis) return;
+    const tm = now / 1000;
+    over += (overT - over) * Math.min(1, dt * 10);
+    const ox = Math.cos(tm * 3.1) * 10, oy = Math.sin(tm * 4.3) * 7 - 7, px = fx;
+    fx += (tx + ox - fx) * Math.min(1, dt * 13); fy += (ty + oy - fy) * Math.min(1, dt * 13);
+    vx += ((fx - px) / Math.max(dt, 0.001) - vx) * Math.min(1, dt * 8);
+    for (let i = 0; i < 2; i++) trail.push({ x: fx + (R() - 0.5) * 6, y: fy + (R() - 0.5) * 6, vx: (R() - 0.5) * 34 - vx * 0.05, vy: 12 + R() * 34, life: 0.5 + R() * 0.55, max: 1.05, r: 0.9 + R() * 2.1, col: R() < 0.55 ? '190,255,240' : '255,244,190' });
+    for (const p of trail) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+    trail = trail.filter(p => p.life > 0);
+    if (trail.length > 140) trail.splice(0, trail.length - 140);
+    const glow = (x, y, r, col, a) => { const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`); c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2); };
+    c.globalCompositeOperation = 'lighter';
+    for (const p of trail) glow(p.x, p.y, p.r * 4, p.col, Math.max(0, p.life / p.max) * 0.8);
+    const s = 1 + over * 0.35;
+    glow(fx, fy, 30 * s, '170,255,235', 0.5 + 0.12 * Math.sin(tm * 6));
+    c.globalCompositeOperation = 'source-over';
+    // asas batendo
+    const flap = Math.sin(tm * 40);
+    c.save(); c.translate(fx, fy); c.rotate(Math.max(-0.5, Math.min(0.5, vx / 1500))); c.scale(s, s);
+    for (const sg of [-1, 1]) {
+      for (const [ex, ey, rx, ry, base, f] of [[-4, 6, 11, 4.2, 0.75, 0.32], [-3, 4, 7.5, 3, 0.2, 0.22]]) {
+        c.save(); c.translate(ex, sg * ey); c.rotate(sg * (base + flap * f));
+        const g = c.createLinearGradient(0, 0, -rx, 0); g.addColorStop(0, 'rgba(235,255,255,.85)'); g.addColorStop(1, 'rgba(150,230,255,.25)');
+        c.beginPath(); c.ellipse(-rx * 0.5, 0, rx, ry, 0, 0, TAU); c.fillStyle = g; c.fill();
+        c.strokeStyle = 'rgba(210,255,255,.75)'; c.lineWidth = 0.8; c.stroke(); c.restore();
+      }
+    }
+    // corpinho luminoso
+    const bg = c.createRadialGradient(0, 0, 0, 0, 0, 5.2); bg.addColorStop(0, '#ffffff'); bg.addColorStop(0.55, '#d8fff4'); bg.addColorStop(1, '#7de8d0');
+    c.beginPath(); c.arc(0, 0, 4.6, 0, TAU); c.fillStyle = bg; c.shadowColor = '#9dfff0'; c.shadowBlur = 14; c.fill(); c.shadowBlur = 0;
+    c.restore();
+  }
+  requestAnimationFrame(loop);
+})();

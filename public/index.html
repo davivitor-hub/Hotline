@@ -7,7 +7,7 @@
   <title>NEON DUEL</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rajdhani:wght@500;600;700&family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -42,9 +42,27 @@
   </div>
 
   <div id="menu">
-    <div class="sun"></div>
-    <div class="grid-floor"></div>
+    <div class="sky"></div>
+    <div class="stars"></div>
+    <div class="moon"></div>
+    <div class="rays"></div>
+    <svg class="mtn m1" viewBox="0 0 1200 300" preserveAspectRatio="none" aria-hidden="true"><path d="M0 300V190L90 120L170 175L290 60L400 170L520 100L640 190L780 80L900 170L1010 110L1110 165L1200 100V300Z"/></svg>
+    <svg class="mtn m2" viewBox="0 0 1200 300" preserveAspectRatio="none" aria-hidden="true"><path d="M0 300V220L130 150L240 215L380 130L500 210L650 140L790 220L930 150L1060 215L1200 160V300Z"/></svg>
+    <div class="mist"></div>
+    <canvas id="menuFx"></canvas>
     <section class="panel">
+      <i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i>
+      <div class="seq" id="seqDots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <svg class="crest" viewBox="0 0 120 120" aria-hidden="true">
+        <defs>
+          <linearGradient id="gGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3b8"/><stop offset=".55" stop-color="#e8c26a"/><stop offset="1" stop-color="#9a6f1f"/></linearGradient>
+          <radialGradient id="gGem" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#d8fff4"/><stop offset=".5" stop-color="#2fd3b0"/><stop offset="1" stop-color="#0a6a66"/></radialGradient>
+        </defs>
+        <g class="crest-ring"><circle cx="60" cy="60" r="54" fill="none" stroke="url(#gGold)" stroke-width="2.5"/><circle cx="60" cy="60" r="48" fill="none" stroke="url(#gGold)" stroke-width="1" stroke-dasharray="2 5"/></g>
+        <path d="M60 8L68 52L112 60L68 68L60 112L52 68L8 60L52 52Z" fill="url(#gGold)" stroke="#5a3d10" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M60 22L65 55L98 60L65 65L60 98L55 65L22 60L55 55Z" fill="#0e2a36" opacity=".55"/>
+        <path d="M60 30L76 60L60 90L44 60Z" fill="url(#gGem)" stroke="#fff3b8" stroke-width="1.5" class="crest-gem"/>
+      </svg>
       <h1><span class="t1">NEON</span><span class="t2">DUEL</span></h1>
       <p class="tag">5000 de vida e cada arma tira a sua parte. Entre pela porta e faça a sua jogada.</p>
 
@@ -100,6 +118,11 @@
         <p class="mtip small">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>
       </div>
     </section>
+  </div>
+
+  <div id="unlock" aria-live="polite">
+    <div class="u-flash"></div>
+    <div class="u-box"><small>Segredo descoberto</small><h2>Dragão Dourado</h2><p>Personagem lendário desbloqueado e equipado</p></div>
   </div>
 
   <div id="crt"></div>
