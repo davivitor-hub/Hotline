@@ -16,19 +16,26 @@
   const MAX_HP = 5000;     // vida máxima = 100%
   const EXEC_MULT = 3;     // multiplicador do golpe corpo a corpo em quem está caído no chão
   const THROW_DMG = 10;    // % tirado por arma arremessada que acerta
-  const DOOR_DMG = 10;     // % tirado por porta na cara
+  const DOOR_DMG = 0;      // % tirado por porta na cara (como no Hotline Miami: só derruba/atordoa)
   const HEAL_PCT = 20;     // % da vida máxima que a cura devolve
   const HEAL_TIME = 2;     // segundos parado (e invulnerável) enquanto cura; a cura é ilimitada
+  const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: mata na hora (senão acerta o cabo)
+  const SPEAR_CHARGE = 1.1;   // segundos segurando o arremesso para a lança chegar na força máxima
+  const SPEAR_THROW_MIN = 20, SPEAR_THROW_MAX = 100;   // % de vida tirada pela lança arremessada: toque rápido -> segurando até o fim
+  /* ===== PORTAS (física) ===== */
+  const DOOR_HT = 3.5;     // meia espessura da folha da porta
+  const DOOR_LIM = 1.52;   // abertura máxima (rad, ~87°) para cada lado
+  const DOOR_DAMP = 3.6;   // atrito da dobradiça (1/s)
 
   /* ---------------------------------------------------------------- ARMAS */
   // muz = distância do centro do personagem até a ponta do cano (para o tiro sair da ponta da arma)
   const WEAPONS = {
     FISTS:   { name: 'MÃOS',    dmg: 5,  melee: true, range: 40, arc: 1.8, cd: 0.40, col: '#ffd7b0' },
-    KNIFE:   { name: 'FACA',    dmg: 40, melee: true, range: 50, arc: 1.5, cd: 0.26, col: '#e6f1ff' },
-    MACHETE: { name: 'MACHETE', dmg: 55, melee: true, range: 66, arc: 2.0, cd: 0.34, col: '#b9ff79' },
+    KNIFE:   { name: 'FACA',    dmg: 40, melee: true, blade: true, range: 50, arc: 1.5, cd: 0.26, col: '#e6f1ff' },
+    MACHETE: { name: 'MACHETE', dmg: 55, melee: true, blade: true, range: 66, arc: 2.0, cd: 0.34, col: '#b9ff79' },
     BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 74, arc: 2.1, cd: 0.50, col: '#ffb35c' },
-    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, range: 86, arc: 2.3, cd: 0.40, col: '#9ff7ff' },
-    SPEAR:   { name: 'LANÇA',   dmg: 60, melee: true, range: 116, arc: 0.75, cd: 0.55, col: '#ffd9a0' },
+    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, blade: true, range: 86, arc: 2.3, cd: 0.40, col: '#9ff7ff' },
+    SPEAR:   { name: 'LANÇA',   dmg: 60, melee: true, jav: true, range: 116, arc: 0.75, cd: 0.55, col: '#ffd9a0' },
     PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff', muz: 32 },
     REVOLVER:{ name: 'REVÓLVER',dmg: 55, ammo: 6,  cd: 0.60,  spread: 0.02, speed: 1300, pellets: 1, range: 1100, auto: false, col: '#ffcf5a', muz: 34 },
     SMG:     { name: 'SMG',     dmg: 12, ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8', muz: 44 },
@@ -43,6 +50,7 @@
     R: ['KNIFE', 'BAT', 'KATANA', 'MACHETE', 'SPEAR', 'PISTOL', 'REVOLVER', 'SMG', 'SHOTGUN', 'RIFLE', 'SNIPER', 'MINIGUN']
   };
   const pick = a => a[Math.floor(Math.random() * a.length)];
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
 
   /* ----------------------------------------------------------------- MAPAS
@@ -154,12 +162,26 @@
       this.doors = [];
       for (let y = 0; y < this.H; y++) for (let x = 0; x < this.W; x++) if (this.g[y][x] === 2) {
         const h = m.g[y][x - 1] === 1 && m.g[y][x + 1] === 1;
-        this.doors.push({ i: this.doors.length, x, y, o: h ? 'h' : 'v', open: false, dir: 1, openAt: 0 });
+        this.doors.push({ i: this.doors.length, x, y, o: h ? 'h' : 'v', latched: true, phi: 0, w: 0, by: null,
+          hx: h ? x * TILE : (x + 0.5) * TILE, hy: h ? (y + 0.5) * TILE : y * TILE });
       }
     }
     solid(tx, ty) { return tx < 0 || ty < 0 || tx >= this.W || ty >= this.H || this.g[ty][tx] !== 0; }
     solidAt(px, py) { return this.solid(Math.floor(px / TILE), Math.floor(py / TILE)); }
-    openDoor(d, dir) { d.open = true; d.dir = dir; this.g[d.y][d.x] = 0; }
+    // ---- portas com física: a folha gira em torno da dobradiça (phi = ângulo, w = velocidade angular).
+    // Fechada = "travada" (tile sólido). Destravada = folha solta que balança, empurra e pode ser fechada de novo.
+    doorEnd(d) { const a = d.o === 'h' ? d.phi : Math.PI / 2 - d.phi; return [d.hx + Math.cos(a) * TILE, d.hy + Math.sin(a) * TILE]; }
+    doorDist(d, x, y) { const e = this.doorEnd(d); return segDist(x, y, d.hx, d.hy, e[0], e[1]); }
+    doorAt(x, y, r) { for (const d of this.doors) if (!d.latched && this.doorDist(d, x, y) < DOOR_HT + r) return true; return false; }
+    setLatched(d, v) { d.latched = v; this.g[d.y][d.x] = v ? 2 : 0; if (v) { d.phi = 0; d.w = 0; } }
+    kickDoor(d, dir, w) { this.setLatched(d, false); d.phi = dir * 0.14; d.w = dir * w; }
+    stepDoor(d, dt) {
+      if (d.latched) return;
+      d.phi += d.w * dt; d.w *= Math.exp(-DOOR_DAMP * dt);
+      if (d.phi > DOOR_LIM) { d.phi = DOOR_LIM; if (d.w > 0) d.w = -d.w * 0.25; }
+      else if (d.phi < -DOOR_LIM) { d.phi = -DOOR_LIM; if (d.w < 0) d.w = -d.w * 0.25; }
+      if (Math.abs(d.w) < 0.04) d.w = 0;
+    }
     push(p, r) {
       const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
       for (let j = ty - 1; j <= ty + 1; j++) for (let i = tx - 1; i <= tx + 1; i++) {
@@ -222,7 +244,7 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0) return null;
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
-        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, healT: 0 };
+        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0 };
       this.players[slot] = p;
       if (this.phase === 'waiting' || this.phase === 'lobby' || !this.level) {
         if (!this.autoStart) this.phase = 'lobby';                       // espera o anfitrião apertar Iniciar
@@ -263,7 +285,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0;
+      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0;
     }
     startMatch() { for (const p of this.players) if (p) p.score = 0; this.round = 0; this.startRound(); }
     startRound() {
@@ -275,7 +297,7 @@
       for (const p of this.players) if (p) this.spawnPlayer(p, idx++);
       const types = {};
       for (const w of this.level.m.wp) {
-        if (!types[w.pair]) types[w.pair] = pick(POOLS[w.k]);
+        if (!types[w.pair]) types[w.pair] = pick(POOLS.R);   // qualquer arma pode aparecer em qualquer ponto (par espelhado = justo)
         this.addItem(types[w.pair], (w.x + 0.5) * TILE, (w.y + 0.5) * TILE);
       }
       this.phase = 'countdown'; this.timer = 2.8;
@@ -290,11 +312,11 @@
     applyInput(p, inp, dt) {
       if (!p || !inp || !this.level) return;
       if (Number.isFinite(inp.a)) p.angle = inp.a;
-      p.fire = !!inp.f;
+      p.fire = !!inp.f; p.tc = !!inp.tc;
       if (inp.fp) p.buf = 0.16;
       if (this.phase === 'live' && p.alive && !p.down && !(p.healT > 0)) {
         if (inp.pk) this.pickup(p);
-        if (inp.th) this.throwWeapon(p);
+        if (inp.th) this.startThrow(p);
         if (inp.hl) this.heal(p);
       }
       if (canMove(this.phase, p.alive, p.down, p.healT > 0)) {
@@ -302,7 +324,7 @@
         if (dd > 0) {
           p.budget -= dd;
           const r = stepMove(this.level, p, inp.k | 0, dd);
-          if (r) this.tryDoors(p, r.dx, r.dy);
+          if (r) { this.tryDoors(p, r.dx, r.dy); this.doorContact(p, dd); }
         }
       }
     }
@@ -310,7 +332,14 @@
     tick(dt) {
       for (const p of this.players) {
         if (!p) continue;
-        p.cd -= dt; p.swing -= dt; p.buf -= dt; p.budget = Math.min(0.3, p.budget + dt);
+        p.cd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; p.budget = Math.min(0.3, p.budget + dt);
+        if (p.charging) {   // lança: enquanto segura o botão de arremesso a força sobe; soltou = arremessa
+          if (!p.alive || p.down || p.healT > 0 || !p.weapon || p.weapon.type !== 'SPEAR' || this.phase !== 'live') { p.charging = false; p.chg = 0; }
+          else {
+            p.chg = Math.min(SPEAR_CHARGE, p.chg + dt);
+            if (!p.tc) { const c = p.chg / SPEAR_CHARGE; p.charging = false; p.chg = 0; this.throwWeapon(p, c); }
+          }
+        }
         if (p.down) { p.downT -= dt; if (p.downT <= 0) p.down = false; }
         if (p.healT > 0) {
           if (!p.alive || p.down || this.phase !== 'live') p.healT = 0;
@@ -325,12 +354,14 @@
         }
       }
       if (this.phase === 'waiting' || !this.level) return;
+      for (const d of this.level.doors) this.stepDoor(d, dt);
+      for (const p of this.players) if (p && p.alive) this.doorContact(p, dt);
       if (this.phase === 'countdown') {
         this.timer -= dt;
         if (this.timer <= 0) { this.phase = 'live'; this.events.push({ t: 'go' }); }
       } else if (this.phase === 'live') {
         for (const p of this.players) {
-          if (!p || !p.alive || p.down || p.healT > 0) continue;
+          if (!p || !p.alive || p.down || p.healT > 0 || p.charging) continue;
           const w = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
           if (p.cd <= 0 && (p.buf > 0 || (p.fire && w.auto))) { p.buf = 0; this.attack(p); }
         }
@@ -395,7 +426,7 @@
     }
     kill(v, by, how, a) {
       if (!v.alive || this.phase !== 'live') return;
-      v.alive = false; v.down = false; v.fire = false;
+      v.alive = false; v.down = false; v.fire = false; v.charging = false;
       this.dropWeapon(v, Math.cos(a) * 120, Math.sin(a) * 120);
       this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin });
     }
@@ -413,33 +444,43 @@
     // Cura ilimitada: o jogador fica parado (e vulnerável) por HEAL_TIME s; ao fim recebe HEAL_PCT% da vida máxima.
     heal(p) {
       if (!p.alive || p.down || p.healT > 0 || p.hp >= MAX_HP) return false;
-      p.healT = HEAL_TIME; p.fire = false; p.buf = 0;
+      p.healT = HEAL_TIME; p.fire = false; p.buf = 0; p.charging = false; p.chg = 0;
       this.events.push({ t: 'hstart', id: p.id, x: p.x, y: p.y });
       return true;
     }
     pickup(p) {
       let best = null, bd = 54;
       for (const it of this.items) { if (it.thrown) continue; const d = Math.hypot(it.x - p.x, it.y - p.y); if (d < bd) { bd = d; best = it; } }
-      if (!best) return;
+      if (!best) return false;
       const old = p.weapon;
       p.weapon = { type: best.type, ammo: best.ammo };
       this.items.splice(this.items.indexOf(best), 1);
       if (old) this.addItem(old.type, p.x, p.y, 0, 0, old.ammo);
       this.events.push({ t: 'pick', by: p.id, w: best.type, x: p.x, y: p.y });
+      return true;
     }
-    throwWeapon(p) {
+    // Arremessar: a lança precisa ser CARREGADA (segura o botão, solta para lançar); as outras armas saem na hora.
+    startThrow(p) {
       if (!p.weapon) return;
-      const a = p.angle; let sx = p.x + Math.cos(a) * 24, sy = p.y + Math.sin(a) * 24;
+      if (WEAPONS[p.weapon.type].jav) { p.charging = true; p.chg = 0; p.fire = false; }
+      else this.throwWeapon(p);
+    }
+    throwWeapon(p, charge = 0) {
+      if (!p.weapon) return;
+      const type = p.weapon.type, jav = !!WEAPONS[type].jav, a = p.angle;
+      let sx = p.x + Math.cos(a) * 24, sy = p.y + Math.sin(a) * 24;
       if (!this.level.los(p.x, p.y, sx, sy)) { sx = p.x; sy = p.y; }
-      const it = this.addItem(p.weapon.type, sx, sy, Math.cos(a) * 820, Math.sin(a) * 820, p.weapon.ammo);
-      it.thrown = true; it.owner = p.id; it.t = 0.45; it.spin = 22;
-      p.weapon = null; p.cd = Math.max(p.cd, 0.25);
+      const sp = jav ? 900 + 600 * charge : 820;
+      const it = this.addItem(type, sx, sy, Math.cos(a) * sp, Math.sin(a) * sp, p.weapon.ammo);
+      it.thrown = true; it.owner = p.id; it.t = jav ? 0.45 + 0.45 * charge : 0.45; it.spin = jav ? 0 : 22; it.pow = charge;
+      if (jav) it.rot = a;                       // a lança voa reta, com a ponta para frente
+      p.weapon = null; p.charging = false; p.chg = 0; p.cd = Math.max(p.cd, 0.25);
       this.events.push({ t: 'throw', by: p.id, x: p.x, y: p.y });
     }
 
     tryDoors(p, dx, dy) {
       for (const d of this.level.doors) {
-        if (d.open) continue;
+        if (!d.latched) continue;
         const rx = d.x * TILE, ry = d.y * TILE;
         const cx = Math.max(rx, Math.min(p.x, rx + TILE)), cy = Math.max(ry, Math.min(p.y, ry + TILE));
         if (Math.hypot(p.x - cx, p.y - cy) > PR + 2.5) continue;
@@ -448,22 +489,72 @@
         this.openDoor(d, p);
       }
     }
-    openDoor(d, p) {
+    // porta fechada que alguém empurra: destrava e recebe um chute para o lado oposto ao de quem empurrou
+    openDoor(d, p, w = 6) {
       const cx = (d.x + 0.5) * TILE, cy = (d.y + 0.5) * TILE;
       const dir = d.o === 'h' ? (p.y < cy ? 1 : -1) : (p.x < cx ? 1 : -1);
-      this.level.openDoor(d, dir);
-      let rx, ry, rw, rh;
-      if (d.o === 'h') { rx = d.x * TILE - 6; rw = TILE + 12; rh = TILE * 2; ry = dir > 0 ? d.y * TILE : (d.y - 1) * TILE; }
-      else { ry = d.y * TILE - 6; rh = TILE + 12; rw = TILE * 2; rx = dir > 0 ? d.x * TILE : (d.x - 1) * TILE; }
-      let hit = false;
-      for (const o of this.players) {
-        if (!o || o === p || !o.alive || o.down) continue;
-        if (o.x > rx - PR && o.x < rx + rw + PR && o.y > ry - PR && o.y < ry + rh + PR) {
-          const da = d.o === 'h' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-          this.hurt(o, p, DOOR_DMG, 'door', da); this.knockdown(o, DOWN_TIME, da); hit = true;
+      this.level.kickDoor(d, dir, w); d.by = p.id;
+      this.events.push({ t: 'door', i: d.i, dir, x: cx, y: cy, hit: false });
+    }
+    doorBlocked(d) {   // tem alguém dentro do vão? então a porta não pode travar
+      const rx = d.x * TILE, ry = d.y * TILE;
+      for (const q of this.players) {
+        if (!q || !q.alive) continue;
+        const cx = clamp(q.x, rx, rx + TILE), cy = clamp(q.y, ry, ry + TILE);
+        if (Math.hypot(q.x - cx, q.y - cy) < PR + 1) return true;
+      }
+      return false;
+    }
+    stepDoor(d, dt) {
+      if (d.latched) return;
+      const old = d.phi, L = this.level;
+      L.stepDoor(d, dt);
+      const crossed = old * d.phi < 0, near = Math.abs(d.phi) < 0.1 && Math.abs(d.w) < 3.5;
+      if (!crossed && !near) return;
+      if (!this.doorBlocked(d)) {                 // chegou no batente: trava (e bate, se veio rápido)
+        const v = Math.abs(d.w); L.setLatched(d, true);
+        if (v > 1.5) this.events.push({ t: 'slam', i: d.i, x: (d.x + 0.5) * TILE, y: (d.y + 0.5) * TILE });
+      } else if (crossed) { d.phi = 0; d.w = 0; }  // alguém no vão: a porta para no batente
+    }
+    // contato porta x jogador. Porta parada CEDE ao empurrão (e sai balançando); porta em velocidade EMPURRA e machuca quem estiver no caminho.
+    doorContact(p, dt) {
+      const L = this.level;
+      if (!L || !p.alive) return;
+      let touched = false;
+      for (const d of L.doors) {
+        if (d.latched) continue;
+        for (let pass = 0; pass < 3; pass++) {
+          const e = L.doorEnd(d), dx = e[0] - d.hx, dy = e[1] - d.hy;
+          const t = clamp(((p.x - d.hx) * dx + (p.y - d.hy) * dy) / (TILE * TILE), 0, 1);
+          const cx = d.hx + dx * t, cy = d.hy + dy * t, vx = p.x - cx, vy = p.y - cy, dist = Math.hypot(vx, vy);
+          const pen = PR + DOOR_HT - dist;
+          if (pen <= 0.05) break;
+          touched = true;
+          let nx, ny;
+          if (dist > 1e-3) { nx = vx / dist; ny = vy / dist; } else { nx = -dy / TILE; ny = dx / TILE; }
+          const rho = Math.max(t * TILE, 1);
+          const tx = d.o === 'h' ? -dy / TILE : dy / TILE, ty = d.o === 'h' ? dx / TILE : -dx / TILE;   // sentido em que a porta gira com phi crescente
+          const tn = tx * nx + ty * ny, vn = d.w * rho * tn;     // vn > 0: a porta está vindo contra o jogador
+          if (vn > 60) {
+            p.x += nx * pen; p.y += ny * pen;
+            if (vn > 110 && p.dcd <= 0 && !p.down && d.by !== p.id && this.phase === 'live') {   // não machuca quem mexeu na porta por último
+              p.dcd = 0.6;
+              const by = d.by && d.by !== p.id ? this.byId(d.by) : null, da = Math.atan2(ny, nx);
+              if (DOOR_DMG > 0) this.hurt(p, by, DOOR_DMG, 'door', da);
+              this.knockdown(p, DOWN_TIME, da);      // porta na cara = atordoado no chão
+              this.events.push({ t: 'door', i: d.i, dir: 0, x: p.x, y: p.y, hit: true });
+            }
+            if (d.by !== p.id) d.w *= 0.8;          // quem fechou a porta não a freia contra si mesmo
+          } else if (Math.abs(tn) > 0.25 && rho > 8) {
+            const dphi = clamp(-pen / (rho * tn), -0.6, 0.6);
+            const np = clamp(d.phi + dphi, -DOOR_LIM, DOOR_LIM), real = np - d.phi;
+            d.phi = np; if (dt > 0) d.w = clamp(real / dt * 0.85, -8, 8);
+            d.by = p.id;
+            if (Math.abs(real) < 1e-4) { p.x += nx * pen; p.y += ny * pen; }   // porta no limite: funciona como parede
+          } else { p.x += nx * pen; p.y += ny * pen; }
         }
       }
-      this.events.push({ t: 'door', i: d.i, dir, x: cx, y: cy, hit });
+      if (touched) L.push(p, PR);
     }
 
     updateBullets(dt) {
@@ -475,6 +566,7 @@
           const px = b.x, py = b.y;
           b.x += b.vx * dt / n; b.y += b.vy * dt / n;
           if (this.level.solidAt(b.x, b.y)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }
+          if (this.level.doorAt(b.x, b.y, 1.5)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }   // porta destravada também barra tiro
           for (const p of this.players) {
             if (!p || !p.alive || p.id === b.owner) continue;
             if (segDist(p.x, p.y, px, py, b.x, b.y) < PR) { dead = true; this.hurt(p, this.byId(b.owner), WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
@@ -493,14 +585,21 @@
           const sx = it.vx * dt / n, sy = it.vy * dt / n; let stop = false;
           for (let s = 0; s < n && !stop; s++) {
             const nx = it.x + sx, ny = it.y + sy;
-            if (this.level.solidAt(nx, ny)) { stop = true; it.vx *= -0.15; it.vy *= -0.15; break; }
+            if (this.level.solidAt(nx, ny) || this.level.doorAt(nx, ny, 3)) { stop = true; it.vx *= -0.15; it.vy *= -0.15; break; }
             it.x = nx; it.y = ny;
             for (const p of this.players) {
               if (!p || !p.alive || p.id === it.owner) continue;
               if (Math.hypot(p.x - it.x, p.y - it.y) < PR + 10) {
-                this.hurt(p, this.byId(it.owner), THROW_DMG, 'throw', Math.atan2(it.vy, it.vx));
-                if (!p.down) this.knockdown(p, DOWN_TIME, Math.atan2(it.vy, it.vx));
-                this.events.push({ t: 'thit', x: it.x, y: it.y });
+                const wd = WEAPONS[it.type], ang = Math.atan2(it.vy, it.vx);
+                let pct = THROW_DMG, how = 'throw', bl = 0, cb = 0, pw = 0;
+                if (wd.blade) {                       // pontiaguda arremessada: sorte decide se acerta a LÂMINA (morte) ou o CABO (pancada comum)
+                  if (Math.random() < BLADE_CHANCE) { pct = 100; how = 'blade'; bl = 1; } else cb = 1;
+                } else if (wd.jav) {                  // lança: dano cresce com o tempo que o jogador segurou
+                  pct = Math.round(SPEAR_THROW_MIN + (SPEAR_THROW_MAX - SPEAR_THROW_MIN) * (it.pow || 0)); how = 'spear'; pw = pct;
+                }
+                this.hurt(p, this.byId(it.owner), pct, how, ang);
+                if (!bl && p.alive && !p.down) this.knockdown(p, DOWN_TIME, ang);
+                this.events.push({ t: 'thit', x: it.x, y: it.y, bl, cb, pw });
                 stop = true; it.vx *= -0.1; it.vy *= -0.1; break;
               }
             }
@@ -526,11 +625,11 @@
         pl: this.players.filter(Boolean).map(p => ({
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
-          w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, bot: p.bot ? 1 : 0
+          w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy)]),
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
-        dr: this.level ? this.level.doors.filter(d => d.open).map(d => [d.i, d.dir]) : [],
+        dr: this.level ? this.level.doors.filter(d => !d.latched).map(d => [d.i, Math.round(d.phi * 1000) / 1000, Math.round(d.w * 100) / 100]) : [],
         ev: this.events
       };
     }
@@ -659,5 +758,5 @@
     }
   }
 
-  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, BLADE_CHANCE, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });
