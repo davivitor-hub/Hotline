@@ -103,6 +103,11 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #wAmmo.low{color:var(--pink);animation:blink .5s steps(2) infinite}
 #wHint{color:#ffd1ea;font-weight:600}
 @keyframes blink{50%{opacity:.35}}
+#spectate{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:8px 18px;white-space:nowrap;background:rgba(20,4,31,.88);border:3px solid var(--cyan);box-shadow:4px 4px 0 var(--pink)}
+#spectate small{font:400 .75rem var(--display);letter-spacing:2px;color:#c9b3e0}
+#spectate b{font:400 1.25rem var(--display);color:var(--white)}
+#spectate .sh{display:flex;align-items:center;gap:5px;color:#c9b3e0;font-weight:700;font-size:.9rem}
+@media (max-width:640px){#spectate{bottom:70px;gap:8px;padding:6px 10px}#spectate b{font-size:1rem}}
 #netHud{position:absolute;right:16px;top:14px;color:#c9b3e0;font-weight:700;font-size:.9rem;text-shadow:0 0 6px #000}
 
 #banner{position:fixed;left:0;right:0;top:30%;z-index:12;text-align:center;pointer-events:none}

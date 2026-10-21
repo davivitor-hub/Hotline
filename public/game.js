@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS, SPEAR_THROW_MIN, SPEAR_THROW_MAX } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -303,14 +303,33 @@ function sendInput(inp) {
 }
 
 /* ------------------------------------------------------------- SNAPSHOT */
+/* ------------------------------------------------------------- ESPECTAR
+   Quem morreu (ou entrou com a rodada em andamento) acompanha os jogadores vivos. A / D troca de jogador. */
+let specId = null;
+const canSpec = () => { const me = snap && myState(); return !!(snap && level && me && !me.al && ['countdown', 'live', 'over', 'matchover'].includes(snap.ph)); };
+const specList = () => foesOf().filter(f => f.al).sort((a, b) => a.sl - b.sl);
+function specTarget() {
+  if (!canSpec()) { specId = null; return null; }
+  const l = specList();
+  let t = l.find(f => f.id === specId);
+  if (!t) {
+    const old = snap.pl.find(p => p.id === specId);
+    t = (old && l.find(f => f.sl > old.sl)) || l[0] || old || null;   // alvo caiu: vai pro próximo vivo; sem vivos, fica onde estava
+  }
+  specId = t ? t.id : null; return t;
+}
+function specStep(dir) {
+  const l = specList(); if (l.length < 2) return;
+  const i = l.findIndex(f => f.id === specId);
+  specId = l[(i + dir + l.length) % l.length].id;
+}
 const myState = () => (snap ? snap.pl.find(p => p.id === myId) : null);
 const foesOf = () => (snap ? snap.pl.filter(p => p.id !== myId) : []);
 // adversário em destaque no HUD: maior pontuação (empate: prefere o vivo)
 const enemyState = () => { let b = null; for (const p of foesOf()) if (!b || p.sc > b.sc || (p.sc === b.sc && p.al && !b.al)) b = p; return b; };
-// cor da jaqueta de cada adversário (ordem dos slots) para diferenciar até 6 inimigos
-const FOE_COLORS = ['#ff2e97', '#ff8a2b', '#7dff5a', '#b28cff', '#ffe600', '#ff5a5a'];
+// cor da jaqueta: cada jogador recebe uma cor aleatória (vem do servidor em p.cl; se faltar, sorteia aqui e mantém)
 let colorMap = {};
-const jacketOf = (id, isMe) => (isMe ? '#10c6e8' : (colorMap[id] || '#ff2e97'));
+const jacketOf = (id) => colorMap[id] || '#ff2e97';
 
 function resetFx() {
   fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
@@ -542,7 +561,7 @@ function onSnapshot(s) {
   const now = performance.now();
   if (s.map !== mapId || s.rd !== round) newRound(s);
   snap = s; snapAt = now;
-  colorMap = {}; s.pl.filter(p => p.id !== myId).sort((a, b) => a.sl - b.sl).forEach((p, i) => { colorMap[p.id] = FOE_COLORS[i % FOE_COLORS.length]; });
+  { const cm = {}; for (const p of s.pl) cm[p.id] = p.cl || colorMap[p.id] || randomColor([...Object.values(cm), ...Object.values(colorMap)]); colorMap = cm; }
   for (const e of s.ev) handleEvent(e, now);
   if (level) {
     const open = new Map(s.dr.map(e => [e[0], e]));
@@ -668,6 +687,7 @@ addEventListener('keydown', e => {
   if (!mode || paused) return;
   if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
+  if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
   if (k === 'e') edge.pk = true;
@@ -681,7 +701,7 @@ addEventListener('blur', () => { keys = {}; mouse.down = false; mouse.right = fa
 addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 cv.addEventListener('mousedown', e => {
   if (!mode || paused) return; initAudio();
-  if (e.button === 0) { mouse.down = true; edge.fp = true; }
+  if (e.button === 0) { if (canSpec()) specStep(1); mouse.down = true; edge.fp = true; }
   if (e.button === 2) { e.preventDefault(); edge.th = true; mouse.right = true; }
 });
 addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; if (e.button === 2) mouse.right = false; });
@@ -1067,10 +1087,12 @@ function render(now, dt) {
   Z = S * (1 + zoomKick);
   // câmera
   const look = keys[' '] ? 0.85 : 0.33, maxL = keys[' '] ? 520 : 290;
+  const spec = me && !me.al ? specTarget() : null;   // espectando alguém?
   const lkc = me && me.al ? aimBotPoint(me) : null;
   let ox = lkc ? (lkc.dx - pred.x) * 0.5 : (mouse.x - W / 2) / Z * look, oy = lkc ? (lkc.dy - pred.y) * 0.5 : (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
   if (ol > maxL) { ox *= maxL / ol; oy *= maxL / ol; }
-  const tx = pred.x + ox, ty = pred.y + oy;
+  let tx = pred.x + ox, ty = pred.y + oy;
+  if (spec) { const ie = interpEnemy(spec.id) || { x: spec.x, y: spec.y }; tx = ie.x; ty = ie.y; }
   if (!camInit) { cam.x = tx; cam.y = ty; camInit = true; } else { const k = Math.min(1, dt * 9); cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k; }
   const sx = (Math.random() - .5) * shake, sy = (Math.random() - .5) * shake;
 
@@ -1118,6 +1140,7 @@ function render(now, dt) {
   for (const f of foesOf()) {
     if (!f.al) continue;
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
+    if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
     drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, false); drawHealBar(ie.x, ie.y, f.hz, now); drawChargeBar(ie.x, ie.y, f.ch);
   }
   if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawName(pred.x, pred.y, me.nm, true); drawHealBar(pred.x, pred.y, me.hz, now); drawChargeBar(pred.x, pred.y, me.ch); }
@@ -1258,6 +1281,7 @@ function updateHud(now) {
     $('wAmmo').classList.toggle('hidden', !gun);
     if (gun) { setText('wAmmo', `${me.am} / ${wd.ammo}`); $('wAmmo').classList.toggle('low', me.am <= Math.ceil(wd.ammo * 0.25)); }
     setText('wHint', '');   // sem dicas de teclas no HUD
+    { const sp = canSpec() ? specTarget() : null; $('spectate').classList.toggle('hidden', !sp); if (sp) { setText('specName', sp.nm); $('specName').style.color = jacketOf(sp.id); } }
 
   }
   // banner
