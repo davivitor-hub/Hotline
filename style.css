@@ -229,3 +229,40 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #menu .btn.big b{font-size:1.15rem}
 #menu .btn.big small{font-size:.82rem}
 #menu .btn.big::before{align-self:auto}
+
+/* ==========================================================================
+   AJUSTE DE LAYOUT PARA PC (sem inclinação, painel maior e centralizado)
+   ========================================================================== */
+#menu{align-items:center;justify-content:center;padding:clamp(12px,3vh,40px)}
+#menu .panel{width:min(720px,100%);margin:auto;transform:none;padding:clamp(22px,3.4vh,40px) clamp(26px,3vw,48px)}
+#menu .panel>*{transform:none}
+#menu h1{font-size:clamp(40px,8vh,84px);margin-bottom:6px}
+#menu .tag{font-size:clamp(1rem,2vh,1.2rem);margin:6px 0 clamp(14px,2.6vh,24px)}
+#menu .field{font-size:1.05rem;margin-bottom:clamp(10px,2vh,18px)}
+#menu #nameInput{padding:12px 14px;font-size:1.2rem}
+#menu #skins{gap:8px}
+#menu .skin{padding:6px 14px 6px 7px;font-size:1rem}
+#menu .skin i{width:22px;height:22px}
+#menu .mainbtns{gap:10px;margin:clamp(12px,2.4vh,22px) 0 8px}
+#menu .btn.big{padding:13px 20px 13px 60px}
+#menu .btn.big b{font-size:1.3rem}
+#menu .btn.big small{font-size:.95rem}
+#menu .more summary{font-size:.9rem}
+#menu .controls{grid-template-columns:repeat(2,1fr);font-size:1rem}
+#menu.enter .panel{animation:menuIn2 .6s cubic-bezier(.2,1.4,.4,1) both}
+@keyframes menuIn2{from{opacity:0;transform:translateY(34px) scale(.94)}to{opacity:1;transform:none}}
+.sun{bottom:34%;width:min(56vh,520px)}
+/* cursor normal em menus, pausa e sala; só some no canvas do jogo (a mira é desenhada) */
+#menu,#lobby,#pause,#intro{cursor:default}
+#menu .btn,#menu .skin,#menu .tab,#menu .track,#menu select,#menu summary,#lobby .btn,#pause .btn,#introSkip{cursor:pointer}
+#nameInput{cursor:text}
+/* HUD e telas grandes */
+@media (min-width:1280px){
+  #weaponHud{left:24px;bottom:24px;padding:10px 20px}
+  #roster{top:20px;left:20px}
+  #netHud{right:22px;top:20px}
+  #nowPlaying{right:22px;bottom:24px}
+}
+
+/* sequência secreta sem nenhuma dica visual */
+.seq{display:none!important}
