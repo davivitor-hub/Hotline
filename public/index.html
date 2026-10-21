@@ -51,7 +51,9 @@
   <div id="menu" class="hidden">
     <div class="sun"></div>
     <div class="grid-floor"></div>
+    <canvas id="menuFx"></canvas>
     <section class="panel">
+      <div class="seq" id="seqDots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <h1><span class="t1">NEON</span><span class="t2">DUEL</span></h1>
       <p class="tag">5000 de vida e cada arma tira a sua parte. Entre pela porta e faça a sua jogada.</p>
 
@@ -102,6 +104,11 @@
         <button id="btnMusicBack" class="btn back" type="button">Voltar</button>
       </div>
     </section>
+  </div>
+
+  <div id="unlock" aria-live="polite">
+    <div class="u-flash"></div>
+    <div class="u-box"><small>Segredo descoberto</small><h2>Dragão Dourado</h2><p>Personagem lendário liberado</p></div>
   </div>
 
   <div id="crt"></div>
