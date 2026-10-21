@@ -665,7 +665,7 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'escape') return;
   if (!mode || paused) return;
-  if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+  if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
@@ -695,11 +695,11 @@ function enemyVel(id) {
   const vx = (pb.x - pa.x) / dt, vy = (pb.y - pa.y) / dt, l = Math.hypot(vx, vy), m = l > 260 ? 260 / l : 1;
   return { x: vx * m, y: vy * m };
 }
-// Dragão Dourado: segure SHIFT para travar a mira no inimigo vivo mais próximo (prefere quem está à vista).
-// Sem SHIFT a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
+// Dragão Dourado: segure ESPAÇO para travar a mira no inimigo vivo mais próximo (prefere quem está à vista).
+// Sem ESPAÇO a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
 const isDragon = () => cfg.skin === 'DRAGON' && !!cfg.secret;
 function aimBotPoint(me) {
-  if (!me || !me.al || !isDragon() || !keys.shift || !level) return null;
+  if (!me || !me.al || !isDragon() || !keys[' '] || !level) return null;
   let best = null, bs = Infinity;
   for (const f of foesOf()) {
     if (!f.al) continue;
@@ -1189,7 +1189,7 @@ function drawChargeBar(x, y, ch) {
 function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
   const lk = aimBotPoint(me); let cx = mouse.x, cy = mouse.y;
-  if (lk) { cx = W / 2 + (lk.dx - cam.x) * Z; cy = H / 2 + (lk.dy - cam.y) * Z; }   // SHIFT: mira centrada no inimigo
+  if (lk) { cx = W / 2 + (lk.dx - cam.x) * Z; cy = H / 2 + (lk.dy - cam.y) * Z; }   // ESPAÇO: mira centrada no inimigo
   ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 900); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
   ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.moveTo(-15, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(15, 0); ctx.moveTo(0, -15); ctx.lineTo(0, -5); ctx.moveTo(0, 5); ctx.lineTo(0, 15); ctx.stroke(); ctx.restore();
 }
@@ -1256,15 +1256,8 @@ function updateHud(now) {
     setText('wName', wd.name);
     $('wAmmo').classList.toggle('hidden', !gun);
     if (gun) { setText('wAmmo', `${me.am} / ${wd.ammo}`); $('wAmmo').classList.toggle('low', me.am <= Math.ceil(wd.ammo * 0.25)); }
-    // dica: arma no chão por perto ou arremessar a que está na mão
-    let hint = '';
-    if (me.al && snap.it) {
-      let best = null, bd = 54;
-      for (const it of snap.it) { if (it[6]) continue; const d = Math.hypot(it[1] - pred.x, it[2] - pred.y); if (d < bd) { bd = d; best = it; } }
-      if (best) hint = `[E] pegar ${WEAPONS[best[3]].name}${WEAPONS[best[3]].ammo ? ' (' + best[4] + ')' : ''}`;
-      else if (me.w) hint = me.w === 'SPEAR' ? '[F] segure p/ arremessar mais forte' : gun && me.am <= 0 ? '[F] arremessar (sem munição)' : '[F] arremessar';
-    }
-    setText('wHint', hint);
+    setText('wHint', '');   // sem dicas de teclas no HUD
+
   }
   // banner
   let t = '', s = '', cls = '';

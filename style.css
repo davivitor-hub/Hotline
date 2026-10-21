@@ -234,14 +234,15 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
    AJUSTE DE LAYOUT PARA PC (sem inclinação, painel maior e centralizado)
    ========================================================================== */
 #menu{align-items:center;justify-content:center;padding:clamp(12px,3vh,40px)}
-#menu .panel{width:min(720px,100%);margin:auto;transform:none;padding:clamp(22px,3.4vh,40px) clamp(26px,3vw,48px)}
+#menu .panel{width:min(560px,100%);margin:auto;transform:none;padding:clamp(20px,3vh,34px) clamp(24px,2.4vw,36px)}
 #menu .panel>*{transform:none}
-#menu h1{font-size:clamp(40px,8vh,84px);margin-bottom:6px}
+#menu h1{font-size:clamp(36px,6.4vh,64px);margin-bottom:6px}
 #menu .tag{font-size:clamp(1rem,2vh,1.2rem);margin:6px 0 clamp(14px,2.6vh,24px)}
 #menu .field{font-size:1.05rem;margin-bottom:clamp(10px,2vh,18px)}
 #menu #nameInput{padding:12px 14px;font-size:1.2rem}
 #menu #skins{gap:8px}
-#menu .skin{padding:6px 14px 6px 7px;font-size:1rem}
+#menu .skin{padding:4px 8px 4px 5px;font-size:.92rem;gap:5px}
+#menu #skins{gap:5px}
 #menu .skin i{width:22px;height:22px}
 #menu .mainbtns{gap:10px;margin:clamp(12px,2.4vh,22px) 0 8px}
 #menu .btn.big{padding:13px 20px 13px 60px}
