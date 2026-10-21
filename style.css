@@ -169,6 +169,7 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 /* menu aparece depois da abertura */
 #menu.enter .panel{animation:menuIn .6s cubic-bezier(.2,1.4,.4,1) both}
 @keyframes menuIn{from{opacity:0;transform:translateY(34px) scale(.92) rotate(-.6deg)}to{opacity:1;transform:rotate(-.6deg)}}
+#menuFx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
 
 /* três opções principais */
 .mainbtns{display:grid;gap:10px;margin:18px 0 8px}
@@ -188,8 +189,30 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 .more[open] summary::before{content:'▾ '}
 .more .controls{margin-top:10px;padding-top:0;border-top:0}
 
+/* sequência secreta (pontinhos discretos) */
+.panel>.seq{position:absolute;left:50%;bottom:7px;display:flex;gap:7px;opacity:.25;transform:translateX(-50%);transition:opacity .3s}
+.seq i{width:5px;height:5px;background:var(--violet);transform:rotate(45deg);transition:all .2s}
+.seq i.on{background:var(--yellow);box-shadow:0 0 8px var(--yellow);transform:rotate(45deg) scale(1.5)}
+.seq:has(i.on){opacity:1}
 
+/* máscara lendária */
+.skin.legend{position:relative;border-color:var(--yellow);color:var(--yellow);animation:legendPulse 1.5s ease-in-out infinite alternate}
+.skin.legend i{background:radial-gradient(circle at 35% 30%,#fff7c8,#ffcf3a 55%,#b9780b)!important}
+.skin.legend::after{content:'✦';position:absolute;right:-6px;top:-10px;color:var(--yellow);text-shadow:0 0 10px var(--yellow);animation:blink .8s steps(2) infinite}
+@keyframes legendPulse{from{box-shadow:0 0 6px rgba(255,230,0,.4)}to{box-shadow:0 0 22px rgba(255,230,0,.95)}}
 
+/* aviso de desbloqueio */
+#unlock{position:fixed;inset:0;z-index:60;pointer-events:none;display:grid;place-items:center;visibility:hidden}
+#unlock.show{visibility:visible;animation:unlockLife 4.4s ease forwards}
+@keyframes unlockLife{0%{opacity:0}6%{opacity:1}82%{opacity:1}100%{opacity:0}}
+#unlock .u-flash{position:absolute;inset:0;background:radial-gradient(circle at 50% 45%,rgba(255,230,0,.8),rgba(255,46,151,.35) 45%,transparent 72%)}
+#unlock.show .u-flash{animation:flashOut 1.2s ease-out forwards}
+@keyframes flashOut{from{opacity:1}to{opacity:0}}
+#unlock .u-box{position:relative;max-width:92vw;text-align:center;padding:22px 40px;background:var(--ink);border:3px solid var(--yellow);box-shadow:8px 8px 0 var(--pink),0 0 60px rgba(255,230,0,.45)}
+#unlock.show .u-box{animation:pop .5s cubic-bezier(.2,1.6,.4,1) both}
+#unlock small{display:block;font:400 .8rem var(--display);letter-spacing:2px;color:var(--cyan)}
+#unlock h2{margin:8px 0;font:400 clamp(30px,6vw,56px)/1 var(--display);color:var(--yellow);text-shadow:4px 4px 0 var(--pink)}
+#unlock p{margin:0;font:700 1.05rem var(--body);color:#ffd1ea}
 
 /* ---- compactação: o menu cabe em telas baixas ---- */
 #menu{display:flex}
@@ -242,3 +265,5 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
   #nowPlaying{right:22px;bottom:24px}
 }
 
+/* sequência secreta sem nenhuma dica visual */
+.seq{display:none!important}
