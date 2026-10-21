@@ -29,6 +29,10 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.json': 'application/json; charset=utf-8'
 };
+// Várias salas ao mesmo tempo: cada sala tem um código de 4 letras, o seu próprio Game e a sua lista de jogadores.
+const rooms = new Map();
+const MAX_ROOMS = Math.max(1, Number(process.env.MAX_ROOMS) || 40);
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sem 0/O/1/I para não confundir
 const SKINS = ['ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'DRAGON'];
 
 if (!S || typeof S.Game !== 'function') {
@@ -46,7 +50,8 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return res.end(`ok · sala de ${S.MIN_PLAYERS} a ${S.MAX_PLAYERS} jogadores · ${game.count} conectado(s)`);
+    let n = 0; for (const r of rooms.values()) n += r.game.count;
+    return res.end(`ok · ${rooms.size} sala(s) · ${n} jogador(es) · cada sala de ${S.MIN_PLAYERS} a ${S.MAX_PLAYERS}`);
   }
 
   if (pathname === '/') pathname = '/index.html';
@@ -77,9 +82,29 @@ const server = http.createServer((req, res) => {
 // Latência: sem compressão por mensagem (deflate adiciona atraso e CPU) e sem Nagle (TCP_NODELAY) em todo socket.
 server.on('connection', (sock) => sock.setNoDelay(true));
 const wss = new WebSocket.Server({ server, maxPayload: 2048, perMessageDeflate: false });
-const game = new S.Game();
 const clients = new Map();
 let nextId = 1;
+
+function newCode() {
+  for (;;) {
+    let c = '';
+    for (let i = 0; i < 4; i++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    if (!rooms.has(c)) return c;
+  }
+}
+// pub = sala pública (entra na "partida rápida"); privada só entra quem tem o código
+function createRoom(pub) {
+  const room = { code: newCode(), pub: !!pub, game: new S.Game(), clients: new Set() };
+  rooms.set(room.code, room);
+  console.log(`sala ${room.code} criada (${room.pub ? 'pública' : 'privada'}); salas: ${rooms.size}`);
+  return room;
+}
+function dropIfEmpty(room) {
+  if (room && room.game.count === 0 && rooms.get(room.code) === room) {
+    rooms.delete(room.code);
+    console.log(`sala ${room.code} fechada; salas: ${rooms.size}`);
+  }
+}
 
 function send(ws, data) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -90,7 +115,7 @@ function send(ws, data) {
 }
 
 wss.on('connection', (ws) => {
-  const c = { ws, id: 'p' + nextId++, p: null, msgs: 0 };
+  const c = { ws, id: 'p' + nextId++, p: null, room: null, msgs: 0 };
   clients.set(ws, c);
   ws.isAlive = true;
 
@@ -114,23 +139,49 @@ wss.on('connection', (ws) => {
 
     if (m.type === 'join') {
       if (c.p) return;
-      if (game.count >= S.MAX_PLAYERS) return send(ws, { type: 'full' });
+      // mode: 'quick' (partida rápida), 'create' (sala privada nova) ou 'code' (entrar numa sala pelo código)
+      const mode = m.mode === 'create' || m.mode === 'code' ? m.mode : 'quick';
+      let room = null;
+      if (mode === 'code') {
+        const code = String(m.room || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+        room = rooms.get(code);
+        if (!room) return send(ws, { type: 'noroom' });
+      } else if (mode === 'quick') {
+        // prefere a sala pública mais cheia que ainda está na espera (junta o pessoal)
+        room = [...rooms.values()]
+          .filter((r) => r.pub && r.game.phase === 'lobby' && r.game.count > 0 && r.game.count < S.MAX_PLAYERS)
+          .sort((a, b) => b.game.count - a.game.count)[0] || null;
+      }
+      if (!room) {
+        if (rooms.size >= MAX_ROOMS) return send(ws, { type: 'busy' });
+        room = createRoom(mode === 'quick');
+      }
+      if (room.game.count >= S.MAX_PLAYERS) return send(ws, { type: 'full' });
 
       const skin = SKINS.includes(m.skin) ? m.skin : 'ROOSTER';
       const name = String(m.name || 'JOGADOR').replace(/[<>]/g, '').slice(0, 14);
-      c.p = game.addPlayer(c.id, name, skin);
+      c.p = room.game.addPlayer(c.id, name, skin);
 
       if (!c.p) {
+        dropIfEmpty(room);
         send(ws, { type: 'full' });
         return;
       }
 
-      send(ws, { type: 'joined', id: c.id, slot: c.p.slot });
-      console.log(`${name} entrou (${c.id}); jogadores: ${game.count}/${S.MAX_PLAYERS}`);
+      c.room = room;
+      room.clients.add(ws);
+      send(ws, { type: 'joined', id: c.id, slot: c.p.slot, room: room.code });
+      console.log(`${name} entrou (${c.id}) na sala ${room.code}; jogadores na sala: ${room.game.count}/${S.MAX_PLAYERS}`);
       return;
     }
 
-    if (m.type === 'input' && c.p) {
+    if (!c.p || !c.room) {
+      if (m.type === 'ping') send(ws, { type: 'pong', t: m.t });
+      return;
+    }
+    const game = c.room.game;
+
+    if (m.type === 'input') {
       const seq = Number(m.seq);
       const dt = Number(m.dt);
       const a = Number(m.a);
@@ -152,9 +203,9 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (m.type === 'start' && c.p) {
+    if (m.type === 'start') {
       if (!game.requestStart(c.id)) send(ws, { type: 'error', message: 'Só o anfitrião inicia, com 2 ou mais jogadores.' });
-      else console.log(`${c.id} iniciou a partida com ${game.count} jogadores`);
+      else console.log(`${c.id} iniciou a partida na sala ${c.room.code} com ${game.count} jogadores`);
       return;
     }
 
@@ -162,29 +213,34 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (c.p) {
-      game.removePlayer(c.id);
-      console.log(`${c.id} saiu; jogadores: ${game.count}/${S.MAX_PLAYERS}`);
+    const room = c.room;
+    if (c.p && room) {
+      room.game.removePlayer(c.id);
+      room.clients.delete(ws);
+      console.log(`${c.id} saiu da sala ${room.code}; jogadores na sala: ${room.game.count}/${S.MAX_PLAYERS}`);
+      dropIfEmpty(room);
     }
     clients.delete(ws);
   });
 });
 
-function broadcast() {
+function broadcast(room) {
+  const game = room.game;
   const snap = game.snapshot();
   game.events = [];
 
-  // Serializa uma única vez e só anexa o ack de cada cliente (evita N× JSON.stringify a 60 Hz).
-  const base = JSON.stringify(snap).slice(0, -1);
-  for (const [ws, c] of clients) {
-    if (!c.p || ws.readyState !== WebSocket.OPEN) continue;
+  // Serializa uma única vez por sala e só anexa o ack de cada cliente (evita N× JSON.stringify a 60 Hz).
+  const base = JSON.stringify(snap).slice(0, -1) + ',"room":"' + room.code + '"';
+  for (const ws of room.clients) {
+    const c = clients.get(ws);
+    if (!c || !c.p || ws.readyState !== WebSocket.OPEN) continue;
     try { ws.send(base + ',"ack":' + (c.p.ack | 0) + '}'); } catch (err) {
       console.error('Falha ao enviar snapshot:', err.message);
     }
   }
 }
 
-// Loop fixo de 60 Hz; snapshots enviados a 60 Hz (SNAP_EVERY=2 volta para 30 Hz se a banda do host for curta).
+// Loop fixo de 60 Hz para TODAS as salas; snapshots a 60 Hz (SNAP_EVERY=2 volta para 30 Hz se a banda do host for curta).
 const SNAP_EVERY = Math.max(1, Number(process.env.SNAP_EVERY) || 1);
 let last = Date.now();
 let acc = 0;
@@ -197,9 +253,12 @@ setInterval(() => {
   last = now;
 
   while (acc >= DT) {
-    game.tick(DT);
+    const snapNow = ++tickN % SNAP_EVERY === 0;
+    for (const room of rooms.values()) {
+      room.game.tick(DT);
+      if (snapNow) broadcast(room);
+    }
     acc -= DT;
-    if (++tickN % SNAP_EVERY === 0) broadcast();
   }
 }, 8);
 

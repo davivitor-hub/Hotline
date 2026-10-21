@@ -54,7 +54,7 @@ h1 .t2{color:var(--pink);text-shadow:4px 4px 0 var(--yellow);margin-left:.6em}
 .btn.primary:hover{background:var(--yellow);border-color:var(--yellow);box-shadow:5px 5px 0 var(--pink)}
 .btn.danger{color:var(--pink);border-color:var(--pink)}
 .btn.danger:hover{background:var(--pink);color:var(--ink)}
-select{padding:0 10px;background:#0b0214;color:var(--white);border:3px solid var(--violet);font-weight:700;border-radius:0}
+select,#roomInput{padding:0 10px;background:#0b0214;color:var(--white);border:3px solid var(--violet);font-weight:700;border-radius:0}
 #status{min-height:24px;margin:6px 0 4px;color:var(--yellow);font-weight:700}
 
 .controls{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 16px;margin-top:12px;padding-top:14px;border-top:2px dashed rgba(255,46,151,.5)}
@@ -283,3 +283,10 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 
 /* sequência secreta sem nenhuma dica visual */
 .seq{display:none!important}
+
+/* salas: campo de código e código no lobby */
+#roomInput{text-align:center;text-transform:uppercase;letter-spacing:4px;font:400 1.15rem var(--display);user-select:text;-webkit-user-select:text;min-width:0}
+#roomInput::placeholder{letter-spacing:1px;font-size:.8rem;color:#7d6a96}
+#roomInput:focus{outline:none;border-color:var(--cyan)}
+.lcode{margin:0 0 6px;text-align:center;font:400 1.5rem var(--display);letter-spacing:6px;color:var(--yellow);cursor:pointer;text-shadow:2px 2px 0 var(--pink)}
+.lcode small{display:block;font:600 .7rem var(--body);letter-spacing:1px;color:#ffd1ea;text-shadow:none}

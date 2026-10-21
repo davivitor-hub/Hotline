@@ -436,6 +436,7 @@
           if (r) { this.tryDoors(p, r.dx, r.dy); this.doorContact(p, dd); }
         }
       }
+      if ((inp.fp || inp.f) && !(p.healT > 0)) this.tryFire(p);   // o tiro sai na hora que o clique chega, sem esperar o próximo tick
     }
 
     tick(dt) {
@@ -470,11 +471,7 @@
         this.timer -= dt;
         if (this.timer <= 0) { this.phase = 'live'; this.events.push({ t: 'go' }); }
       } else if (this.phase === 'live') {
-        for (const p of this.players) {
-          if (!p || !p.alive || p.down || p.healT > 0 || p.charging) continue;
-          const w = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
-          if (p.cd <= 0 && (p.buf > 0 || (p.fire && w.auto))) { p.buf = 0; this.attack(p); }
-        }
+        for (const p of this.players) this.tryFire(p);
       }
       this.updateBullets(dt); this.updateItems(dt);
       if (this.phase === 'live') this.evalRound();
@@ -493,6 +490,12 @@
       this.events.push({ t: 'end', w: w.slot });
     }
 
+    // dispara se der (cooldown pronto + clique guardado ou arma automática segurada). Chamado a cada tick E logo quando a entrada chega (menos atraso).
+    tryFire(p) {
+      if (!p || !p.alive || p.down || p.healT > 0 || p.charging || this.phase !== 'live') return;
+      const w = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
+      if (p.cd <= 0 && (p.buf > 0 || (p.fire && w.auto))) { p.buf = 0; this.attack(p); }
+    }
     attack(p) {
       const wd = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
       if (wd.melee) {
@@ -804,7 +807,7 @@
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1
         })),
-        b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy)]),
+        b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (this.byId(b.owner) || { slot: -1 }).slot]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
         dr: this.level ? this.level.doors.filter(d => !d.latched).map(d => [d.i, Math.round(d.phi * 1000) / 1000, Math.round(d.w * 100) / 100]) : [],
         ev: this.events

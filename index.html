@@ -29,6 +29,7 @@
   <div id="lobby" class="hidden">
     <div class="box">
       <h2>Sala online</h2>
+      <p id="lobbyCode" class="lcode" title="Toque para copiar o link da sala"></p>
       <p id="lobbyCount" class="lcount"></p>
       <div id="lobbyList"></div>
       <p id="lobbyHint" class="lhint"></p>
@@ -76,7 +77,12 @@
         </div>
 
         <div class="mainbtns">
-          <button id="btnOnline" class="btn primary big" type="button"><b>Online</b><small>2 a 7 jogadores</small></button>
+          <button id="btnOnline" class="btn primary big" type="button"><b>Online</b><small>partida rápida · 2 a 7 jogadores</small></button>
+          <div class="bot-row">
+            <button id="btnJoinRoom" class="btn big" type="button"><b>Entrar</b><small>com código da sala</small></button>
+            <input id="roomInput" maxlength="4" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Código da sala">
+          </div>
+          <button id="btnCreateRoom" class="btn big" type="button"><b>Criar sala</b><small>privada: convide amigos pelo código</small></button>
           <div class="bot-row">
             <button id="btnBot" class="btn big" type="button"><b>Vs Bot</b><small>treino offline</small></button>
             <select id="diffSel" aria-label="Dificuldade do bot">
