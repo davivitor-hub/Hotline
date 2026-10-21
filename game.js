@@ -28,12 +28,12 @@ function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg))
 if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
 
 /* ---------------------------------------------------------------- ESTADO */
-const cv = $('game'), ctx = cv.getContext('2d', { alpha: false });
+const cv = $('game'); let ctx = cv.getContext('2d', { alpha: false });   // let: os ícones do inventário desenham as armas num canvas temporário
 let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
 let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
-let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false };
+let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0 };
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
 let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null;
@@ -198,6 +198,7 @@ function sfx(n, x, y) {
     case 'down': osc(d, 'sine', 90, t, 0.2, 0.7 * v, 40); break;
     case 'hit': osc(d, 'triangle', 300, t, 0.1, 0.5 * v, 120); break;
     case 'door': nz(d, t, 0.18, 0.7 * v, 'lowpass', 500); osc(d, 'sine', 70, t, 0.18, 0.5 * v, 40); break;
+    case 'swap': nz(d, t, 0.05, 0.22 * v, 'highpass', 2600); osc(d, 'square', 380, t, 0.06, 0.2 * v, 720); break;
     case 'pick': osc(d, 'square', 600, t, 0.07, 0.25 * v, 950); break;
     case 'click': osc(d, 'square', 1600, t, 0.025, 0.25 * v); break;
     case 'throw': nz(d, t, 0.2, 0.3 * v, 'bandpass', 900); break;
@@ -618,6 +619,7 @@ function handleEvent(e, now) {
       addShake(e.by === myId ? ({ SNIPER: 9, SHOTGUN: 7, REVOLVER: 5, RIFLE: 4, MINIGUN: 1.8 }[e.w] || 2.5) : 1.2);
       break;
     }
+    case 'swap': sfx('swap', e.x, e.y); break;
     case 'swing': {
       const st = animOf(e.by); st.sw0 = now; st.sw = e.w; st.punch *= -1;
       sfx('swing', e.x, e.y);
@@ -702,6 +704,8 @@ addEventListener('keydown', e => {
   if (k === 'e') edge.pk = true;
   if (k === 'f') edge.th = true;
   if (k === 'q') edge.hl = true;
+  if (k === '1') edge.ss = 1;
+  if (k === '2') edge.ss = 2;
   if (k === 'm') { cfg.music = !cfg.music; applyMusic(); $('optMusic').checked = cfg.music; refreshTracks(); saveCfg(); }
   if (k === 'n') nextTrack();
 });
@@ -715,6 +719,16 @@ cv.addEventListener('mousedown', e => {
 });
 addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; if (e.button === 2) mouse.right = false; });
 cv.addEventListener('contextmenu', e => e.preventDefault());
+// scroll do mouse: troca a arma da mão pela do outro espaço do inventário
+let wheelAcc = 0, wheelAt = 0;
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (!mode || paused || canSpec()) return;
+  const now = performance.now();
+  if (now - wheelAt > 250) wheelAcc = 0;
+  wheelAcc += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+  if (Math.abs(wheelAcc) >= 40 && now - wheelAt > 180) { wheelAcc = 0; wheelAt = now; edge.sw = true; }   // trava: touchpad não fica trocando sem parar
+}, { passive: false });
 
 const mouseAngle = () => Math.atan2(mouse.y - (H / 2 + (pred.y - cam.y) * Z), mouse.x - (W / 2 + (pred.x - cam.x) * Z));
 // Dragão Dourado: mira automática. Trava no inimigo vivo mais próximo (prefere quem está à vista) e adianta o tiro.
@@ -778,8 +792,8 @@ function doStep() {
 }
 function stepInput() {
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, tc: (mouse.right || keys.f) ? 1 : 0 };
-  edge.fp = edge.pk = edge.th = edge.hl = false;
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = false; edge.ss = 0;
   const me = myState();
   if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP);
   pending.push({ seq: inp.seq, dt: STEP, k }); if (pending.length > 120) pending.shift();
@@ -1296,6 +1310,40 @@ function updateRoster() {
     row.append(dot, nm, hpv, sc); el.appendChild(row);
   }
 }
+/* ---- inventário (2 espaços) ---- */
+const iconCache = {};
+function weaponIcon(type) {   // desenha o sprite da arma num canvas temporário, recorta as sobras e devolve uma imagem
+  if (iconCache[type]) return iconCache[type];
+  const c = document.createElement('canvas'); c.width = 360; c.height = 130;
+  const old = ctx; ctx = c.getContext('2d');
+  try { ctx.setTransform(3, 0, 0, 3, 110, 65); drawWeaponSprite(type); } finally { ctx = old; }
+  const g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, y0 = c.height, x1 = 0, y1 = 0;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 10) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < x0) return (iconCache[type] = '');
+  const o = document.createElement('canvas'); o.width = x1 - x0 + 1; o.height = y1 - y0 + 1;
+  o.getContext('2d').drawImage(c, x0, y0, o.width, o.height, 0, 0, o.width, o.height);
+  return (iconCache[type] = o.toDataURL());
+}
+const slotEls = [0, 1].map(i => { const el = $('slot' + i); return { el, img: el.querySelector('img'), name: el.querySelector('.sn'), ammo: el.querySelector('.sa') }; });
+const slotKey = ['', ''];
+function updateInv(me) {
+  $('invBar').classList.toggle('hidden', !me || !me.al);
+  if (!me || !me.al) return;
+  const iv = me.iv || [0, 0];
+  for (let i = 0; i < 2; i++) {
+    const s = iv[i], act = me.se === i, key = (s ? s[0] + ':' + s[1] : '-') + '|' + act;
+    if (slotKey[i] === key) continue;
+    slotKey[i] = key;
+    const E = slotEls[i], wd = s ? WEAPONS[s[0]] : null, gun = !!wd && !wd.melee;
+    E.el.classList.toggle('active', act); E.el.classList.toggle('empty', !s);
+    E.el.style.setProperty('--wc', wd ? wd.col : 'transparent');
+    if (s) { const src = weaponIcon(s[0]); if (E.img.getAttribute('src') !== src) E.img.src = src; }
+    E.name.textContent = wd ? wd.name : (act ? 'MÃOS' : 'VAZIO');
+    E.ammo.textContent = gun ? `${s[1]} / ${wd.ammo}` : '';
+    E.ammo.classList.toggle('low', gun && s[1] <= Math.ceil(wd.ammo * 0.25));
+  }
+}
 function updateHud(now) {
   if (!snap) return;
   const me = myState();
@@ -1303,11 +1351,7 @@ function updateHud(now) {
   setText('pingTxt', mode === 'online' ? `${pingMs} ms · ${snap.pl.length}/${MAX_PLAYERS} jogadores` : 'treino · offline');
   updateRoster();
   if (me) {
-    const wd = me.w ? WEAPONS[me.w] : WEAPONS.FISTS, gun = !!me.w && !wd.melee;
-    setText('wName', wd.name);
-    $('wAmmo').classList.toggle('hidden', !gun);
-    if (gun) { setText('wAmmo', `${me.am} / ${wd.ammo}`); $('wAmmo').classList.toggle('low', me.am <= Math.ceil(wd.ammo * 0.25)); }
-    setText('wHint', '');   // sem dicas de teclas no HUD
+    updateInv(me);
     { const sp = canSpec() ? specTarget() : null; $('spectate').classList.toggle('hidden', !sp); if (sp) { setText('specName', sp.nm); $('specName').style.color = jacketOf(sp.id); } }
 
   }

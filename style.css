@@ -97,11 +97,20 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #scoreboard .mid{display:flex;flex-direction:column;justify-content:center;align-items:center;padding:0 14px;background:var(--ink);border-top:3px solid var(--yellow);border-bottom:3px solid var(--yellow);color:var(--yellow)}
 #scoreboard .mid span{font-size:.8rem}
 #scoreboard .mid small{font:600 .75rem var(--body);color:#ffeb7a}
-#weaponHud{position:absolute;left:18px;bottom:18px;display:flex;align-items:baseline;gap:14px;padding:8px 16px;background:rgba(20,4,31,.85);border:3px solid var(--yellow);box-shadow:4px 4px 0 var(--pink)}
-#wName{font:400 1.1rem var(--display);color:var(--yellow)}
-#wAmmo{font:400 1.8rem var(--display);color:var(--white)}
-#wAmmo.low{color:var(--pink);animation:blink .5s steps(2) infinite}
-#wHint{color:#ffd1ea;font-weight:600}
+/* inventário: 2 espaços embaixo, no centro (scroll do mouse / teclas 1 e 2 trocam) */
+#invBar{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:flex-end;gap:12px}
+.slot{position:relative;width:158px;height:78px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 8px;
+  background:rgba(20,4,31,.82);border:3px solid var(--violet);opacity:.55;filter:saturate(.6);transition:transform .14s cubic-bezier(.2,1.6,.4,1),opacity .14s,border-color .14s,box-shadow .14s}
+.slot.active{opacity:1;filter:none;border-color:var(--yellow);box-shadow:4px 4px 0 var(--pink);transform:translateY(-8px) scale(1.07)}
+.slot .k{position:absolute;top:2px;left:5px;font:400 .7rem var(--display);color:var(--cyan)}
+.slot.active .k{color:var(--yellow)}
+.slot img{display:block;max-width:124px;max-height:34px;object-fit:contain;filter:drop-shadow(0 0 5px var(--wc,transparent))}
+.slot.empty img{display:none}
+.slot .sn{font:400 .72rem var(--display);color:var(--cyan);letter-spacing:.3px}
+.slot.active .sn{color:var(--yellow)}
+.slot.empty .sn{color:#7e6a96}
+.slot .sa{min-height:1.2em;font:400 1rem var(--display);color:var(--white)}
+.slot .sa.low{color:var(--pink);animation:blink .5s steps(2) infinite}
 @keyframes blink{50%{opacity:.35}}
 #spectate{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:8px 18px;white-space:nowrap;background:rgba(20,4,31,.88);border:3px solid var(--cyan);box-shadow:4px 4px 0 var(--pink)}
 #spectate small{font:400 .75rem var(--display);letter-spacing:2px;color:#c9b3e0}
@@ -137,7 +146,7 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 .lhint{margin:0;text-align:center;color:#ffd1ea;font-weight:600;min-height:22px}
 #lobby .btn{pointer-events:auto}
 #lobby .btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none}
-#hud.inlobby #weaponHud,#hud.inlobby #roster{display:none}
+#hud.inlobby #invBar,#hud.inlobby #roster{display:none}
 
 /* lista de jogadores durante a partida */
 #roster{position:absolute;top:14px;left:14px;min-width:170px;max-width:240px;display:grid;gap:3px;padding:8px;background:rgba(20,4,31,.82);border:3px solid var(--violet)}
@@ -155,7 +164,9 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
   #roster{min-width:0;max-width:150px;top:8px;left:8px;font-size:.85rem}
   .controls{grid-template-columns:1fr}
   #scoreboard .side span{display:none}
-  #weaponHud{left:8px;bottom:8px}
+  #invBar{bottom:8px;gap:8px}
+  .slot{width:112px;height:64px}
+  .slot img{max-width:88px;max-height:28px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
@@ -264,7 +275,7 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #nameInput{cursor:text}
 /* HUD e telas grandes */
 @media (min-width:1280px){
-  #weaponHud{left:24px;bottom:24px;padding:10px 20px}
+  #invBar{bottom:24px}
   #roster{top:20px;left:20px}
   #netHud{right:22px;top:20px}
   #nowPlaying{right:22px;bottom:24px}
