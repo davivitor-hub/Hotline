@@ -665,7 +665,7 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'escape') return;
   if (!mode || paused) return;
-  if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+  if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
@@ -695,8 +695,11 @@ function enemyVel(id) {
   const vx = (pb.x - pa.x) / dt, vy = (pb.y - pa.y) / dt, l = Math.hypot(vx, vy), m = l > 260 ? 260 / l : 1;
   return { x: vx * m, y: vy * m };
 }
+// Dragão Dourado: segure SHIFT para travar a mira no inimigo vivo mais próximo (prefere quem está à vista).
+// Sem SHIFT a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
+const isDragon = () => cfg.skin === 'DRAGON' && !!cfg.secret;
 function aimBotPoint(me) {
-  if (!me || !me.al || me.sk !== 'DRAGON' || !level) return null;
+  if (!me || !me.al || !isDragon() || !keys.shift || !level) return null;
   let best = null, bs = Infinity;
   for (const f of foesOf()) {
     if (!f.al) continue;
@@ -704,9 +707,12 @@ function aimBotPoint(me) {
     if (sc < bs) { bs = sc; best = f; }
   }
   if (!best) return null;
+  // posição desenhada do inimigo (interpolada): é nela que a mira fica centralizada
+  const ie = interpEnemy(best.id) || { x: best.x, y: best.y };
   const wd = me.w ? WEAPONS[me.w] : null, v = enemyVel(best.id), d = Math.hypot(best.x - pred.x, best.y - pred.y);
-  const t = wd && !wd.melee ? Math.min(0.6, d / wd.speed) + (mode === 'online' ? pingMs / 2000 : 0) : 0;
-  return { x: best.x + v.x * t, y: best.y + v.y * t };
+  // adianta o tiro: tempo de voo + ida e volta da rede (online), pois o servidor decide o acerto
+  const t = wd && !wd.melee ? Math.min(0.8, d / wd.speed + (mode === 'online' ? pingMs / 1000 : 0)) : 0;
+  return { x: best.x + v.x * t, y: best.y + v.y * t, dx: ie.x, dy: ie.y };
 }
 function aimAngle() {
   const t = aimBotPoint(myState());
@@ -1060,7 +1066,8 @@ function render(now, dt) {
   Z = S * (1 + zoomKick);
   // câmera
   const look = keys[' '] ? 0.85 : 0.33, maxL = keys[' '] ? 520 : 290;
-  let ox = (mouse.x - W / 2) / Z * look, oy = (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
+  const lkc = me && me.al ? aimBotPoint(me) : null;
+  let ox = lkc ? (lkc.dx - pred.x) * 0.5 : (mouse.x - W / 2) / Z * look, oy = lkc ? (lkc.dy - pred.y) * 0.5 : (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
   if (ol > maxL) { ox *= maxL / ol; oy *= maxL / ol; }
   const tx = pred.x + ox, ty = pred.y + oy;
   if (!camInit) { cam.x = tx; cam.y = ty; camInit = true; } else { const k = Math.min(1, dt * 9); cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k; }
@@ -1110,9 +1117,9 @@ function render(now, dt) {
   for (const f of foesOf()) {
     if (!f.al) continue;
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
-    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawHealBar(ie.x, ie.y, f.hz, now); drawChargeBar(ie.x, ie.y, f.ch);
+    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, false); drawHealBar(ie.x, ie.y, f.hz, now); drawChargeBar(ie.x, ie.y, f.ch);
   }
-  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawHealBar(pred.x, pred.y, me.hz, now); drawChargeBar(pred.x, pred.y, me.ch); }
+  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawName(pred.x, pred.y, me.nm, true); drawHealBar(pred.x, pred.y, me.hz, now); drawChargeBar(pred.x, pred.y, me.ch); }
 
   // efeitos
   for (const p of fx.parts) {
@@ -1145,6 +1152,13 @@ function render(now, dt) {
   if (!paused && me && me.al) drawCrosshair(me);
   updateHud(now);
 }
+// nome do jogador acima do boneco (só no online)
+function drawName(x, y, name, mine) {
+  if (mode !== 'online' || !name) return;
+  ctx.save(); ctx.font = '700 14px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(10,0,20,.95)'; ctx.fillStyle = mine ? '#00e5ff' : '#fff4fb';
+  ctx.strokeText(name, x, y - 51); ctx.fillText(name, x, y - 51); ctx.restore();
+}
 function drawHpBar(x, y, hp, mine) {
   const k = Math.max(0, Math.min(1, hp / MAX_HP)), w = 44;
   ctx.fillStyle = 'rgba(10,0,20,.85)'; ctx.fillRect(x - w / 2 - 1.5, y - 49, w + 3, 8);
@@ -1175,8 +1189,8 @@ function drawChargeBar(x, y, ch) {
 function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
   const lk = aimBotPoint(me); let cx = mouse.x, cy = mouse.y;
-  if (lk) { cx = W / 2 + (lk.x - cam.x) * Z; cy = H / 2 + (lk.y - cam.y) * Z; }   // a mira acompanha o inimigo
-  ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 450); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
+  if (lk) { cx = W / 2 + (lk.dx - cam.x) * Z; cy = H / 2 + (lk.dy - cam.y) * Z; }   // SHIFT: mira centrada no inimigo
+  ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 900); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
   ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.moveTo(-15, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(15, 0); ctx.moveTo(0, -15); ctx.lineTo(0, -5); ctx.moveTo(0, 5); ctx.lineTo(0, 15); ctx.stroke(); ctx.restore();
 }
 
@@ -1548,80 +1562,3 @@ addEventListener('keyup', e => { if (swallowSpace && e.key === ' ') { e.preventD
 addEventListener('keydown', e => {
   if (e.key === 'Escape' && mode && $('menu').classList.contains('hidden')) { e.preventDefault(); setPaused(!paused); }
 }, true);
-
-/* ------------------------------------------------ CURSOR: fadinha luminosa
-   Vale no menu, na pausa, na sala e no jogo. Na partida a mira continua desenhada no ponto exato
-   do mouse; a fadinha só voa em volta dela. */
-(function fairyCursor() {
-  if (matchMedia('(pointer:coarse)').matches) return;   // celular/tablet: sem cursor
-  const st = document.createElement('style');
-  st.textContent = '*,*::before,*::after{cursor:none!important}#fairyCv{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:70}';
-  document.head.appendChild(st);
-  const fc = document.createElement('canvas'); fc.id = 'fairyCv'; document.body.appendChild(fc);
-  const c = fc.getContext('2d');
-  let w = 0, h = 0, d = 1;
-  const rs = () => { d = Math.min(window.devicePixelRatio || 1, 2); w = innerWidth; h = innerHeight; fc.width = Math.floor(w * d); fc.height = Math.floor(h * d); };
-  addEventListener('resize', rs); rs();
-  let tx = -100, ty = -100, fx = -100, fy = -100, seen = false, vis = true, over = 0, overT = 0, trail = [], last = performance.now(), vx = 0, lastMove = 0;
-  addEventListener('mousemove', e => {
-    tx = e.clientX; ty = e.clientY; lastMove = performance.now();
-    if (!seen) { seen = true; fx = tx; fy = ty; }
-    overT = (e.target && e.target.closest && e.target.closest('button,select,input,label,.skin,.track,.tab')) ? 1 : 0;
-  }, { passive: true });
-  // clique: explosão de pó de luz
-  addEventListener('mousedown', () => {
-    if (!seen || inPlay()) return;
-    for (let i = 0; i < 28; i++) { const a = R() * TAU, sp = 60 + R() * 200; trail.push({ x: fx, y: fy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 0.5 + R() * 0.6, max: 1.1, r: 1.2 + R() * 2.4, col: R() < 0.5 ? '255,244,190' : '190,255,240', star: R() < 0.5 }); }
-    if (typeof ac !== 'undefined' && ac && cfg.sfx) { const t = ac.currentTime; osc(sfxG, 'sine', 1568, t, 0.22, 0.12); osc(sfxG, 'sine', 2093, t + 0.06, 0.28, 0.1); }
-  });
-  document.addEventListener('mouseleave', () => { vis = false; });
-  document.addEventListener('mouseenter', () => { vis = true; });
-  const R = Math.random;
-  const inPlay = () => !!mode && !paused && $('menu').classList.contains('hidden') && $('lobby').classList.contains('hidden');   // na partida: sem fadinha
-  function loop(now) {
-    requestAnimationFrame(loop);
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
-    if (!seen || !vis) return;
-    if (inPlay()) { trail.length = 0; return; }
-    const tm = now / 1000;
-    over += (overT - over) * Math.min(1, dt * 10);
-    const idle = Math.max(0, Math.min(1, (now - lastMove - 500) / 900)), k = 1 + idle * 1.4;   // parada: voa em oitos largos, como esperando
-    const ox = Math.sin(tm * 2.3) * 13 * k, oy = Math.sin(tm * 4.6) * 7 * k - 8, px = fx;
-    fx += (tx + ox - fx) * Math.min(1, dt * 13); fy += (ty + oy - fy) * Math.min(1, dt * 13);
-    vx += ((fx - px) / Math.max(dt, 0.001) - vx) * Math.min(1, dt * 8);
-    for (let i = 0; i < 2; i++) trail.push({ x: fx + (R() - 0.5) * 6, y: fy + (R() - 0.5) * 6, vx: (R() - 0.5) * 34 - vx * 0.05, vy: 6 + R() * 22, life: 0.6 + R() * 0.8, max: 1.4, r: 0.9 + R() * 2.1, col: R() < 0.55 ? '255,244,190' : '190,255,240', star: R() < 0.3 });
-    for (const p of trail) { p.life -= dt; p.vy += 55 * dt; p.vx *= Math.pow(0.4, dt); p.x += p.vx * dt; p.y += p.vy * dt; }
-    trail = trail.filter(p => p.life > 0);
-    if (trail.length > 140) trail.splice(0, trail.length - 140);
-    const glow = (x, y, r, col, a) => { const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`); c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2); };
-    c.globalCompositeOperation = 'lighter';
-    for (const p of trail) {
-      const a = Math.max(0, p.life / p.max), tw = 0.6 + 0.4 * Math.sin(tm * 30 + p.x);
-      glow(p.x, p.y, p.r * 4, p.col, a * 0.7);
-      if (p.star) {   // brilhinho em estrela de 4 pontas que cintila
-        const L = (3 + p.r * 2.6) * a * tw; c.strokeStyle = `rgba(${p.col},${a})`; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(p.x - L, p.y); c.lineTo(p.x + L, p.y); c.moveTo(p.x, p.y - L); c.lineTo(p.x, p.y + L); c.stroke();
-      }
-    }
-    const s = 1 + over * 0.35;
-    glow(fx, fy, 30 * s, '170,255,235', 0.5 + 0.12 * Math.sin(tm * 6));
-    c.globalCompositeOperation = 'source-over';
-    // asas batendo
-    const flap = Math.sin(tm * 40);
-    c.save(); c.translate(fx, fy); c.rotate(Math.max(-0.5, Math.min(0.5, vx / 1500))); c.scale(s, s);
-    for (const sg of [-1, 1]) {
-      for (const [ex, ey, rx, ry, base, f] of [[-4, 6, 11, 4.2, 0.75, 0.32], [-3, 4, 7.5, 3, 0.2, 0.22]]) {
-        c.save(); c.translate(ex, sg * ey); c.rotate(sg * (base + flap * f));
-        const g = c.createLinearGradient(0, 0, -rx, 0); g.addColorStop(0, 'rgba(235,255,255,.85)'); g.addColorStop(1, 'rgba(150,230,255,.25)');
-        c.beginPath(); c.ellipse(-rx * 0.5, 0, rx, ry, 0, 0, TAU); c.fillStyle = g; c.fill();
-        c.strokeStyle = 'rgba(210,255,255,.75)'; c.lineWidth = 0.8; c.stroke(); c.restore();
-      }
-    }
-    // corpinho luminoso
-    const bg = c.createRadialGradient(0, 0, 0, 0, 0, 5.2); bg.addColorStop(0, '#ffffff'); bg.addColorStop(0.55, '#d8fff4'); bg.addColorStop(1, '#7de8d0');
-    c.beginPath(); c.arc(0, 0, 4.6, 0, TAU); c.fillStyle = bg; c.shadowColor = '#9dfff0'; c.shadowBlur = 14; c.fill(); c.shadowBlur = 0;
-    c.restore();
-  }
-  requestAnimationFrame(loop);
-})();
