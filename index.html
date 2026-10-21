@@ -15,6 +15,7 @@
 
   <div id="hud" class="hidden">
     <div id="weaponHud"><span id="wName">MÃOS</span><span id="wAmmo" class="hidden"></span><span id="wHint"></span></div>
+    <div id="nowPlaying" class="hidden"></div>
     <div id="netHud"><span id="pingTxt"></span></div>
     <div id="roster"></div>
   </div>
@@ -47,6 +48,12 @@
       <h1><span class="t1">NEON</span><span class="t2">DUEL</span></h1>
       <p class="tag">5000 de vida e cada arma tira a sua parte. Entre pela porta e faça a sua jogada.</p>
 
+      <div class="tabs" role="tablist">
+        <button id="tabBtnPlay" class="tab" role="tab" aria-selected="true" aria-controls="tabPlay" type="button">Jogar</button>
+        <button id="tabBtnMusic" class="tab" role="tab" aria-selected="false" aria-controls="tabMusic" type="button">Músicas</button>
+      </div>
+
+      <div id="tabPlay" role="tabpanel">
       <label class="field">Seu nome
         <input id="nameInput" maxlength="14" placeholder="Jacket" autocomplete="off" spellcheck="false">
       </label>
@@ -83,6 +90,14 @@
         <label><input type="checkbox" id="optSfx" checked> Efeitos</label>
         <label><input type="checkbox" id="optShake" checked> Tremor de tela</label>
         <label><input type="checkbox" id="optCrt" checked> Filtro CRT</label>
+      </div>
+      </div>
+
+      <div id="tabMusic" role="tabpanel" class="hidden">
+        <p class="mtip">Escolha a trilha da partida. Toque numa faixa para ouvir.</p>
+        <div id="trackList"></div>
+        <label class="vol">Volume <input type="range" id="volRange" min="0" max="100" step="1"></label>
+        <p class="mtip small">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>
       </div>
     </section>
   </div>

@@ -64,6 +64,28 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 .toggles label{display:flex;align-items:center;gap:6px;cursor:pointer}
 .toggles input{accent-color:var(--pink);width:16px;height:16px}
 
+/* abas do menu */
+.tabs{display:flex;gap:0;margin:0 0 18px;border-bottom:3px solid var(--violet)}
+.tab{flex:1;padding:10px 12px;font:400 1rem var(--display);letter-spacing:.5px;color:#c9b3e0;background:transparent;border:0;border-bottom:5px solid transparent;margin-bottom:-3px;cursor:pointer}
+.tab:hover{color:var(--cyan)}
+.tab[aria-selected="true"]{color:var(--yellow);border-bottom-color:var(--pink);background:rgba(255,46,151,.12)}
+.mtip{margin:0 0 12px;color:#ffd1ea;font-weight:600}
+.mtip.small{margin:14px 0 0;font-size:.9rem;color:#c9b3e0}
+#trackList{display:grid;gap:8px}
+.track{display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;text-align:left;color:var(--white);background:#0b0214;border:2px solid var(--violet);cursor:pointer;font:inherit}
+.track:hover{border-color:var(--cyan)}
+.track[aria-pressed="true"]{border-color:var(--yellow);background:#2b0a44;box-shadow:4px 4px 0 var(--pink)}
+.track .ic{flex:none;display:grid;place-items:center;width:34px;height:34px;border:2px solid var(--cyan);color:var(--cyan);font:400 .9rem var(--display)}
+.track[aria-pressed="true"] .ic{background:var(--yellow);border-color:var(--yellow);color:var(--ink)}
+.track .tx{flex:1;min-width:0;display:grid}
+.track b{font:400 1.05rem var(--display);color:var(--cyan);letter-spacing:.3px}
+.track[aria-pressed="true"] b{color:var(--yellow)}
+.track small{color:#c9b3e0;font-weight:600;font-size:.9rem}
+.vol{display:flex;align-items:center;gap:12px;margin-top:14px;font-weight:700;color:var(--cyan)}
+.vol input{flex:1;accent-color:var(--pink)}
+#nowPlaying{position:absolute;right:16px;bottom:18px;padding:6px 14px;background:rgba(20,4,31,.85);border:3px solid var(--cyan);box-shadow:-4px 4px 0 var(--pink);font:400 .85rem var(--display);color:var(--cyan)}
+#nowPlaying span{color:var(--yellow)}
+
 /* ------------------------------------------------------------ HUD */
 #hud{position:fixed;inset:0;z-index:10;pointer-events:none}
 #scoreboard{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:stretch;font-family:var(--display)}
@@ -124,6 +146,7 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 .rrow b{font:400 1rem var(--display);color:var(--yellow);min-width:1ch;text-align:right}
 
 @media (max-width:640px){
+  #nowPlaying{right:8px;bottom:8px;font-size:.7rem}
   #roster{min-width:0;max-width:150px;top:8px;left:8px;font-size:.85rem}
   .controls{grid-template-columns:1fr}
   #scoreboard .side span{display:none}
