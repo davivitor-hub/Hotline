@@ -1344,12 +1344,18 @@ addEventListener('keydown', e => {
   let w = 0, h = 0, d = 1;
   const rs = () => { d = Math.min(window.devicePixelRatio || 1, 2); w = innerWidth; h = innerHeight; fc.width = Math.floor(w * d); fc.height = Math.floor(h * d); };
   addEventListener('resize', rs); rs();
-  let tx = -100, ty = -100, fx = -100, fy = -100, seen = false, vis = true, over = 0, overT = 0, trail = [], last = performance.now(), vx = 0;
+  let tx = -100, ty = -100, fx = -100, fy = -100, seen = false, vis = true, over = 0, overT = 0, trail = [], last = performance.now(), vx = 0, lastMove = 0;
   addEventListener('mousemove', e => {
-    tx = e.clientX; ty = e.clientY;
+    tx = e.clientX; ty = e.clientY; lastMove = performance.now();
     if (!seen) { seen = true; fx = tx; fy = ty; }
     overT = (e.target && e.target.closest && e.target.closest('button,select,input,label,.skin,.track,.tab')) ? 1 : 0;
   }, { passive: true });
+  // clique: explosão de pó de luz
+  addEventListener('mousedown', () => {
+    if (!seen) return;
+    for (let i = 0; i < 28; i++) { const a = R() * TAU, sp = 60 + R() * 200; trail.push({ x: fx, y: fy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 0.5 + R() * 0.6, max: 1.1, r: 1.2 + R() * 2.4, col: R() < 0.5 ? '255,244,190' : '190,255,240', star: R() < 0.5 }); }
+    if (typeof ac !== 'undefined' && ac && cfg.sfx) { const t = ac.currentTime; osc(sfxG, 'sine', 1568, t, 0.22, 0.12); osc(sfxG, 'sine', 2093, t + 0.06, 0.28, 0.1); }
+  });
   document.addEventListener('mouseleave', () => { vis = false; });
   document.addEventListener('mouseenter', () => { vis = true; });
   const R = Math.random;
@@ -1360,16 +1366,24 @@ addEventListener('keydown', e => {
     if (!seen || !vis) return;
     const tm = now / 1000;
     over += (overT - over) * Math.min(1, dt * 10);
-    const ox = Math.cos(tm * 3.1) * 10, oy = Math.sin(tm * 4.3) * 7 - 7, px = fx;
+    const idle = Math.max(0, Math.min(1, (now - lastMove - 500) / 900)), k = 1 + idle * 1.4;   // parada: voa em oitos largos, como esperando
+    const ox = Math.sin(tm * 2.3) * 13 * k, oy = Math.sin(tm * 4.6) * 7 * k - 8, px = fx;
     fx += (tx + ox - fx) * Math.min(1, dt * 13); fy += (ty + oy - fy) * Math.min(1, dt * 13);
     vx += ((fx - px) / Math.max(dt, 0.001) - vx) * Math.min(1, dt * 8);
-    for (let i = 0; i < 2; i++) trail.push({ x: fx + (R() - 0.5) * 6, y: fy + (R() - 0.5) * 6, vx: (R() - 0.5) * 34 - vx * 0.05, vy: 12 + R() * 34, life: 0.5 + R() * 0.55, max: 1.05, r: 0.9 + R() * 2.1, col: R() < 0.55 ? '190,255,240' : '255,244,190' });
-    for (const p of trail) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+    for (let i = 0; i < 2; i++) trail.push({ x: fx + (R() - 0.5) * 6, y: fy + (R() - 0.5) * 6, vx: (R() - 0.5) * 34 - vx * 0.05, vy: 6 + R() * 22, life: 0.6 + R() * 0.8, max: 1.4, r: 0.9 + R() * 2.1, col: R() < 0.55 ? '255,244,190' : '190,255,240', star: R() < 0.3 });
+    for (const p of trail) { p.life -= dt; p.vy += 55 * dt; p.vx *= Math.pow(0.4, dt); p.x += p.vx * dt; p.y += p.vy * dt; }
     trail = trail.filter(p => p.life > 0);
     if (trail.length > 140) trail.splice(0, trail.length - 140);
     const glow = (x, y, r, col, a) => { const g = c.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`); c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2); };
     c.globalCompositeOperation = 'lighter';
-    for (const p of trail) glow(p.x, p.y, p.r * 4, p.col, Math.max(0, p.life / p.max) * 0.8);
+    for (const p of trail) {
+      const a = Math.max(0, p.life / p.max), tw = 0.6 + 0.4 * Math.sin(tm * 30 + p.x);
+      glow(p.x, p.y, p.r * 4, p.col, a * 0.7);
+      if (p.star) {   // brilhinho em estrela de 4 pontas que cintila
+        const L = (3 + p.r * 2.6) * a * tw; c.strokeStyle = `rgba(${p.col},${a})`; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(p.x - L, p.y); c.lineTo(p.x + L, p.y); c.moveTo(p.x, p.y - L); c.lineTo(p.x, p.y + L); c.stroke();
+      }
+    }
     const s = 1 + over * 0.35;
     glow(fx, fy, 30 * s, '170,255,235', 0.5 + 0.12 * Math.sin(tm * 6));
     c.globalCompositeOperation = 'source-over';
