@@ -1181,9 +1181,9 @@ function render(now, dt) {
     if (!f.al) continue;
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
     if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
-    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, false); drawHealBar(ie.x, ie.y, f.hz, now); drawChargeBar(ie.x, ie.y, f.ch);
+    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, f.id); drawHealBar(ie.x, ie.y, f.hz, now); drawChargeBar(ie.x, ie.y, f.ch);
   }
-  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawName(pred.x, pred.y, me.nm, true); drawHealBar(pred.x, pred.y, me.hz, now); drawChargeBar(pred.x, pred.y, me.ch); }
+  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawName(pred.x, pred.y, me.nm, me.id); drawHealBar(pred.x, pred.y, me.hz, now); drawChargeBar(pred.x, pred.y, me.ch); }
 
   // efeitos
   for (const p of fx.parts) {
@@ -1217,10 +1217,10 @@ function render(now, dt) {
   updateHud(now);
 }
 // nome do jogador acima do boneco (só no online)
-function drawName(x, y, name, mine) {
+function drawName(x, y, name, id) {
   if (mode !== 'online' || !name) return;
   ctx.save(); ctx.font = '700 14px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(10,0,20,.95)'; ctx.fillStyle = mine ? '#00e5ff' : '#fff4fb';
+  ctx.strokeStyle = 'rgba(10,0,20,.95)'; ctx.fillStyle = jacketOf(id);   // nome na cor do personagem
   ctx.strokeText(name, x, y - 51); ctx.fillText(name, x, y - 51); ctx.restore();
 }
 function drawHpBar(x, y, hp, mine) {
@@ -1275,7 +1275,7 @@ function updateLobby() {
   $('hud').classList.toggle('inlobby', show);
   if (!show) { lobbyKey = ''; return; }
   const isHost = snap.host === myId, n = snap.pl.length, can = isHost && n >= MIN_PLAYERS;
-  const key = [snap.host, myId, ...snap.pl.map(p => p.id + ':' + p.nm + ':' + p.sk)].join('|');
+  const key = [snap.host, myId, ...snap.pl.map(p => p.id + ':' + p.nm + ':' + p.sk + ':' + p.cl)].join('|');
   if (key !== lobbyKey) {
     lobbyKey = key;
     $('lobbyCount').textContent = `${n}/${MAX_PLAYERS} conectados`;
@@ -1285,8 +1285,8 @@ function updateLobby() {
       const p = list[i], row = document.createElement('div');
       if (!p) { row.className = 'lrow empty'; const d0 = document.createElement('i'), n0 = document.createElement('span'); n0.textContent = 'Vaga aberta…'; row.append(d0, n0); el.appendChild(row); continue; }
       row.className = 'lrow' + (p.id === myId ? ' me' : '');
-      const dot = document.createElement('i'); dot.style.background = (SKINS[p.sk] || SKINS.ROOSTER).c;
-      const nm = document.createElement('span'); nm.textContent = p.nm + (p.id === myId ? ' (você)' : '');
+      const dot = document.createElement('i'); dot.style.background = p.cl || (SKINS[p.sk] || SKINS.ROOSTER).c;
+      const nm = document.createElement('span'); nm.textContent = p.nm + (p.id === myId ? ' (você)' : ''); nm.style.color = p.cl || '';
       row.append(dot, nm);
       if (p.id === snap.host) { const tag = document.createElement('em'); tag.textContent = 'anfitrião'; row.appendChild(tag); }
       el.appendChild(row);
@@ -1304,7 +1304,7 @@ function updateRoster() {
   for (const p of [...snap.pl].sort((a, b) => b.sc - a.sc || a.sl - b.sl)) {
     const row = document.createElement('div'); row.className = 'rrow' + (p.al ? '' : ' dead') + (p.id === myId ? ' me' : '');
     const dot = document.createElement('i'); dot.style.background = jacketOf(p.id, p.id === myId);
-    const nm = document.createElement('span'); nm.textContent = p.nm;
+    const nm = document.createElement('span'); nm.textContent = p.nm; nm.style.color = jacketOf(p.id);
     const hpv = document.createElement('small'); hpv.textContent = p.al ? Math.max(0, Math.round(p.hp / MAX_HP * 100)) + '%' : '✖';
     const sc = document.createElement('b'); sc.textContent = String(p.sc);
     row.append(dot, nm, hpv, sc); el.appendChild(row);

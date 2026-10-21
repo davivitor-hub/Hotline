@@ -143,6 +143,7 @@ wss.on('connection', (ws) => {
         pk: m.pk ? 1 : 0,
         th: m.th ? 1 : 0,
         hl: m.hl ? 1 : 0,
+        tc: m.tc ? 1 : 0,                                // segurando o botão de arremesso (carga da lança)
         sw: m.sw ? 1 : 0,                                // scroll: alterna de arma
         ss: Math.max(0, Math.min(2, Number(m.ss) | 0))   // teclas 1/2: escolhe o espaço
       }, Math.max(0, Math.min(0.05, dt)));
