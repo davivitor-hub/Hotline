@@ -119,7 +119,7 @@ function schedule() {
    1) Crie um app em https://developer.spotify.com/dashboard
    2) Em "Redirect URIs" cadastre EXATAMENTE o endereço do jogo (ex.: https://hotline-m6gx.onrender.com/ e http://127.0.0.1:3000/)
    3) Cole o "Client ID" abaixo. */
-const SPOTIFY_CLIENT_ID = '';
+const SPOTIFY_CLIENT_ID = 'd8e275f85ae84610a68b07ee9bd7ea42';
 const SP_SCOPES = 'streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-library-read';
 const SP_REDIR = location.origin + location.pathname;
 const spStore = {
