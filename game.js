@@ -686,7 +686,32 @@ cv.addEventListener('mousedown', e => {
 addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; if (e.button === 2) mouse.right = false; });
 cv.addEventListener('contextmenu', e => e.preventDefault());
 
-const aimAngle = () => Math.atan2(mouse.y - (H / 2 + (pred.y - cam.y) * Z), mouse.x - (W / 2 + (pred.x - cam.x) * Z));
+const mouseAngle = () => Math.atan2(mouse.y - (H / 2 + (pred.y - cam.y) * Z), mouse.x - (W / 2 + (pred.x - cam.x) * Z));
+// Dragão Dourado: mira automática. Trava no inimigo vivo mais próximo (prefere quem está à vista) e adianta o tiro.
+function enemyVel(id) {
+  const n = buf.length; if (n < 2) return { x: 0, y: 0 };
+  const a = buf[n - 2], b = buf[n - 1], pa = a.pl.find(q => q.id === id), pb = b.pl.find(q => q.id === id), dt = (b.t - a.t) / 1000;
+  if (!pa || !pb || dt < 0.001) return { x: 0, y: 0 };
+  const vx = (pb.x - pa.x) / dt, vy = (pb.y - pa.y) / dt, l = Math.hypot(vx, vy), m = l > 260 ? 260 / l : 1;
+  return { x: vx * m, y: vy * m };
+}
+function aimBotPoint(me) {
+  if (!me || !me.al || me.sk !== 'DRAGON' || !level) return null;
+  let best = null, bs = Infinity;
+  for (const f of foesOf()) {
+    if (!f.al) continue;
+    const d = Math.hypot(f.x - pred.x, f.y - pred.y), sc = d + (level.los(pred.x, pred.y, f.x, f.y) ? 0 : 1600);
+    if (sc < bs) { bs = sc; best = f; }
+  }
+  if (!best) return null;
+  const wd = me.w ? WEAPONS[me.w] : null, v = enemyVel(best.id), d = Math.hypot(best.x - pred.x, best.y - pred.y);
+  const t = wd && !wd.melee ? Math.min(0.6, d / wd.speed) + (mode === 'online' ? pingMs / 2000 : 0) : 0;
+  return { x: best.x + v.x * t, y: best.y + v.y * t };
+}
+function aimAngle() {
+  const t = aimBotPoint(myState());
+  return t ? Math.atan2(t.y - pred.y, t.x - pred.x) : mouseAngle();
+}
 
 function doStep() {
   if (mode === 'local' && local) {
@@ -1149,7 +1174,9 @@ function drawChargeBar(x, y, ch) {
 }
 function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
-  ctx.save(); ctx.translate(mouse.x, mouse.y); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
+  const lk = aimBotPoint(me); let cx = mouse.x, cy = mouse.y;
+  if (lk) { cx = W / 2 + (lk.x - cam.x) * Z; cy = H / 2 + (lk.y - cam.y) * Z; }   // a mira acompanha o inimigo
+  ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 450); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
   ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.moveTo(-15, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(15, 0); ctx.moveTo(0, -15); ctx.lineTo(0, -5); ctx.moveTo(0, 5); ctx.lineTo(0, 15); ctx.stroke(); ctx.restore();
 }
 
@@ -1265,39 +1292,230 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-/* ------------------------------------------------ MENU: partículas + sequência secreta */
+/* ------------------------------------------------ ABERTURA: cavaleiro mascarado atravessando a noite
+   Tudo desenhado em canvas (sem arquivos). ESPAÇO (ou Enter / clique no aviso) pula direto para o menu. */
+const introEl = $('intro'), icv = $('introCv'), ic = icv.getContext('2d');
+let iW = 0, iH = 0, iD = 1, introOn = true, introT = 0, introLast = performance.now(), sunCv = null, sunR = 0, introDust = [];
+const INTRO_LEN = 15.5, iC01 = x => Math.max(0, Math.min(1, x)), iEase = x => { x = iC01(x); return x * x * (3 - 2 * x); };
+function iResize() { iD = Math.min(window.devicePixelRatio || 1, 2); iW = innerWidth; iH = innerHeight; icv.width = Math.floor(iW * iD); icv.height = Math.floor(iH * iD); sunCv = null; }
+addEventListener('resize', iResize); iResize();
+
+function buildSun(r) {
+  sunR = r; sunCv = document.createElement('canvas'); sunCv.width = sunCv.height = Math.ceil(r * 2);
+  const c = sunCv.getContext('2d'), g = c.createLinearGradient(0, 0, 0, r * 2);
+  g.addColorStop(0, '#ffe600'); g.addColorStop(0.55, '#ff7a59'); g.addColorStop(1, '#ff2e97');
+  c.fillStyle = g; c.beginPath(); c.arc(r, r, r, 0, TAU); c.fill();
+  c.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 8; i++) c.fillRect(0, r + i * (r / 8), r * 2, (2 + i * 1.6) * r / 90);   // faixas do sol
+}
+const hillY = (u, base, amp, f1, f2) => base - (Math.sin(u * f1) * amp + Math.sin(u * f2 + 1.7) * amp * 0.5 + Math.sin(u * f1 * 3.1) * amp * 0.12);
+function hillLayer(off, base, amp, f1, f2, col, trees, S) {
+  ic.beginPath(); ic.moveTo(0, iH);
+  for (let x = 0; x <= iW + 6; x += 6) ic.lineTo(x, hillY(x + off, base, amp, f1, f2));
+  ic.lineTo(iW, iH); ic.closePath(); ic.fillStyle = col; ic.fill();
+  if (!trees) return;
+  const step = 64 * S;   // pinheiros em silhueta
+  for (let wx = Math.floor(off / step) * step; wx < off + iW + step; wx += step) {
+    const k = hash(Math.round(wx / step), 7); if (k < 0.45) continue;
+    const u = wx + k * 20 * S, sx = u - off, y = hillY(u, base, amp, f1, f2), th = (34 + k * 46) * S;
+    ic.fillStyle = col; ic.beginPath();
+    ic.moveTo(sx, y - th); ic.lineTo(sx + th * 0.26, y - th * 0.35); ic.lineTo(sx + th * 0.14, y - th * 0.35); ic.lineTo(sx + th * 0.32, y); ic.lineTo(sx - th * 0.32, y);
+    ic.lineTo(sx - th * 0.14, y - th * 0.35); ic.lineTo(sx - th * 0.26, y - th * 0.35); ic.closePath(); ic.fill();
+  }
+}
+
+const H_FILL = '#0e0618', H_RIM = 'rgba(255,70,170,.8)';
+function horseLeg(c, hx, hy, ph, rear) {
+  const sw = Math.sin(ph), lift = Math.max(0, Math.cos(ph));
+  const a1 = Math.PI / 2 - 0.85 * sw * (rear ? 0.9 : 1), l1 = 38, l2 = 40;
+  const kx = hx + Math.cos(a1) * l1, ky = hy + Math.sin(a1) * l1;
+  const a2 = a1 + (rear ? -(0.35 + lift * 0.9) : (0.1 + lift * 1.25));
+  const ex = kx + Math.cos(a2) * l2, ey = ky + Math.sin(a2) * l2;
+  for (const [col, lw] of [[H_RIM, 9.5], [H_FILL, 7]]) { c.strokeStyle = col; c.lineWidth = lw; c.beginPath(); c.moveTo(hx, hy); c.lineTo(kx, ky); c.lineTo(ex, ey); c.stroke(); }
+  c.fillStyle = H_FILL; c.beginPath(); c.ellipse(ex + 2, ey + 1, 6, 4, 0, 0, TAU); c.fill(); c.strokeStyle = H_RIM; c.lineWidth = 1; c.stroke();
+  return [ex, ey];
+}
+function drawRider(c, g, t) {
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const wob = (k, a, p = 0) => Math.sin(t * k + p) * a;
+  const fill = (path, col = H_FILL, rim = true) => { c.fillStyle = col; c.fill(path); if (rim) { c.strokeStyle = H_RIM; c.lineWidth = 1.3; c.stroke(path); } };
+  // pernas de trás (mais escuras, ficam atrás do corpo)
+  const hooves = [horseLeg(c, -38, 14, g + 3.0, true), horseLeg(c, 44, 14, g + 0.5, false)];
+  // cauda
+  c.strokeStyle = H_RIM; c.lineWidth = 12; c.beginPath(); c.moveTo(-60, -10); c.bezierCurveTo(-92, -6 + wob(9, 8), -112, 16 + wob(8, 10, 1), -134, 40 + wob(7, 14, 2)); c.stroke();
+  c.strokeStyle = H_FILL; c.lineWidth = 9; c.stroke();
+  // corpo
+  let p = new Path2D(); p.ellipse(0, 0, 64, 27, 0, 0, TAU); fill(p);
+  p = new Path2D(); p.ellipse(-40, 3, 29, 27, 0, 0, TAU); fill(p);
+  p = new Path2D(); p.ellipse(41, -2, 26, 27, 0, 0, TAU); fill(p);
+  // pescoço e cabeça
+  p = new Path2D(); p.moveTo(30, -26); p.quadraticCurveTo(62, -36, 92, -64); p.lineTo(106, -50); p.quadraticCurveTo(72, -10, 48, 16); p.closePath(); fill(p);
+  p = new Path2D(); p.ellipse(110, -50, 25, 11, 0.62, 0, TAU); fill(p);
+  p = new Path2D(); p.moveTo(94, -66); p.lineTo(99, -86); p.lineTo(107, -68); p.closePath(); fill(p);
+  c.fillStyle = '#ff9ad0'; c.beginPath(); c.arc(112, -56, 2.1, 0, TAU); c.fill();
+  // crina ao vento
+  c.strokeStyle = H_FILL; c.lineWidth = 4;
+  for (let i = 0; i < 9; i++) { const u = i / 8, px = 36 + u * 58, py = -28 - u * 36; c.beginPath(); c.moveTo(px, py); c.lineTo(px - 16 + wob(14, 4, i), py + 6 + wob(11, 3, i * 2)); c.stroke(); }
+  // perna da frente, mais perto (desenhada por cima)
+  hooves.push(horseLeg(c, 50, 14, g, false), horseLeg(c, -32, 14, g + 2.2, true));
+
+  // capa (cor do jogador) esvoaçando
+  p = new Path2D(); p.moveTo(2, -62); p.bezierCurveTo(-34, -64 + wob(12, 6), -78, -52 + wob(10, 10, 1), -118, -34 + wob(9, 12, 2));
+  p.bezierCurveTo(-84, -26 + wob(11, 8, 3), -40, -30, -4, -34); p.closePath();
+  c.fillStyle = '#10c6e8'; c.fill(p); c.strokeStyle = 'rgba(8,2,18,.85)'; c.lineWidth = 1.5; c.stroke(p);
+  // perna do cavaleiro
+  c.strokeStyle = 'rgba(8,2,18,.9)'; c.lineWidth = 10.5; c.beginPath(); c.moveTo(2, -30); c.lineTo(24, -8); c.lineTo(16, 14); c.stroke();
+  c.strokeStyle = '#34508f'; c.lineWidth = 7.5; c.stroke();
+  c.fillStyle = '#f4f1ea'; c.beginPath(); c.ellipse(19, 16, 7, 4, 0, 0, TAU); c.fill();
+  // tronco inclinado para a frente
+  c.save(); c.translate(6, -46); c.rotate(0.38);
+  c.fillStyle = '#10c6e8'; c.strokeStyle = 'rgba(8,2,18,.9)'; c.lineWidth = 1.8; c.beginPath(); c.ellipse(0, 0, 11, 20, 0, 0, TAU); c.fill(); c.stroke();
+  c.strokeStyle = '#efe6d0'; c.lineWidth = 2; c.beginPath(); c.moveTo(-6, -15); c.lineTo(-6, 15); c.stroke(); c.restore();
+  // braço segurando as rédeas
+  c.strokeStyle = 'rgba(8,2,18,.9)'; c.lineWidth = 8; c.beginPath(); c.moveTo(14, -56); c.lineTo(38, -42); c.lineTo(60, -36); c.stroke();
+  c.strokeStyle = '#10c6e8'; c.lineWidth = 5.4; c.stroke();
+  c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(62, -35, 3.6, 0, TAU); c.fill();
+  c.strokeStyle = '#ffd23f'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(62, -35); c.quadraticCurveTo(92, -26, 118, -40); c.stroke();
+  // cachecol vermelho voando
+  c.strokeStyle = '#ff2e4d'; c.lineWidth = 5; c.beginPath(); c.moveTo(10, -64); c.bezierCurveTo(-12, -62 + wob(15, 4), -30, -70 + wob(13, 6, 1), -52, -58 + wob(11, 8, 2)); c.stroke();
+  // cabeça com máscara de galo
+  c.fillStyle = '#ffd23f'; c.strokeStyle = 'rgba(8,2,18,.95)'; c.lineWidth = 2; c.beginPath(); c.arc(16, -74, 11, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = '#ff2e4d'; for (const [bx, by, br] of [[8, -84, 4.4], [14, -87, 4.8], [20, -85, 4]]) { c.beginPath(); c.arc(bx, by, br, 0, TAU); c.fill(); c.stroke(); }
+  c.fillStyle = '#ff9a2b'; c.beginPath(); c.moveTo(25, -78); c.lineTo(38, -73); c.lineTo(25, -69); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#0b0710'; c.beginPath(); c.ellipse(20, -77, 2.6, 3, 0, 0, TAU); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(20.8, -77, 1.2, 0, TAU); c.fill();
+  return hooves;
+}
+
+function drawIntro(t, dt) {
+  const W = iW, H = iH, S = Math.max(0.7, Math.min(1.6, H / 720)), speed = 300 * S, sc = t * speed;
+  const gy = H * 0.86, horizon = H * 0.78;
+  ic.setTransform(iD, 0, 0, iD, 0, 0);
+  // câmera: aproximação lenta
+  const z = 1 + iC01(t / INTRO_LEN) * 0.07;
+  ic.setTransform(iD * z, 0, 0, iD * z, iD * W * 0.38 * (1 - z), iD * H * 0.62 * (1 - z));
+  // céu
+  let g = ic.createLinearGradient(0, 0, 0, horizon);
+  g.addColorStop(0, '#0a0214'); g.addColorStop(0.28, '#14041f'); g.addColorStop(0.58, '#3a0a5e'); g.addColorStop(0.82, '#b3126b'); g.addColorStop(1, '#ff7a59');
+  ic.fillStyle = g; ic.fillRect(-40, -40, W + 80, H + 80);
+  for (let i = 0; i < 110; i++) {   // estrelas
+    const sx = hash(i, 3) * W, sy = hash(i, 5) * horizon * 0.62, tw = 0.5 + 0.5 * Math.sin(t * (1 + hash(i, 9) * 3) + i);
+    ic.fillStyle = `rgba(255,255,255,${0.25 + 0.7 * tw * (1 - sy / horizon)})`; ic.fillRect(sx, sy, 1.6, 1.6);
+  }
+  // sol de faixas
+  const R = H * 0.2; if (!sunCv || Math.abs(sunR - R) > 1) buildSun(R);
+  const sxn = W * 0.7, syn = H * 0.5;
+  g = ic.createRadialGradient(sxn, syn, R * 0.6, sxn, syn, R * 2.4); g.addColorStop(0, 'rgba(255,90,140,.45)'); g.addColorStop(1, 'rgba(255,90,140,0)');
+  ic.fillStyle = g; ic.fillRect(sxn - R * 2.4, syn - R * 2.4, R * 4.8, R * 4.8);
+  ic.drawImage(sunCv, sxn - R, syn - R);
+  // linhas de velocidade
+  ic.strokeStyle = 'rgba(255,220,240,.18)'; ic.lineWidth = 1.2;
+  for (let i = 0; i < 14; i++) { const ly = hash(i, 11) * horizon, len = (60 + hash(i, 13) * 140) * S, lx = W - (((t * (700 + hash(i, 17) * 600) * S) + hash(i, 19) * W * 2) % (W * 1.6)) + 80; ic.beginPath(); ic.moveTo(lx, ly); ic.lineTo(lx + len, ly); ic.stroke(); }
+  // colinas em paralaxe
+  hillLayer(sc * 0.06, H * 0.62, H * 0.07, 0.004, 0.011, '#2a0b46', false, S);
+  hillLayer(sc * 0.18, H * 0.70, H * 0.045, 0.006, 0.017, '#1d0735', true, S);
+  hillLayer(sc * 0.45, H * 0.77, H * 0.03, 0.007, 0.02, '#12041f', true, S);
+  // chão
+  g = ic.createLinearGradient(0, horizon + 4, 0, H); g.addColorStop(0, '#1a0430'); g.addColorStop(1, '#07010d');
+  ic.fillStyle = g; ic.fillRect(-40, horizon + 4, W + 80, H);
+  ic.strokeStyle = 'rgba(255,46,151,.55)'; ic.lineWidth = 2; ic.beginPath(); ic.moveTo(-40, horizon + 5); ic.lineTo(W + 40, horizon + 5); ic.stroke();
+  // capim rápido no chão
+  ic.lineCap = 'round';
+  for (let i = 0; i < 46; i++) {
+    const depth = hash(i, 23), y = horizon + 12 + depth * (H - horizon - 12), sp = speed * (0.9 + depth * 1.6), x = (((hash(i, 29) * (W + 240)) - t * sp) % (W + 240) + (W + 240)) % (W + 240) - 120, h = (6 + depth * 18) * S;
+    ic.strokeStyle = depth > 0.6 ? 'rgba(255,70,170,.5)' : 'rgba(0,229,255,.28)'; ic.lineWidth = 1 + depth * 1.6;
+    ic.beginPath(); ic.moveTo(x, y); ic.lineTo(x - 3 * S, y - h); ic.stroke();
+  }
+  // cavalo e cavaleiro
+  const rx = W * 0.36 + Math.sin(t * 0.7) * 14 * S, gait = t * 11, hoofLift = Math.abs(Math.sin(gait)) * 5;
+  ic.save(); ic.translate(rx, gy - 92 * S - hoofLift * S); ic.scale(S * 1.12, S * 1.12);
+  ic.fillStyle = 'rgba(0,0,0,.35)';
+  ic.save(); ic.translate(0, 92 + hoofLift); ic.scale(1, 0.16); ic.beginPath(); ic.arc(0, 0, 90, 0, TAU); ic.fill(); ic.restore();   // sombra
+  ic.rotate(Math.sin(gait + 0.6) * 0.03);
+  drawRider(ic, gait, t);
+  ic.restore();
+  // poeira dos cascos
+  for (let i = 0; i < 2; i++) introDust.push({ x: rx - 50 * S + (Math.random() - 0.5) * 60 * S, y: gy - 2 * S, vx: -speed * (0.8 + Math.random() * 0.4), vy: -(8 + Math.random() * 40) * S, life: 0.7 + Math.random() * 0.5, max: 1.2, r: (4 + Math.random() * 7) * S });
+  for (const d of introDust) { d.life -= dt; d.x += d.vx * dt; d.y += d.vy * dt; d.r += 9 * dt * S; }
+  introDust = introDust.filter(d => d.life > 0);
+  for (const d of introDust) { ic.fillStyle = `rgba(255,150,210,${Math.max(0, d.life / d.max) * 0.28})`; ic.beginPath(); ic.arc(d.x, d.y, d.r, 0, TAU); ic.fill(); }
+
+  // ---- por cima de tudo (sem câmera) ----
+  ic.setTransform(iD, 0, 0, iD, 0, 0);
+  const vg = ic.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(8,0,16,.6)');
+  ic.fillStyle = vg; ic.fillRect(0, 0, W, H);
+  ic.textAlign = 'center'; ic.textBaseline = 'middle';
+  const line = (txt, t0, t1, y) => {
+    const a = iEase((t - t0) / 0.6) * (1 - iEase((t - (t1 - 0.6)) / 0.6)); if (a <= 0) return;
+    ic.save(); ic.globalAlpha = a; ic.font = `700 ${Math.round(Math.max(18, H * 0.042))}px Rajdhani, sans-serif`; if ('letterSpacing' in ic) ic.letterSpacing = '8px';
+    ic.lineWidth = 5; ic.strokeStyle = 'rgba(0,0,0,.85)'; ic.strokeText(txt, W / 2, y + (1 - a) * 10); ic.fillStyle = '#ffd1ea'; ic.fillText(txt, W / 2, y + (1 - a) * 10); ic.restore();
+  };
+  line('A NOITE CAIU.', 2.4, 4.8, H * 0.27);
+  line('E UM SÓ VAI SAIR DE PÉ.', 5.0, 7.2, H * 0.27);
+  // título
+  const k = iEase((t - 7.4) / 0.5);
+  if (k > 0) {
+    const cx = W / 2, cy = H * 0.3, fs = Math.min(W * 0.1, H * 0.14), sc2 = 1 + (1 - k) * 0.9;
+    ic.save(); ic.translate(cx, cy + Math.sin(t * 2) * 3); ic.scale(sc2, sc2); ic.globalAlpha = k;
+    ic.font = `400 ${fs}px Bungee, Impact, sans-serif`; ic.lineJoin = 'round';
+    ic.fillStyle = '#7a2cff'; ic.fillText('NEON', 5, -fs * 0.55 + 5);
+    ic.fillStyle = '#00e5ff'; ic.shadowColor = '#00e5ff'; ic.shadowBlur = 30; ic.fillText('NEON', 0, -fs * 0.55); ic.shadowBlur = 0;
+    ic.fillStyle = '#ffe600'; ic.fillText('DUEL', 5, fs * 0.55 + 5);
+    ic.fillStyle = '#ff2e97'; ic.shadowColor = '#ff2e97'; ic.shadowBlur = 30; ic.fillText('DUEL', 0, fs * 0.55); ic.shadowBlur = 0;
+    ic.restore();
+    const a2 = iEase((t - 8.6) / 0.8);
+    if (a2 > 0) { ic.save(); ic.globalAlpha = a2; ic.font = `700 ${Math.round(Math.max(16, H * 0.034))}px Rajdhani, sans-serif`; ic.fillStyle = '#ffe600'; ic.lineWidth = 4; ic.strokeStyle = '#000'; const s2 = 'Entre pela porta e faça a sua jogada.'; ic.strokeText(s2, cx, H * 0.3 + fs * 1.35); ic.fillText(s2, cx, H * 0.3 + fs * 1.35); ic.restore(); }
+  }
+  if (t >= 7.4 && t < 7.85) { ic.fillStyle = `rgba(255,255,255,${(1 - (t - 7.4) / 0.45) * 0.7})`; ic.fillRect(0, 0, W, H); }
+  // faixas de cinema
+  const bar = H * 0.09 * iEase(t / 1.2); ic.fillStyle = '#000'; ic.fillRect(0, 0, W, bar); ic.fillRect(0, H - bar, W, bar);
+  // fade de entrada e de saída
+  const fade = Math.max(1 - iC01(t / 1.2), iC01((t - (INTRO_LEN - 0.9)) / 0.9));
+  if (fade > 0) { ic.fillStyle = `rgba(0,0,0,${fade})`; ic.fillRect(0, 0, W, H); }
+}
+function introFrame(now) {
+  if (!introOn) return;
+  requestAnimationFrame(introFrame);
+  const dt = Math.min(0.05, (now - introLast) / 1000); introLast = now; introT += dt;
+  drawIntro(introT, dt);
+  if (introT >= INTRO_LEN) endIntro();
+}
+function endIntro() {
+  if (!introOn) return; introOn = false;
+  const m = $('menu'); m.classList.remove('hidden'); m.classList.add('enter');
+  introEl.classList.add('out'); setTimeout(() => introEl.classList.add('hidden'), 750);
+}
+addEventListener('keydown', e => { if (introOn && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); e.stopImmediatePropagation(); endIntro(); } }, true);
+addEventListener('keyup', e => { if (e.key === ' ' && performance.now() - introSkipAt < 400) e.preventDefault(); });
+let introSkipAt = 0;
+$('introSkip').onclick = () => { introSkipAt = performance.now(); endIntro(); };
+introLast = performance.now(); requestAnimationFrame(introFrame);
+
+/* ------------------------------------------------ MENU: música e personagem secreto */
+$('btnMusic').onclick = () => showTab('music');
+$('btnMusicBack').onclick = () => showTab('play');
+
+// explosão de partículas douradas ao desbloquear
 const mfx = $('menuFx'), mctx = mfx.getContext('2d');
-let mfW = 0, mfH = 0, motes = [], bursts = [];
+let mfW = 0, mfH = 0, bursts = [], mfRun = false, mfLast = 0;
 function mfResize() { mfW = mfx.width = innerWidth; mfH = mfx.height = innerHeight; }
 addEventListener('resize', mfResize); mfResize();
-function newMote(init) {
-  return { x: Math.random() * mfW, y: init ? Math.random() * mfH : mfH + 12, r: 1.4 + Math.random() * 2.8, vy: -(12 + Math.random() * 30), ph: Math.random() * 6.28, sp: 0.6 + Math.random() * 1.4, col: Math.random() < 0.7 ? '255,226,140' : '120,255,220' };
-}
-for (let i = 0; i < 70; i++) motes.push(newMote(true));
 function menuBurst() {
   const cx = mfW / 2, cy = mfH * 0.4;
-  for (let i = 0; i < 140; i++) {
-    const a = Math.random() * TAU, sp = 90 + Math.random() * 520;
-    bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1.2 + Math.random() * 1.2, max: 2.4, r: 1.5 + Math.random() * 3, col: Math.random() < 0.75 ? '255,214,90' : '255,250,210' });
-  }
+  for (let i = 0; i < 140; i++) { const a = Math.random() * TAU, sp = 90 + Math.random() * 520; bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1.2 + Math.random() * 1.2, max: 2.4, r: 1.5 + Math.random() * 3, col: Math.random() < 0.5 ? '255,230,0' : Math.random() < 0.5 ? '255,46,151' : '0,229,255' }); }
+  if (!mfRun) { mfRun = true; mfLast = performance.now(); requestAnimationFrame(menuBurstLoop); }
 }
-let mfLast = performance.now();
-function menuLoop(now) {
-  requestAnimationFrame(menuLoop);
+function menuBurstLoop(now) {
   const dt = Math.min(0.05, (now - mfLast) / 1000); mfLast = now;
-  if ($('menu').classList.contains('hidden')) return;
   mctx.clearRect(0, 0, mfW, mfH); mctx.globalCompositeOperation = 'lighter';
-  const glow = (x, y, r, col, a) => { const g = mctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`); mctx.fillStyle = g; mctx.fillRect(x - r, y - r, r * 2, r * 2); };
-  for (const m of motes) {
-    m.ph += dt * m.sp; m.y += m.vy * dt; m.x += Math.sin(m.ph) * 18 * dt;
-    if (m.y < -20) Object.assign(m, newMote(false));
-    glow(m.x, m.y, m.r * 5, m.col, 0.35 + 0.35 * Math.sin(m.ph * 2));
+  for (const b of bursts) {
+    b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 220 * dt; b.vx *= Math.pow(0.35, dt);
+    const r = b.r * 4, g = mctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r); g.addColorStop(0, `rgba(${b.col},${Math.max(0, b.life / b.max) * 0.9})`); g.addColorStop(1, `rgba(${b.col},0)`);
+    mctx.fillStyle = g; mctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
   }
-  for (const b of bursts) { b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 220 * dt; b.vx *= Math.pow(0.35, dt); glow(b.x, b.y, b.r * 4, b.col, Math.max(0, b.life / b.max) * 0.9); }
-  bursts = bursts.filter(b => b.life > 0);
   mctx.globalCompositeOperation = 'source-over';
+  bursts = bursts.filter(b => b.life > 0);
+  if (bursts.length) requestAnimationFrame(menuBurstLoop); else { mfRun = false; mctx.clearRect(0, 0, mfW, mfH); }
 }
-requestAnimationFrame(menuLoop);
 
 // Sequência secreta no menu: W, A, S, D e depois ESPAÇO
 const SECRET = ['w', 'a', 's', 'd', ' '];
@@ -1310,7 +1528,7 @@ function unlockSecret() {
   clearTimeout(unlockTimer); unlockTimer = setTimeout(() => u.classList.remove('show'), 4500);
 }
 addEventListener('keydown', e => {
-  if (mode || $('menu').classList.contains('hidden') || e.repeat) return;
+  if (mode || introOn || $('menu').classList.contains('hidden') || e.repeat) return;
   const tg = e.target && e.target.tagName;
   if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key, now = performance.now();
@@ -1352,18 +1570,20 @@ addEventListener('keydown', e => {
   }, { passive: true });
   // clique: explosão de pó de luz
   addEventListener('mousedown', () => {
-    if (!seen) return;
+    if (!seen || inPlay()) return;
     for (let i = 0; i < 28; i++) { const a = R() * TAU, sp = 60 + R() * 200; trail.push({ x: fx, y: fy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, life: 0.5 + R() * 0.6, max: 1.1, r: 1.2 + R() * 2.4, col: R() < 0.5 ? '255,244,190' : '190,255,240', star: R() < 0.5 }); }
     if (typeof ac !== 'undefined' && ac && cfg.sfx) { const t = ac.currentTime; osc(sfxG, 'sine', 1568, t, 0.22, 0.12); osc(sfxG, 'sine', 2093, t + 0.06, 0.28, 0.1); }
   });
   document.addEventListener('mouseleave', () => { vis = false; });
   document.addEventListener('mouseenter', () => { vis = true; });
   const R = Math.random;
+  const inPlay = () => !!mode && !paused && $('menu').classList.contains('hidden') && $('lobby').classList.contains('hidden');   // na partida: sem fadinha
   function loop(now) {
     requestAnimationFrame(loop);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
     if (!seen || !vis) return;
+    if (inPlay()) { trail.length = 0; return; }
     const tm = now / 1000;
     over += (overT - over) * Math.min(1, dt * 10);
     const idle = Math.max(0, Math.min(1, (now - lastMove - 500) / 900)), k = 1 + idle * 1.4;   // parada: voa em oitos largos, como esperando
