@@ -18,14 +18,14 @@ const STEP = 1 / 60, TAU = Math.PI * 2;
 const SKINS = {
   ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
   MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' },
-  DRAGON: { c: '#ffcf3a', n: 'Dragão Dourado', secret: true }
+  DRAGON: { c: '#ffcf3a', n: 'Dragão Dourado' }
 };
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'ROOSTER', diff: 'NORMAL', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
 function saveCfg() { try { localStorage.setItem('neonduel', JSON.stringify(cfg)); } catch { } }
-if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
+if (!SKINS[cfg.skin]) cfg.skin = 'ROOSTER';
 
 /* ---------------------------------------------------------------- ESTADO */
 const cv = $('game'), ctx = cv.getContext('2d', { alpha: false });
@@ -197,7 +197,6 @@ function sfx(n, x, y) {
     case 'go': osc(d, 'sawtooth', 220, t, 0.35, 0.4, 660); osc(d, 'square', 330, t, 0.35, 0.2, 990); break;
     case 'end': osc(d, 'triangle', 440, t, 0.4, 0.4, 220); break;
     case 'tick': osc(d, 'square', 880, t, 0.06, 0.2); break;
-    case 'unlock': [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { osc(d, 'triangle', f, t + i * 0.09, 0.6, 0.35); osc(d, 'sine', f * 2, t + i * 0.09, 0.5, 0.12); }); nz(d, t, 0.5, 0.25, 'highpass', 5000); break;
     case 'heal': osc(d, 'sine', 520, t, 0.25, 0.5 * v, 1040); osc(d, 'triangle', 780, t + 0.08, 0.25, 0.35 * v, 1560); break;
   }
 }
@@ -207,9 +206,8 @@ const skinsEl = $('skins');
 function buildSkins() {
   skinsEl.textContent = '';
   for (const k in SKINS) {
-    if (SKINS[k].secret && !cfg.secret) continue;   // personagem secreto: só aparece depois de desbloqueado
     const b = document.createElement('button');
-    b.className = 'skin' + (SKINS[k].secret ? ' legend' : ''); b.dataset.skin = k; b.type = 'button';
+    b.className = 'skin'; b.dataset.skin = k; b.type = 'button';
     b.innerHTML = `<i style="background:${SKINS[k].c}"></i>${SKINS[k].n}`;
     b.onclick = () => { cfg.skin = k; saveCfg(); refreshSkins(); };
     skinsEl.appendChild(b);
@@ -688,37 +686,7 @@ addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; if (e
 cv.addEventListener('contextmenu', e => e.preventDefault());
 
 const mouseAngle = () => Math.atan2(mouse.y - (H / 2 + (pred.y - cam.y) * Z), mouse.x - (W / 2 + (pred.x - cam.x) * Z));
-// Dragão Dourado: mira automática. Trava no inimigo vivo mais próximo (prefere quem está à vista) e adianta o tiro.
-function enemyVel(id) {
-  const n = buf.length; if (n < 2) return { x: 0, y: 0 };
-  const a = buf[n - 2], b = buf[n - 1], pa = a.pl.find(q => q.id === id), pb = b.pl.find(q => q.id === id), dt = (b.t - a.t) / 1000;
-  if (!pa || !pb || dt < 0.001) return { x: 0, y: 0 };
-  const vx = (pb.x - pa.x) / dt, vy = (pb.y - pa.y) / dt, l = Math.hypot(vx, vy), m = l > 260 ? 260 / l : 1;
-  return { x: vx * m, y: vy * m };
-}
-// Dragão Dourado: segure ESPAÇO para travar a mira no inimigo vivo mais próximo (prefere quem está à vista).
-// Sem ESPAÇO a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
-const isDragon = () => cfg.skin === 'DRAGON' && !!cfg.secret;
-function aimBotPoint(me) {
-  if (!me || !me.al || !isDragon() || !keys[' '] || !level) return null;
-  let best = null, bs = Infinity;
-  for (const f of foesOf()) {
-    if (!f.al) continue;
-    const d = Math.hypot(f.x - pred.x, f.y - pred.y), sc = d + (level.los(pred.x, pred.y, f.x, f.y) ? 0 : 1600);
-    if (sc < bs) { bs = sc; best = f; }
-  }
-  if (!best) return null;
-  // posição desenhada do inimigo (interpolada): é nela que a mira fica centralizada
-  const ie = interpEnemy(best.id) || { x: best.x, y: best.y };
-  const wd = me.w ? WEAPONS[me.w] : null, v = enemyVel(best.id), d = Math.hypot(best.x - pred.x, best.y - pred.y);
-  // adianta o tiro: tempo de voo + ida e volta da rede (online), pois o servidor decide o acerto
-  const t = wd && !wd.melee ? Math.min(0.8, d / wd.speed + (mode === 'online' ? pingMs / 1000 : 0)) : 0;
-  return { x: best.x + v.x * t, y: best.y + v.y * t, dx: ie.x, dy: ie.y };
-}
-function aimAngle() {
-  const t = aimBotPoint(myState());
-  return t ? Math.atan2(t.y - pred.y, t.x - pred.x) : mouseAngle();
-}
+function aimAngle() { return mouseAngle(); }
 
 function doStep() {
   if (mode === 'local' && local) {
@@ -1067,8 +1035,7 @@ function render(now, dt) {
   Z = S * (1 + zoomKick);
   // câmera
   const look = keys[' '] ? 0.85 : 0.33, maxL = keys[' '] ? 520 : 290;
-  const lkc = me && me.al ? aimBotPoint(me) : null;
-  let ox = lkc ? (lkc.dx - pred.x) * 0.5 : (mouse.x - W / 2) / Z * look, oy = lkc ? (lkc.dy - pred.y) * 0.5 : (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
+  let ox = (mouse.x - W / 2) / Z * look, oy = (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
   if (ol > maxL) { ox *= maxL / ol; oy *= maxL / ol; }
   const tx = pred.x + ox, ty = pred.y + oy;
   if (!camInit) { cam.x = tx; cam.y = ty; camInit = true; } else { const k = Math.min(1, dt * 9); cam.x += (tx - cam.x) * k; cam.y += (ty - cam.y) * k; }
@@ -1189,9 +1156,7 @@ function drawChargeBar(x, y, ch) {
 }
 function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
-  const lk = aimBotPoint(me); let cx = mouse.x, cy = mouse.y;
-  if (lk) { cx = W / 2 + (lk.dx - cam.x) * Z; cy = H / 2 + (lk.dy - cam.y) * Z; }   // ESPAÇO: mira centrada no inimigo
-  ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 900); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
+  ctx.save(); ctx.translate(mouse.x, mouse.y); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
   ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.moveTo(-15, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(15, 0); ctx.moveTo(0, -15); ctx.lineTo(0, -5); ctx.moveTo(0, 5); ctx.lineTo(0, 15); ctx.stroke(); ctx.restore();
 }
 
@@ -1498,59 +1463,9 @@ let introSkipAt = 0;
 $('introSkip').onclick = () => { introSkipAt = performance.now(); endIntro(); };
 introLast = performance.now(); requestAnimationFrame(introFrame);
 
-/* ------------------------------------------------ MENU: música e personagem secreto */
+/* ------------------------------------------------ MENU: música */
 $('btnMusic').onclick = () => showTab('music');
 $('btnMusicBack').onclick = () => showTab('play');
-
-// explosão de partículas douradas ao desbloquear
-const mfx = $('menuFx'), mctx = mfx.getContext('2d');
-let mfW = 0, mfH = 0, bursts = [], mfRun = false, mfLast = 0;
-function mfResize() { mfW = mfx.width = innerWidth; mfH = mfx.height = innerHeight; }
-addEventListener('resize', mfResize); mfResize();
-function menuBurst() {
-  const cx = mfW / 2, cy = mfH * 0.4;
-  for (let i = 0; i < 140; i++) { const a = Math.random() * TAU, sp = 90 + Math.random() * 520; bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1.2 + Math.random() * 1.2, max: 2.4, r: 1.5 + Math.random() * 3, col: Math.random() < 0.5 ? '255,230,0' : Math.random() < 0.5 ? '255,46,151' : '0,229,255' }); }
-  if (!mfRun) { mfRun = true; mfLast = performance.now(); requestAnimationFrame(menuBurstLoop); }
-}
-function menuBurstLoop(now) {
-  const dt = Math.min(0.05, (now - mfLast) / 1000); mfLast = now;
-  mctx.clearRect(0, 0, mfW, mfH); mctx.globalCompositeOperation = 'lighter';
-  for (const b of bursts) {
-    b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 220 * dt; b.vx *= Math.pow(0.35, dt);
-    const r = b.r * 4, g = mctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r); g.addColorStop(0, `rgba(${b.col},${Math.max(0, b.life / b.max) * 0.9})`); g.addColorStop(1, `rgba(${b.col},0)`);
-    mctx.fillStyle = g; mctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
-  }
-  mctx.globalCompositeOperation = 'source-over';
-  bursts = bursts.filter(b => b.life > 0);
-  if (bursts.length) requestAnimationFrame(menuBurstLoop); else { mfRun = false; mctx.clearRect(0, 0, mfW, mfH); }
-}
-
-// Sequência secreta no menu: W, A, S, D e depois ESPAÇO
-const SECRET = ['w', 'a', 's', 'd', ' '];
-let secIdx = 0, secAt = 0, swallowSpace = false, unlockTimer = 0;
-function secDots() { [...$('seqDots').children].forEach((d, i) => d.classList.toggle('on', i < secIdx)); }
-function unlockSecret() {
-  cfg.secret = true; cfg.skin = 'DRAGON'; saveCfg(); buildSkins();
-  initAudio(); sfx('unlock'); menuBurst();
-  const u = $('unlock'); u.classList.remove('show'); void u.offsetWidth; u.classList.add('show');
-  clearTimeout(unlockTimer); unlockTimer = setTimeout(() => u.classList.remove('show'), 4500);
-}
-addEventListener('keydown', e => {
-  if (mode || introOn || $('menu').classList.contains('hidden') || e.repeat) return;
-  const tg = e.target && e.target.tagName;
-  if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
-  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key, now = performance.now();
-  if (now - secAt > 2500) secIdx = 0;
-  secAt = now;
-  if (k === SECRET[secIdx]) secIdx++; else secIdx = k === SECRET[0] ? 1 : 0;
-  secDots();
-  if (secIdx === SECRET.length) {
-    secIdx = 0; if (e.key === ' ') { e.preventDefault(); swallowSpace = true; }
-    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    setTimeout(secDots, 700); unlockSecret();
-  }
-});
-addEventListener('keyup', e => { if (swallowSpace && e.key === ' ') { e.preventDefault(); swallowSpace = false; } });
 
 // Esc: só pausa quando o menu inicial NÃO está aberto
 addEventListener('keydown', e => {

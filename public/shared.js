@@ -44,11 +44,20 @@
     SNIPER:  { name: 'SNIPER',  dmg: 85, ammo: 4,  cd: 1.15,  spread: 0.004, speed: 2800, pellets: 1, range: 3400, auto: false, col: '#ff5a7a', muz: 78 },
     MINIGUN: { name: 'MINIGUN', dmg: 7,  ammo: 120, cd: 0.055, spread: 0.18, speed: 1050, pellets: 1, range: 800,  auto: true,  col: '#ffb02e', muz: 68 }
   };
-  const POOLS = {
-    M: ['KNIFE', 'BAT', 'KATANA', 'MACHETE', 'SPEAR'],
-    G: ['PISTOL', 'SMG', 'SHOTGUN', 'REVOLVER'],
-    R: ['KNIFE', 'BAT', 'KATANA', 'MACHETE', 'SPEAR', 'PISTOL', 'REVOLVER', 'SMG', 'SHOTGUN', 'RIFLE', 'SNIPER', 'MINIGUN']
+  // Raridade: quanto menor o peso, mais difícil da arma aparecer
+  const RARITY = {
+    KNIFE: 10, BAT: 10, PISTOL: 10,                 // comuns
+    MACHETE: 6, SPEAR: 6, SMG: 6,                   // incomuns
+    KATANA: 3, SHOTGUN: 3, RIFLE: 3, REVOLVER: 3,   // raras
+    SNIPER: 1.2, MINIGUN: 0.8                       // épicas
   };
+  const RARITY_KEYS = Object.keys(RARITY);
+  const RARITY_TOTAL = RARITY_KEYS.reduce((a, k) => a + RARITY[k], 0);
+  function rollWeapon() {
+    let r = Math.random() * RARITY_TOTAL;
+    for (const k of RARITY_KEYS) { r -= RARITY[k]; if (r <= 0) return k; }
+    return RARITY_KEYS[0];
+  }
   const pick = a => a[Math.floor(Math.random() * a.length)];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -295,9 +304,13 @@
       this.bullets = []; this.items = []; this.winner = -1;
       let idx = 0;
       for (const p of this.players) if (p) this.spawnPlayer(p, idx++);
-      const types = {};
+      // cada par de pontos (espelhados = justo) sorteia uma arma por raridade; alguns pontos ficam vazios a cada rodada
+      const types = {}, pairs = [...new Set(this.level.m.wp.map(w => w.pair))];
+      const skip = new Set(pairs.filter(() => Math.random() < 0.25));
+      while (pairs.length - skip.size < 3 && skip.size) skip.delete([...skip][Math.floor(Math.random() * skip.size)]);   // garante o mínimo de armas
       for (const w of this.level.m.wp) {
-        if (!types[w.pair]) types[w.pair] = pick(POOLS.R);   // qualquer arma pode aparecer em qualquer ponto (par espelhado = justo)
+        if (skip.has(w.pair)) continue;
+        if (!types[w.pair]) types[w.pair] = rollWeapon();
         this.addItem(types[w.pair], (w.x + 0.5) * TILE, (w.y + 0.5) * TILE);
       }
       this.phase = 'countdown'; this.timer = 2.8;
