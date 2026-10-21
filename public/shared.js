@@ -207,6 +207,7 @@
     doorEnd(d) { const a = d.o === 'h' ? d.phi : Math.PI / 2 - d.phi; return [d.hx + Math.cos(a) * TILE, d.hy + Math.sin(a) * TILE]; }
     doorDist(d, x, y) { const e = this.doorEnd(d); return segDist(x, y, d.hx, d.hy, e[0], e[1]); }
     doorAt(x, y, r) { for (const d of this.doors) if (!d.latched && this.doorDist(d, x, y) < DOOR_HT + r) return true; return false; }
+    doorHit(x, y, r) { for (const d of this.doors) if (!d.latched && this.doorDist(d, x, y) < DOOR_HT + r) return d; return null; }
     setLatched(d, v) { d.latched = v; this.g[d.y][d.x] = v ? 2 : 0; if (v) { d.phi = 0; d.w = 0; } }
     kickDoor(d, dir, w) { this.setLatched(d, false); d.phi = dir * 0.14; d.w = dir * w; }
     stepDoor(d, dt) {
@@ -568,10 +569,21 @@
       }
       return false;
     }
+    // Tiro numa porta destravada: empurra a folha (torque pelo componente do tiro perpendicular à porta). Não trava nem fecha de vez.
+    shotDoor(d, b) {
+      const e = this.level.doorEnd(d), dx = e[0] - d.hx, dy = e[1] - d.hy;
+      const t = clamp(((b.x - d.hx) * dx + (b.y - d.hy) * dy) / (TILE * TILE), 0, 1);
+      const tx = d.o === 'h' ? -dy / TILE : dy / TILE, ty = d.o === 'h' ? dx / TILE : -dx / TILE;   // sentido em que a porta gira com phi crescente
+      const vt = b.vx * tx + b.vy * ty;                                    // velocidade do tiro no sentido do giro
+      d.w = clamp(d.w + vt * 0.0035 * Math.max(0.3, t), -4.5, 4.5);        // longe da dobradiça = mais alavanca
+      d.nl = 0.8;                                                          // por 0.8 s a porta não trava sozinha
+      d.by = b.owner;
+    }
     stepDoor(d, dt) {
       if (d.latched) return;
       const old = d.phi, L = this.level;
       L.stepDoor(d, dt);
+      if (d.nl > 0) { d.nl -= dt; return; }   // acabou de levar tiro: segue balançando, sem travar
       const crossed = old * d.phi < 0, near = Math.abs(d.phi) < 0.1 && Math.abs(d.w) < 3.5;
       if (!crossed && !near) return;
       if (!this.doorBlocked(d)) {                 // chegou no batente: trava (e bate, se veio rápido)
@@ -629,6 +641,7 @@
           const px = b.x, py = b.y;
           b.x += b.vx * dt / n; b.y += b.vy * dt / n;
           if (this.level.solidAt(b.x, b.y)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }
+          { const dh = this.level.doorHit(b.x, b.y, 1.5); if (dh) this.shotDoor(dh, b); }
           if (this.level.doorAt(b.x, b.y, 1.5)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }   // porta destravada também barra tiro
           for (const p of this.players) {
             if (!p || !p.alive || p.id === b.owner) continue;
