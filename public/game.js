@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -178,6 +178,9 @@ function sfx(n, x, y) {
     case 'PISTOL': nz(d, t, 0.12, 0.9 * v, 'bandpass', 1800); osc(d, 'square', 200, t, 0.1, 0.4 * v, 60); break;
     case 'SMG': nz(d, t, 0.08, 0.8 * v, 'bandpass', 2200); osc(d, 'square', 170, t, 0.07, 0.35 * v, 70); break;
     case 'RIFLE': nz(d, t, 0.15, 1 * v, 'bandpass', 1400); osc(d, 'sawtooth', 130, t, 0.12, 0.45 * v, 50); break;
+    case 'REVOLVER': nz(d, t, 0.2, 1 * v, 'bandpass', 1200); osc(d, 'square', 150, t, 0.16, 0.55 * v, 45); break;
+    case 'SNIPER': nz(d, t, 0.5, 1.3 * v, 'lowpass', 2400); osc(d, 'sawtooth', 90, t, 0.45, 0.7 * v, 24); osc(d, 'square', 1400, t, 0.05, 0.4 * v, 300); break;
+    case 'MINIGUN': nz(d, t, 0.05, 0.7 * v, 'bandpass', 2000); osc(d, 'square', 140, t, 0.05, 0.3 * v, 70); break;
     case 'SHOTGUN': nz(d, t, 0.32, 1.2 * v, 'lowpass', 1400); osc(d, 'sawtooth', 110, t, 0.28, 0.6 * v, 32); break;
     case 'swing': nz(d, t, 0.13, 0.35 * v, 'highpass', 1400); break;
     case 'kill': osc(d, 'sine', 120, t, 0.3, 0.9 * v, 30); nz(d, t, 0.22, 0.7 * v, 'lowpass', 900); break;
@@ -563,13 +566,13 @@ function handleEvent(e, now) {
   switch (e.t) {
     case 'shot': {
       sfx(e.w, e.x, e.y);
-      const mx = e.x + Math.cos(e.a) * 28, my = e.y + Math.sin(e.a) * 28;
-      fx.lights.push({ x: mx, y: my, t: 0.08, r: 170, c: '255,225,130' });
-      for (let i = 0; i < 4; i++) fx.parts.push({ k: 's', x: mx, y: my, vx: Math.cos(e.a + (Math.random() - .5)) * 300, vy: Math.sin(e.a + (Math.random() - .5)) * 300, life: 0.08, sz: 6, col: '#ffe9a0' });
+      const wdx = WEAPONS[e.w], mz = (wdx && wdx.muz) || 30, mx = e.x + Math.cos(e.a) * mz, my = e.y + Math.sin(e.a) * mz;
+      fx.lights.push({ x: mx, y: my, t: e.w === 'SNIPER' ? 0.14 : 0.08, r: e.w === 'SNIPER' ? 260 : 170, c: e.w === 'SNIPER' ? '255,120,150' : '255,225,130' });
+      for (let i = 0; i < (e.w === 'SNIPER' ? 9 : 4); i++) fx.parts.push({ k: 's', x: mx, y: my, vx: Math.cos(e.a + (Math.random() - .5)) * 300, vy: Math.sin(e.a + (Math.random() - .5)) * 300, life: 0.08, sz: 6, col: '#ffe9a0' });
       const ca = e.a + Math.PI / 2 + (Math.random() - .5);
       fx.parts.push({ k: 'c', x: e.x, y: e.y, vx: Math.cos(ca) * 120, vy: Math.sin(ca) * 120, rot: Math.random() * 6, vr: 20, life: 0.5 });
       animOf(e.by).recoil = 1;
-      addShake(e.by === myId ? (e.w === 'SHOTGUN' ? 7 : e.w === 'RIFLE' ? 4 : 2.5) : 1.2);
+      addShake(e.by === myId ? ({ SNIPER: 9, SHOTGUN: 7, REVOLVER: 5, RIFLE: 4, MINIGUN: 1.8 }[e.w] || 2.5) : 1.2);
       break;
     }
     case 'swing': {
@@ -691,90 +694,231 @@ function stepInput() {
 const circle = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); };
 const rr = (x, y, w, h, f) => { ctx.fillStyle = f; ctx.fillRect(x, y, w, h); };
 
+// peça com contorno (desenha a arma de verdade em vez de retângulos soltos)
+function part(pts, fill) {
+  ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 0.8; ctx.lineJoin = 'round'; ctx.stroke();
+}
+function ring(x, y, rx, ry, fill) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 0.8; ctx.stroke(); }
+const WD = '#6b4a2a', WL = '#8b6238';   // madeira
+const MD = '#262a34', MM = '#3b4150', ML = '#69728a';   // metal escuro / médio / claro
 function drawWeaponSprite(type) {
   const w = WEAPONS[type];
   switch (type) {
-    case 'PISTOL': rr(-2, -2.5, 14, 5, '#2b2f3a'); rr(-2, 0, 5, 7, '#2b2f3a'); rr(10, -1.5, 5, 3, w.col); break;
-    case 'SMG': rr(-4, -3, 22, 6, '#2b2f3a'); rr(2, 2, 5, 9, '#1c1f27'); rr(18, -1.5, 6, 3, w.col); break;
-    case 'RIFLE': rr(-8, -3, 34, 6, '#2b2f3a'); rr(-13, -3.5, 6, 7, '#4a3a2a'); rr(6, 2, 5, 8, '#1c1f27'); rr(26, -1.5, 8, 3, w.col); break;
-    case 'SHOTGUN': rr(-8, -3, 36, 6, '#5a4026'); rr(8, -2.5, 12, 5, '#2b2f3a'); rr(28, -2, 6, 4, w.col); break;
-    case 'KNIFE': rr(-2, -2, 8, 4, '#3b2a2a'); ctx.fillStyle = '#e6f1ff'; ctx.beginPath(); ctx.moveTo(6, -2.5); ctx.lineTo(24, 0); ctx.lineTo(6, 2.5); ctx.fill(); break;
-    case 'BAT': rr(-2, -2, 40, 4.5, '#c58a4a'); rr(28, -3.4, 12, 6.8, '#d99a55'); break;
-    case 'KATANA': rr(-4, -2, 14, 4, '#2a1020'); rr(9, -3.5, 2.5, 7, '#ffd23f'); rr(11, -1.3, 40, 2.6, '#cffaff'); break;
+    case 'PISTOL':
+      part([-1, 2.4, 4.8, 2.4, 3.4, 9, -2.4, 9], '#1c1f27');                                   // cabo
+      part([-2.5, -3, 14, -3, 16, -1.6, 16, 1.8, 14, 2.6, -2.5, 2.6], MM);                      // ferrolho
+      rr(-1.5, -2.6, 14, 1, ML); rr(4, -0.8, 6, 0.9, w.col);                                    // brilho + faixa
+      rr(14, -1.3, 2.4, 2.6, MD); rr(-1.6, -4.3, 1.8, 1.4, MD); rr(12.6, -4.3, 1.6, 1.4, MD);   // cano + miras
+      ctx.strokeStyle = MD; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(4, 3, 2.6, 0, Math.PI); ctx.stroke(); break;
+    case 'REVOLVER':
+      part([-3.4, 2.2, 2, 2.2, 0.6, 9.8, -4.8, 9.2], WD);                                       // cabo de madeira
+      part([-3.6, -3.4, 3, -3.4, 3, 2.6, -3.6, 2.6], MM);                                       // armação
+      part([-3.6, -3.4, -1.6, -5.6, -0.6, -3.4], MD);                                           // cão
+      part([3, -2.6, 18, -2.6, 18, 0.8, 3, 0.8], MM); rr(4, -2.6, 13, 0.9, ML);                 // cano + trilho
+      rr(3, 0.8, 11, 1.8, MD);                                                                  // haste do ejetor
+      ring(2.4, -0.2, 3.6, 3.7, ML); for (let i = 0; i < 4; i++) { const t = i * 1.57; ctx.fillStyle = MD; ctx.fillRect(2.4 + Math.cos(t) * 2 - .6, -0.2 + Math.sin(t) * 2 - .6, 1.2, 1.2); }
+      rr(17, -3.6, 1.6, 1.6, w.col); break;
+    case 'SMG':
+      part([5, 3, 10.4, 3, 9.6, 14, 5.8, 14], MD); rr(5.8, 12, 3.8, 1.6, w.col);                // carregador
+      part([-1.6, 3, 3, 3, 1.8, 9.4, -3.2, 9.4], '#1c1f27');                                    // cabo
+      part([-6, -3.4, 17, -3.4, 19, -2, 19, 3, -6, 3], MM);                                     // corpo
+      part([19, -2.6, 25, -2.6, 25, 2.6, 19, 2.6], MD); for (let i = 0; i < 3; i++) rr(20 + i * 1.8, -1, 1, 2, w.col);   // cano ventilado
+      rr(-4, -4.4, 16, 1.2, ML); rr(-5, 0.4, 20, 0.9, w.col);                                    // trilho + faixa
+      ctx.strokeStyle = MD; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(-6, -1.4); ctx.lineTo(-11, -1.4); ctx.lineTo(-11, 2.2); ctx.lineTo(-6, 2.2); ctx.stroke(); break;   // coronha de arame
+    case 'RIFLE':
+      part([-15, -3, -6, -2.8, -6, 3.2, -14, 5.4], WD); rr(-14, -2.4, 7, 0.9, WL);              // coronha
+      part([4, 3, 10.4, 3, 11.6, 11, 6.2, 11], MD);                                              // carregador curvo
+      part([-6, -3.8, 17, -3.8, 17, 3.2, -6, 3.2], MM); rr(-5, -3.2, 21, 1, ML);                 // receptor
+      part([17, -3.2, 29, -3.2, 29, 3.2, 17, 3.2], WD); rr(17, -2.6, 12, 0.9, WL);              // guarda-mão
+      rr(29, -1.3, 7, 2.6, MD); rr(34, -2.2, 3, 4.4, MM);                                        // cano + freio
+      rr(-2, -5.6, 9, 1.8, MD); rr(24, -5, 1.8, 1.6, MD); rr(-5, 0.6, 12, 0.9, w.col); break;    // mira + alça
+    case 'SHOTGUN':
+      part([-16, -2.8, -6, -2.4, -6, 3, -15, 5.2], WD); rr(-15, -2.2, 8, 0.9, WL);              // coronha
+      part([-6, -3.6, 8, -3.6, 8, 3, -6, 3], MM);                                                // receptor
+      rr(8, -3.6, 28, 2.8, MD); rr(8, -3.6, 28, 0.9, ML);                                        // cano
+      rr(8, 0.4, 24, 2.6, MM);                                                                   // tubo do carregador
+      part([14, -0.6, 26, -0.6, 26, 4.6, 14, 4.6], WD); for (let i = 0; i < 4; i++) rr(15.5 + i * 2.6, 0.4, 0.8, 3.2, 'rgba(0,0,0,.35)');   // empunhadura deslizante
+      rr(34, -4.2, 2.4, 1.4, w.col); rr(36, -3.6, 1.2, 6, MD); break;
+    case 'SNIPER':
+      part([-20, -3, -9, -3.4, -9, 4, -19, 6.6], '#2f3b2a'); rr(-19, -2.4, 9, 1, '#44563c');     // coronha
+      part([-9, -3.6, 15, -3.6, 15, 3.2, -9, 3.2], MM); rr(-8, -3, 22, 1, ML);                   // receptor
+      rr(15, -1.5, 33, 3, MD); rr(15, -1.5, 33, 0.9, ML);                                         // cano longo
+      part([45, -2.6, 51, -2.6, 51, 2.6, 45, 2.6], MM); rr(46.4, -2.6, 1, 5.2, MD); rr(48.4, -2.6, 1, 5.2, MD);   // freio de boca
+      part([-1, -8.4, 17, -8.4, 17, -4.4, -1, -4.4], '#12141a'); rr(0, -7.6, 16, 0.9, ML);        // luneta
+      rr(2, -4.4, 2, 1.2, MD); rr(12, -4.4, 2, 1.2, MD);
+      ring(17.6, -6.4, 1.6, 2.2, w.col); ring(-1.6, -6.4, 1.2, 1.8, '#7ad4ff');                   // lentes
+      ctx.strokeStyle = MD; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(26, 1.4); ctx.lineTo(22, 8); ctx.moveTo(30, 1.4); ctx.lineTo(34, 8); ctx.stroke();   // bipé
+      rr(-2, 3.2, 1.6, 3.6, ML); ring(-1.2, 7.4, 1.8, 1.8, ML);                                    // ferrolho
+      part([3, 3.2, 9, 3.2, 9, 6.4, 3, 6.4], MD); rr(-12, -0.4, 6, 0.9, w.col); break;
+    case 'MINIGUN':
+      part([-6, -5.6, 11, -5.6, 11, 5.6, -6, 5.6], '#2c2f3a'); rr(-5, -4.8, 15, 1, ML); rr(-5, 2, 15, 1.2, w.col);   // carcaça
+      part([-6, 5.6, 8, 5.6, 8, 13, -6, 13], '#4a5030'); rr(-5, 8, 13, 0.9, 'rgba(0,0,0,.4)'); rr(-5, 10.4, 13, 0.9, 'rgba(0,0,0,.4)');   // caixa de munição
+      rr(11, -5, 30, 2.4, MM); rr(11, -1.2, 30, 2.4, MD); rr(11, 2.6, 30, 2.4, MM);              // 3 canos
+      part([21, -5.6, 24, -5.6, 24, 5.6, 21, 5.6], ML); part([35, -5.6, 38, -5.6, 38, 5.6, 35, 5.6], ML);   // braçadeiras
+      part([-1, -9.8, 3, -9.8, 3, -5.6, -1, -5.6], MD);                                           // alça
+      rr(40, -4.4, 2, 9, w.col); break;
+    case 'KNIFE':
+      rr(-3.6, -2, 9, 4, '#2b1c1c'); for (let i = 0; i < 3; i++) rr(-2 + i * 2.6, -2, 0.8, 4, 'rgba(255,255,255,.18)');
+      part([5, -4.2, 7, -4.2, 7, 4.2, 5, 4.2], ML);                                               // guarda
+      part([7, -2.8, 20, -2.6, 27, 0.4, 20, 2.2, 7, 2.8], '#dfe9f5'); rr(8, -0.3, 14, 0.7, '#9fb2c8'); rr(8, -2.4, 12, 0.7, '#fff'); break;
+    case 'MACHETE':
+      rr(-4, -2.2, 12, 4.4, '#2a1a10'); for (let i = 0; i < 3; i++) rr(-2.6 + i * 3, -2.2, 0.8, 4.4, 'rgba(255,255,255,.15)');
+      part([8, -3.4, 9.8, -3.4, 9.8, 3.4, 8, 3.4], ML);
+      part([9.8, -2.4, 36, -3.8, 43, -1.8, 43, 2.4, 9.8, 2.8], '#cfd8d2'); rr(10, -2.2, 31, 1.2, '#8c978f'); rr(11, 1.6, 30, 0.8, w.col); break;
+    case 'BAT':
+      part([-4, -1.8, 12, -1.8, 12, 1.8, -4, 1.8], '#8a5a2c'); for (let i = 0; i < 4; i++) rr(-3 + i * 3, -1.8, 0.8, 3.6, 'rgba(0,0,0,.35)');
+      part([12, -2.2, 33, -3.8, 42, -3.4, 43, 0, 42, 3.4, 33, 3.8, 12, 2.2], '#c58a4a'); rr(14, -2.4, 26, 1, '#e6b97c');
+      for (let i = 0; i < 3; i++) rr(30 + i * 4, -3.4, 0.9, 6.8, 'rgba(60,30,10,.4)'); break;
+    case 'KATANA':
+      rr(-7, -2, 16, 4, '#1c1020'); for (let i = 0; i < 4; i++) { ctx.fillStyle = '#6c2a82'; ctx.beginPath(); ctx.moveTo(-5 + i * 4, 0); ctx.lineTo(-3 + i * 4, -2); ctx.lineTo(-1 + i * 4, 0); ctx.lineTo(-3 + i * 4, 2); ctx.fill(); }
+      ring(10.2, 0, 1.8, 4.8, '#ffd23f');                                                          // tsuba
+      part([11.5, -1.5, 50, -1.2, 55, 0.7, 50, 1.2, 11.5, 1.5], '#e8fbff'); rr(12, -0.2, 40, 0.5, '#7fb6c4'); rr(12, -1.2, 36, 0.6, '#fff'); break;
+    case 'SPEAR':
+      rr(-9, -1.3, 62, 2.6, '#7a5430'); rr(-9, -1.3, 62, 0.8, WL); rr(-11, -2, 3, 4, ML);          // haste + conteira
+      for (let i = 0; i < 3; i++) rr(34 + i * 2.4, -1.5, 1.2, 3, '#3a2410');                      // amarração
+      rr(49, -2.2, 3, 4.4, '#ff2e4d');                                                             // fita
+      part([52, -3.8, 72, 0, 52, 3.8, 55, 0], '#eaf2ff'); rr(55, -0.3, 14, 0.6, '#9fb2c8'); break;
   }
 }
+/* ---------- personagem estilo Hotline Miami: jaqueta, jeans, tênis e máscara de animal ---------- */
+const OL = 'rgba(12,4,18,.92)', SKIN_TONE = '#f0c39a', JEANS = '#34508f', HAIR = '#3a2415';
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255, k = c => Math.max(0, Math.min(255, Math.round(c * f)));
+  return `rgb(${k(r)},${k(g)},${k(b)})`;
+}
+function shape(pts, fill, lw = 1.8) {
+  ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]); ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = lw; ctx.lineJoin = 'round'; ctx.stroke();
+}
+function blob(x, y, rx, ry, fill, lw = 1.8) {
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fillStyle = fill; ctx.fill();
+  if (lw) { ctx.strokeStyle = OL; ctx.lineWidth = lw; ctx.stroke(); }
+}
+// braço com manga da jaqueta, punho claro e mão
+function limb(x1, y1, x2, y2, jacket) {
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = OL; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = jacket; ctx.lineWidth = 5.4; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const cx = x1 + (x2 - x1) * 0.62, cy = y1 + (y2 - y1) * 0.62;
+  ctx.strokeStyle = '#efe6d0'; ctx.lineWidth = 5.6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x1 + (x2 - x1) * 0.78, y1 + (y2 - y1) * 0.78); ctx.stroke();   // punho
+}
+const hand = (x, y) => blob(x, y, 3.6, 3.4, SKIN_TONE, 1.6);
+
 function drawHead(skin) {
-  const c = (SKINS[skin] || SKINS.ROOSTER).c;
-  ctx.fillStyle = c;
-  if (skin === 'BEAR' || skin === 'MONKEY') { circle(-1, -8.5, skin === 'BEAR' ? 3.6 : 4.4); circle(-1, 8.5, skin === 'BEAR' ? 3.6 : 4.4); }
-  if (skin === 'TIGER' || skin === 'WOLF') {
-    for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(-1, s * 5); ctx.lineTo(-5, s * 12); ctx.lineTo(3, s * 8); ctx.closePath(); ctx.fill(); }
+  const c = (SKINS[skin] || SKINS.ROOSTER).c, dk = shade(c, 0.62), lt = shade(c, 1.22);
+  blob(-2.4, 0, 9.6, 10.4, HAIR, 1.8);                          // cabelo aparecendo atrás da máscara
+  // orelhas (atrás da máscara)
+  if (skin === 'BEAR' || skin === 'MONKEY') {
+    const r = skin === 'BEAR' ? 4.4 : 5.2;
+    for (const s of [-1, 1]) { blob(-1.5, s * 9.2, r, r, c); blob(-1, s * 9.2, r * 0.5, r * 0.5, skin === 'BEAR' ? '#d9b48c' : '#f3c6d6', 0); }
   }
-  ctx.fillStyle = c; circle(0, 0, 9.5);
-  ctx.strokeStyle = 'rgba(0,0,0,.65)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, 9.5, 0, TAU); ctx.stroke();
+  if (skin === 'TIGER') for (const s of [-1, 1]) { shape([-1.5, s * 5.5, -6, s * 13, 3, s * 9], c); shape([-2, s * 7.5, -4.6, s * 11.2, 1, s * 9], '#2a1200', 0.01); }
+  if (skin === 'WOLF') for (const s of [-1, 1]) { shape([0, s * 5, -4, s * 14, 5, s * 8.5], c); shape([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', 0.01); }
+  // máscara
+  blob(0, 0, 9.6, 9.8, c, 2.1);
+  ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, 9.4, 9.6, 0, 0, TAU); ctx.clip();
+  ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(-8, 0, 8, 12, 0, 0, TAU); ctx.fill();        // sombra atrás
+  ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(1, -6, 6, 3, -0.3, 0, TAU); ctx.fill(); // brilho
+  ctx.restore();
   if (skin === 'ROOSTER') {
-    ctx.fillStyle = '#ff2e4d'; circle(-3, 0, 3.4); circle(1, 0, 3); circle(4.5, 0, 2.4);
-    ctx.fillStyle = '#ff9a2b'; ctx.beginPath(); ctx.moveTo(8, -3); ctx.lineTo(15, 0); ctx.lineTo(8, 3); ctx.fill();
+    blob(-3.2, 0, 3.8, 3.5, '#ff2e4d'); blob(1.2, 0, 3.4, 3.1, '#ff3b57'); blob(5, 0, 2.7, 2.4, '#ff5a70');        // crista
+    shape([8, -3.6, 16, 0, 8, 3.6, 9.4, 0], '#ff9a2b', 1.6); ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(9.4, 0); ctx.lineTo(15, 0); ctx.stroke();
+    blob(9.5, 0, 1.8, 2.4, '#e0152f', 1);
   }
-  if (skin === 'TIGER') { ctx.strokeStyle = '#2a1200'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(-6, -4); ctx.lineTo(-1, -2); ctx.moveTo(-6, 4); ctx.lineTo(-1, 2); ctx.moveTo(-2, 0); ctx.lineTo(4, 0); ctx.stroke(); }
-  if (skin === 'BEAR') { ctx.fillStyle = '#d9b48c'; circle(7, 0, 3.8); ctx.fillStyle = '#000'; circle(9.5, 0, 1.4); }
-  if (skin === 'MONKEY') { ctx.fillStyle = '#e7d4ff'; ctx.beginPath(); ctx.ellipse(5, 0, 5, 6, 0, 0, TAU); ctx.fill(); }
-  if (skin === 'WOLF') { ctx.fillStyle = '#e4edf6'; ctx.beginPath(); ctx.moveTo(4, -4); ctx.lineTo(14, 0); ctx.lineTo(4, 4); ctx.fill(); ctx.fillStyle = '#000'; circle(13, 0, 1.5); }
-  ctx.fillStyle = '#fff'; circle(4, -3.6, 1.8); circle(4, 3.6, 1.8); ctx.fillStyle = '#000'; circle(4.6, -3.6, 1); circle(4.6, 3.6, 1);
+  if (skin === 'TIGER') {
+    ctx.strokeStyle = '#2a1200'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath();
+    ctx.moveTo(-7, -4.6); ctx.lineTo(-2, -2.8); ctx.moveTo(-7.4, -0.8); ctx.lineTo(-2, 0); ctx.moveTo(-7, 4.6); ctx.lineTo(-2, 2.8);
+    ctx.moveTo(-3, -8.2); ctx.lineTo(0, -6.2); ctx.moveTo(-3, 8.2); ctx.lineTo(0, 6.2); ctx.stroke();
+    blob(6.4, 0, 3.8, 5.2, '#fff0d8', 1.2); shape([9.2, -1.6, 11.6, 0, 9.2, 1.6], '#ff6f9a', 1);
+    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 0.9; ctx.beginPath(); ctx.moveTo(9, -2); ctx.lineTo(13.5, -4.2); ctx.moveTo(9, 2); ctx.lineTo(13.5, 4.2); ctx.moveTo(9, 0); ctx.lineTo(14, 0); ctx.stroke();
+  }
+  if (skin === 'BEAR') { blob(7, 0, 4.4, 4.6, '#d9b48c', 1.4); blob(10.4, 0, 1.8, 1.5, '#120808', 0); ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10.4, 1.4); ctx.lineTo(10.4, 3); ctx.stroke(); }
+  if (skin === 'MONKEY') {
+    blob(4.8, -2.8, 3.8, 4, '#ecdcff', 1.2); blob(4.8, 2.8, 3.8, 4, '#ecdcff', 1.2); blob(7.6, 0, 3.4, 4.2, '#ecdcff', 1.2);
+    ctx.strokeStyle = 'rgba(60,20,80,.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(8.2, 0, 2.2, -1, 1); ctx.stroke(); blob(10, -1, .7, .7, '#2a1030', 0); blob(10, 1, .7, .7, '#2a1030', 0);
+  }
+  if (skin === 'WOLF') {
+    shape([2, -4.8, 15.2, -1.8, 15.2, 1.8, 2, 4.8], '#e8f0f8', 1.6); blob(15, 0, 1.9, 1.7, '#0c0c12', 0);
+    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(14, 0); ctx.stroke();
+    for (const s of [-1, 1]) shape([-2, s * 9, -7, s * 11.2, -4, s * 7.4], '#dfe8f2', 1);   // tufos de pelo
+  }
+  // olhos: buracos escuros com olhar branco
+  for (const s of [-1, 1]) { blob(3.8, s * 3.7, 2.7, 3, '#0b0710', 0); blob(4.4, s * 3.7, 1.6, 2, '#fff', 0); blob(5, s * 3.7, 0.95, 1.2, '#000', 0); }
 }
+// tronco visto de cima: ombros largos, jaqueta com gola, costura e listra nas costas
 function drawBody(skin, jacket, flat) {
-  ctx.fillStyle = jacket; ctx.beginPath(); ctx.ellipse(0, 0, flat ? 11 : 7.5, flat ? 15 : 13, 0, 0, TAU); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1.5; ctx.stroke();
+  if (flat) {
+    for (const s of [-1, 1]) { blob(-12, s * 5.2, 7, 3.8, JEANS, 1.6); blob(-18.5, s * 5.2, 3.6, 3, '#f4f1ea', 1.4); }   // pernas e tênis de quem caiu
+    blob(0, 0, 11.5, 15.5, jacket, 2); blob(-1, 0, 6, 11, shade(jacket, 0.8), 0);
+    ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(-8, 0, 11, -0.9, 0.9); ctx.stroke(); return;
+  }
+  blob(0, 0, 9.4, 15.4, jacket, 2);
+  for (const s of [-1, 1]) blob(0.5, s * 12, 5.6, 5.4, shade(jacket, 0.88), 1.6);               // ombros
+  ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, 8.6, 14.8, 0, 0, TAU); ctx.clip();
+  ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fillRect(-10, -16, 7, 32);                                  // sombra das costas
+  ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(1, -7, 6, 3, -0.2, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#efe6d0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-5.2, -14); ctx.lineTo(-5.2, 14); ctx.stroke();   // listra da jaqueta nas costas
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(2, 0); ctx.stroke();      // costura central
+  blob(3.4, 0, 3, 6, '#efe6d0', 1.4);                                                                                              // gola
 }
 
 function drawPlayer(p, x, y, ang, isMe, now) {
   const st = animOf(p.id);
   if (!st.lx && !st.ly) { st.lx = x; st.ly = y; }
-  st.walk += Math.hypot(x - st.lx, y - st.ly) * 0.14; st.lx = x; st.ly = y;
+  const moved = Math.hypot(x - st.lx, y - st.ly);
+  st.walk += moved * 0.14; st.lx = x; st.ly = y;
   st.recoil = Math.max(0, st.recoil - 0.12);
   const jacket = jacketOf(p.id, isMe);
-  ctx.save(); ctx.translate(x, y);
+  ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
   if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); }
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill();
   ctx.rotate(ang);
   if (p.dn) {
-    ctx.globalAlpha = 0.92; drawBody(p.sk, jacket, true); ctx.translate(-3, 0); drawHead(p.sk); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.95; drawBody(p.sk, jacket, true); ctx.translate(-3, 0); drawHead(p.sk); ctx.globalAlpha = 1;
     ctx.restore();
-    ctx.save(); ctx.translate(x, y);
+    ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
     const k = 1 - Math.max(0, p.dt) / DOWN_TIME;
     ctx.strokeStyle = '#ffe600'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 24, -Math.PI / 2, -Math.PI / 2 + TAU * k); ctx.stroke();
     ctx.fillStyle = '#fff6a0'; for (let i = 0; i < 3; i++) { const a = now / 180 + i * 2.1; ctx.fillRect(Math.cos(a) * 18 - 2, Math.sin(a) * 8 - 26, 4, 4); }
     ctx.restore(); return;
   }
-  // pés
-  const sw = Math.sin(st.walk) * 5; ctx.fillStyle = '#0d0714'; circle(sw, -6, 4); circle(-sw, 6, 4);
+  // pernas de jeans + tênis brancos, alternando ao andar
+  const sw = Math.sin(st.walk) * 7.5;
+  for (const [s, o] of [[-1, sw], [1, -sw]]) {
+    shape([-4 + o, s * 3.2, 7 + o, s * 3.2, 7 + o, s * 8.8, -4 + o, s * 8.8], JEANS, 1.6);
+    blob(9 + o, s * 6, 5.6, 4, '#f4f1ea', 1.6); ctx.fillStyle = '#d62a45'; ctx.fillRect(6.4 + o, s * 6 - 0.7, 4.8, 1.4);   // tênis + faixa
+  }
   const sp = Math.min(1, (now - st.sw0) / 200), swinging = sp < 1;
   const wt = p.w, wd = wt ? WEAPONS[wt] : null, melee = !wt || wd.melee;
-  const skinC = (SKINS[p.sk] || SKINS.ROOSTER).c;
   // braços + arma
   if (!wt) {
     const side = st.punch, ext = swinging ? Math.sin(sp * Math.PI) * 16 : 0;
-    ctx.strokeStyle = jacket; ctx.lineWidth = 5; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(0, side * 9); ctx.lineTo(10 + (swinging ? ext : 0), side * 6); ctx.moveTo(0, -side * 9); ctx.lineTo(9, -side * 7); ctx.stroke();
-    ctx.fillStyle = skinC; circle(12 + ext, side * 6, 3.6); circle(10, -side * 7, 3.6);
+    limb(0, side * 10, 10 + ext, side * 6.5, jacket); limb(0, -side * 10, 9, -side * 7.5, jacket);
+    hand(12 + ext, side * 6.5); hand(10.5, -side * 7.5);
   } else if (melee) {
-    const arc = wd.arc, a = swinging ? (-arc / 2 + sp * arc) : -0.6;
-    ctx.strokeStyle = jacket; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(0, 9); ctx.lineTo(10, 8); ctx.stroke();
-    ctx.save(); ctx.translate(10, 8); ctx.rotate(a); drawWeaponSprite(wt); ctx.fillStyle = skinC; circle(1, 0, 3.4); ctx.restore();
-    ctx.strokeStyle = jacket; ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(9, -7); ctx.stroke(); ctx.fillStyle = skinC; circle(10, -7, 3.4);
+    const spear = wt === 'SPEAR', arc = wd.arc, a = spear ? 0 : (swinging ? (-arc / 2 + sp * arc) : -0.6);
+    const lunge = spear && swinging ? Math.sin(sp * Math.PI) * 16 : 0, hy = spear ? 5 : 8;
+    limb(0, 10, 10 + lunge, hy, jacket);
+    ctx.save(); ctx.translate(10 + lunge, hy); ctx.rotate(a); drawWeaponSprite(wt); hand(1, 0); ctx.restore();
+    limb(0, -10, 9, -7.5, jacket); hand(10.5, -7.5);
   } else {
     const back = st.recoil * 4;
-    ctx.strokeStyle = jacket; ctx.lineWidth = 5; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(0, 9); ctx.lineTo(15 - back, 3); ctx.moveTo(0, -9); ctx.lineTo(wt === 'PISTOL' ? 15 - back : 22 - back, wt === 'PISTOL' ? -2 : -3); ctx.stroke();
+    const fx2 = { PISTOL: 15, REVOLVER: 15, SMG: 24, RIFLE: 26, SHOTGUN: 28, SNIPER: 32, MINIGUN: 28 }[wt] || 22, small = wt === 'PISTOL' || wt === 'REVOLVER';
+    const fy = small ? -2 : -3, by = wt === 'MINIGUN' ? 6 : 3;
+    limb(0, 10, 15 - back, by, jacket); limb(0, -10, fx2 - back, fy, jacket);
     ctx.save(); ctx.translate(8 - back, 0); drawWeaponSprite(wt); ctx.restore();
-    ctx.fillStyle = skinC; circle(15 - back, 3, 3.4); circle(wt === 'PISTOL' ? 15 - back : 22 - back, wt === 'PISTOL' ? -2 : -3, 3.4);
+    hand(15 - back, by); hand(fx2 - back, fy);
   }
   drawBody(p.sk, jacket, false);
-  drawHead(p.sk);
+  ctx.save(); ctx.translate(2.5, 0); ctx.scale(0.8, 0.8); drawHead(p.sk); ctx.restore();
   ctx.restore();
 }
 function drawCorpse(c) {
-  ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a);
+  ctx.save(); ctx.translate(c.x, c.y); ctx.scale(CS, CS); ctx.rotate(c.a);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(2, 4, 18, 14, 0, 0, TAU); ctx.fill();
   drawBody(c.sk, c.col || (c.mine ? '#10c6e8' : '#ff2e97'), true);
   ctx.fillStyle = 'rgba(160,10,35,.85)'; circle(2, 0, 7); circle(-4, 5, 4);
@@ -865,23 +1009,32 @@ function render(now, dt) {
   for (const c of fx.corpses) drawCorpse(c);
 
   // itens no chão
-  let near = null, nd = 46;
+  let near = null, nd = 54;
   for (const it of snap.it) {
     const [, x, y, type, , rot, thrown] = it;
     ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
-    ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; ctx.scale(1.15, 1.15); drawWeaponSprite(type); ctx.restore();
+    ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; ctx.scale(CS * 1.05, CS * 1.05); drawWeaponSprite(type); ctx.restore();
     if (!thrown && me && me.al) { const d = Math.hypot(x - pred.x, y - pred.y); if (d < nd) { nd = d; near = it; } }
   }
   if (near) {
     ctx.save(); ctx.font = '700 15px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.fillStyle = '#ffe600';
-    const t = `E · ${WEAPONS[near[3]].name}${near[4] ? ' (' + near[4] + ')' : ''}`; ctx.strokeText(t, near[1], near[2] - 24); ctx.fillText(t, near[1], near[2] - 24); ctx.restore();
+    const t = `E · ${WEAPONS[near[3]].name}${near[4] ? ' (' + near[4] + ')' : ''}`; ctx.strokeText(t, near[1], near[2] - 32); ctx.fillText(t, near[1], near[2] - 32); ctx.restore();
   }
+  // mira a laser de quem segura o sniper
+  const laser = (px, py, pa) => {
+    const mz = WEAPONS.SNIPER.muz, x0 = px + Math.cos(pa) * mz, y0 = py + Math.sin(pa) * mz, len = level.ray(x0, y0, pa, 2600);
+    const g = ctx.createLinearGradient(x0, y0, x0 + Math.cos(pa) * len, y0 + Math.sin(pa) * len); g.addColorStop(0, 'rgba(255,60,90,.55)'); g.addColorStop(1, 'rgba(255,60,90,.12)');
+    ctx.save(); ctx.strokeStyle = g; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + Math.cos(pa) * len, y0 + Math.sin(pa) * len); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,70,100,.9)'; ctx.shadowColor = '#ff3c5a'; ctx.shadowBlur = 10; circle(x0 + Math.cos(pa) * len, y0 + Math.sin(pa) * len, 3); ctx.restore();
+  };
+  for (const f of foesOf()) if (f.al && !f.dn && f.w === 'SNIPER') { const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a }; laser(ie.x, ie.y, ie.a); }
+  if (me && me.al && !me.dn && me.w === 'SNIPER') laser(pred.x, pred.y, aimAngle());
   // balas
   const age = Math.min(0.06, (now - snapAt) / 1000);
   ctx.lineCap = 'round';
   for (const b of snap.b) {
-    const x = b[1] + b[3] * age, y = b[2] + b[4] * age, l = Math.hypot(b[3], b[4]) || 1, tl = Math.min(38, l * 0.03);
-    ctx.strokeStyle = '#fff3a8'; ctx.lineWidth = 2.4; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
+    const x = b[1] + b[3] * age, y = b[2] + b[4] * age, l = Math.hypot(b[3], b[4]) || 1, snipe = l > 2000, tl = snipe ? 110 : Math.min(42, l * 0.032);
+    ctx.strokeStyle = snipe ? '#ffd0da' : '#fff3a8'; ctx.lineWidth = snipe ? 4 : 2.8; ctx.shadowColor = snipe ? '#ff5a7a' : '#ffd23f'; ctx.shadowBlur = snipe ? 14 : 8;
     ctx.beginPath(); ctx.moveTo(x - b[3] / l * tl, y - b[4] / l * tl); ctx.lineTo(x, y); ctx.stroke();
   }
   ctx.shadowBlur = 0;
@@ -925,18 +1078,18 @@ function render(now, dt) {
 }
 function drawHpBar(x, y, hp, mine) {
   const k = Math.max(0, Math.min(1, hp / MAX_HP)), w = 44;
-  ctx.fillStyle = 'rgba(10,0,20,.85)'; ctx.fillRect(x - w / 2 - 1.5, y - 37, w + 3, 8);
-  ctx.fillStyle = k > 0.3 ? (mine ? '#00e5ff' : '#ff2e97') : '#ffe600'; ctx.fillRect(x - w / 2, y - 35.5, w * k, 5);
+  ctx.fillStyle = 'rgba(10,0,20,.85)'; ctx.fillRect(x - w / 2 - 1.5, y - 49, w + 3, 8);
+  ctx.fillStyle = k > 0.3 ? (mine ? '#00e5ff' : '#ff2e97') : '#ffe600'; ctx.fillRect(x - w / 2, y - 47.5, w * k, 5);
 }
 // barra de cura: barra verde carregando acima da cabeça
 function drawHealBar(x, y, hz, now) {
   if (!(hz > 0)) return;
   const k = Math.max(0, Math.min(1, 1 - hz / HEAL_TIME)), w = 56;
   ctx.save();
-  ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 56, w + 4, 11);
-  ctx.fillStyle = '#7dff8a'; ctx.fillRect(x - w / 2, y - 54, w * k, 7);
+  ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 70, w + 4, 11);
+  ctx.fillStyle = '#7dff8a'; ctx.fillRect(x - w / 2, y - 68, w * k, 7);
   ctx.font = '700 12px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#7dff8a';
-  ctx.strokeText('CURANDO', x, y - 61); ctx.fillText('CURANDO', x, y - 61);
+  ctx.strokeText('CURANDO', x, y - 75); ctx.fillText('CURANDO', x, y - 75);
   ctx.restore();
 }
 function drawCrosshair(me) {
@@ -1010,7 +1163,7 @@ function updateHud(now) {
     // dica: arma no chão por perto ou arremessar a que está na mão
     let hint = '';
     if (me.al && snap.it) {
-      let best = null, bd = 46;
+      let best = null, bd = 54;
       for (const it of snap.it) { if (it[6]) continue; const d = Math.hypot(it[1] - pred.x, it[2] - pred.y); if (d < bd) { bd = d; best = it; } }
       if (best) hint = `[E] pegar ${WEAPONS[best[3]].name}${WEAPONS[best[3]].ammo ? ' (' + best[4] + ')' : ''}`;
       else if (me.w) hint = gun && me.am <= 0 ? '[F] arremessar (sem munição)' : '[F] arremessar';

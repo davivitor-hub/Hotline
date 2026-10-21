@@ -8,7 +8,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const TILE = 50, PR = 14, SPEED = 235, WIN_SCORE = 5, DOWN_TIME = 1.7;
+  const TILE = 50, PR = 18, CS = 1.35, SPEED = 235, WIN_SCORE = 5, DOWN_TIME = 1.7;
   const MAX_PLAYERS = 7;   // máximo de jogadores na sala
   const MIN_PLAYERS = 2;   // a partida começa com 2 ou mais
 
@@ -21,20 +21,26 @@
   const HEAL_TIME = 2;     // segundos parado (e invulnerável) enquanto cura; a cura é ilimitada
 
   /* ---------------------------------------------------------------- ARMAS */
+  // muz = distância do centro do personagem até a ponta do cano (para o tiro sair da ponta da arma)
   const WEAPONS = {
-    FISTS:   { name: 'MÃOS',    dmg: 5,  melee: true, range: 34, arc: 1.8, cd: 0.40, col: '#ffd7b0' },
-    KNIFE:   { name: 'FACA',    dmg: 40, melee: true, range: 42, arc: 1.5, cd: 0.26, col: '#e6f1ff' },
-    BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 60, arc: 2.1, cd: 0.50, col: '#ffb35c' },
-    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, range: 70, arc: 2.3, cd: 0.40, col: '#9ff7ff' },
-    PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff' },
-    SMG:     { name: 'SMG',     dmg: 12, ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8' },
-    RIFLE:   { name: 'FUZIL',   dmg: 25, ammo: 24, cd: 0.15,  spread: 0.04, speed: 1400, pellets: 1, range: 1600, auto: true,  col: '#b9ff79' },
-    SHOTGUN: { name: 'SHOTGUN', dmg: 15, ammo: 6,  cd: 0.80,  spread: 0.30, speed: 980,  pellets: 7, range: 440,  auto: false, col: '#ffc96b' }
+    FISTS:   { name: 'MÃOS',    dmg: 5,  melee: true, range: 40, arc: 1.8, cd: 0.40, col: '#ffd7b0' },
+    KNIFE:   { name: 'FACA',    dmg: 40, melee: true, range: 50, arc: 1.5, cd: 0.26, col: '#e6f1ff' },
+    MACHETE: { name: 'MACHETE', dmg: 55, melee: true, range: 66, arc: 2.0, cd: 0.34, col: '#b9ff79' },
+    BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 74, arc: 2.1, cd: 0.50, col: '#ffb35c' },
+    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, range: 86, arc: 2.3, cd: 0.40, col: '#9ff7ff' },
+    SPEAR:   { name: 'LANÇA',   dmg: 60, melee: true, range: 116, arc: 0.75, cd: 0.55, col: '#ffd9a0' },
+    PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff', muz: 32 },
+    REVOLVER:{ name: 'REVÓLVER',dmg: 55, ammo: 6,  cd: 0.60,  spread: 0.02, speed: 1300, pellets: 1, range: 1100, auto: false, col: '#ffcf5a', muz: 34 },
+    SMG:     { name: 'SMG',     dmg: 12, ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8', muz: 44 },
+    RIFLE:   { name: 'FUZIL',   dmg: 25, ammo: 24, cd: 0.15,  spread: 0.04, speed: 1400, pellets: 1, range: 1600, auto: true,  col: '#b9ff79', muz: 58 },
+    SHOTGUN: { name: 'SHOTGUN', dmg: 15, ammo: 6,  cd: 0.80,  spread: 0.30, speed: 980,  pellets: 7, range: 440,  auto: false, col: '#ffc96b', muz: 58 },
+    SNIPER:  { name: 'SNIPER',  dmg: 85, ammo: 4,  cd: 1.15,  spread: 0.004, speed: 2800, pellets: 1, range: 3400, auto: false, col: '#ff5a7a', muz: 78 },
+    MINIGUN: { name: 'MINIGUN', dmg: 7,  ammo: 120, cd: 0.055, spread: 0.18, speed: 1050, pellets: 1, range: 800,  auto: true,  col: '#ffb02e', muz: 68 }
   };
   const POOLS = {
-    M: ['KNIFE', 'BAT', 'KATANA'],
-    G: ['PISTOL', 'SMG', 'SHOTGUN'],
-    R: ['KNIFE', 'BAT', 'KATANA', 'PISTOL', 'SMG', 'SHOTGUN', 'RIFLE']
+    M: ['KNIFE', 'BAT', 'KATANA', 'MACHETE', 'SPEAR'],
+    G: ['PISTOL', 'SMG', 'SHOTGUN', 'REVOLVER'],
+    R: ['KNIFE', 'BAT', 'KATANA', 'MACHETE', 'SPEAR', 'PISTOL', 'REVOLVER', 'SMG', 'SHOTGUN', 'RIFLE', 'SNIPER', 'MINIGUN']
   };
   const pick = a => a[Math.floor(Math.random() * a.length)];
   const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -131,6 +137,13 @@
     m.weapon(13, 4, 'R'); m.weapon(6, 17, 'M'); m.weapon(11, 16, 'G');
     m.weapon(10, 12, 'G'); m.weapon(7, 2, 'R');
   });
+
+  // menor distância de um ponto (cx,cy) ao segmento (ax,ay)-(bx,by)
+  function segDist(cx, cy, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    let t = l2 ? ((cx - ax) * dx + (cy - ay) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+    return Math.hypot(ax + dx * t - cx, ay + dy * t - cy);
+  }
 
   /* ---------------------------------------------------------------- NÍVEL */
   class Level {
@@ -350,7 +363,8 @@
           const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
           if (d > wd.range + PR) continue;
           const aa = Math.atan2(dy, dx);
-          if ((Math.abs(angDiff(aa, p.angle)) <= wd.arc / 2 || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
+          const tol = wd.arc / 2 + Math.asin(Math.min(1, PR * 0.75 / Math.max(d, 1)));   // alvo grande = mais fácil de acertar de raspão
+          if ((Math.abs(angDiff(aa, p.angle)) <= tol || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
             if (o.down) this.hurt(o, p, wd.dmg * EXEC_MULT, 'exec', aa);
             else { this.hurt(o, p, wd.dmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
           }
@@ -359,7 +373,10 @@
       }
       if (p.weapon.ammo <= 0) { p.cd = 0.3; this.events.push({ t: 'click', by: p.id, x: p.x, y: p.y }); return; }
       p.weapon.ammo--; p.cd = wd.cd;
-      const sx = p.x + Math.cos(p.angle) * 8, sy = p.y + Math.sin(p.angle) * 8;
+      let mz = wd.muz || 12;
+      // se a ponta do cano atravessar uma parede (encostado nela), o tiro sai do corpo
+      if (!this.level.los(p.x, p.y, p.x + Math.cos(p.angle) * mz, p.y + Math.sin(p.angle) * mz)) mz = 8;
+      const sx = p.x + Math.cos(p.angle) * mz, sy = p.y + Math.sin(p.angle) * mz;
       for (let i = 0; i < wd.pellets; i++) {
         const a = p.angle + (Math.random() - 0.5) * 2 * wd.spread;
         const sp = wd.speed * (wd.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
@@ -401,7 +418,7 @@
       return true;
     }
     pickup(p) {
-      let best = null, bd = 46;
+      let best = null, bd = 54;
       for (const it of this.items) { if (it.thrown) continue; const d = Math.hypot(it.x - p.x, it.y - p.y); if (d < bd) { bd = d; best = it; } }
       if (!best) return;
       const old = p.weapon;
@@ -412,7 +429,7 @@
     }
     throwWeapon(p) {
       if (!p.weapon) return;
-      const a = p.angle; let sx = p.x + Math.cos(a) * 18, sy = p.y + Math.sin(a) * 18;
+      const a = p.angle; let sx = p.x + Math.cos(a) * 24, sy = p.y + Math.sin(a) * 24;
       if (!this.level.los(p.x, p.y, sx, sy)) { sx = p.x; sy = p.y; }
       const it = this.addItem(p.weapon.type, sx, sy, Math.cos(a) * 820, Math.sin(a) * 820, p.weapon.ammo);
       it.thrown = true; it.owner = p.id; it.t = 0.45; it.spin = 22;
@@ -460,7 +477,7 @@
           if (this.level.solidAt(b.x, b.y)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }
           for (const p of this.players) {
             if (!p || !p.alive || p.id === b.owner) continue;
-            if (Math.hypot(p.x - b.x, p.y - b.y) < PR + 1) { dead = true; this.hurt(p, this.byId(b.owner), WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
+            if (segDist(p.x, p.y, px, py, b.x, b.y) < PR) { dead = true; this.hurt(p, this.byId(b.owner), WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
           }
         }
         b.life -= dt;
@@ -480,7 +497,7 @@
             it.x = nx; it.y = ny;
             for (const p of this.players) {
               if (!p || !p.alive || p.id === it.owner) continue;
-              if (Math.hypot(p.x - it.x, p.y - it.y) < PR + 8) {
+              if (Math.hypot(p.x - it.x, p.y - it.y) < PR + 10) {
                 this.hurt(p, this.byId(it.owner), THROW_DMG, 'throw', Math.atan2(it.vy, it.vx));
                 if (!p.down) this.knockdown(p, DOWN_TIME, Math.atan2(it.vy, it.vx));
                 this.events.push({ t: 'thit', x: it.x, y: it.y });
@@ -602,7 +619,7 @@
       if (en.alive && !item) {
         if (en.down && los && dist < wd.range + PR + 6) { if (err < 0.6 && me.cd <= 0) fp = 1; }
         else if (hasGun && los) {
-          pref = me.weapon.type === 'SHOTGUN' ? 170 : (me.weapon.type === 'PISTOL' ? 330 : 280);
+          pref = { SHOTGUN: 190, PISTOL: 330, REVOLVER: 350, SNIPER: 650, MINIGUN: 320, SMG: 260 }[me.weapon.type] || 290;
           if (dist < pref * 0.6) { approach = false; back = 1; }
           else if (dist < pref * 1.3) { approach = false; strafe = 1; }
           if (this.seen > D.react && err < 0.1) { if (wd.auto) fire = 1; else if (me.cd <= 0) fp = 1; }
@@ -642,5 +659,5 @@
     }
   }
 
-  return { TILE, PR, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
+  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, MAX_PLAYERS, MIN_PLAYERS, WEAPONS, MAPS, MAP_IDS, Level, Game, Bot, stepMove, canMove, angDiff };
 });
