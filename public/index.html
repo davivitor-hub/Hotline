@@ -91,6 +91,7 @@
               <option value="HARD">Difícil</option>
             </select>
           </div>
+          <button id="btnMaps" class="btn big" type="button"><b>Fases</b><small id="mapSmall">escolha o mapa · Aleatório</small></button>
           <button id="btnMusic" class="btn big" type="button"><b>Músicas</b><small>escolha a trilha da partida</small></button>
         </div>
         <div id="status" role="status"></div>
@@ -106,11 +107,23 @@
         </details>
       </div>
 
+      <div id="tabMaps" role="tabpanel" class="hidden">
+        <p class="mtip">Escolha a fase. Vale para o treino vs Bot e para salas que você criar.</p>
+        <div id="mapList"></div>
+        <button id="btnMapsBack" class="btn back" type="button">Voltar</button>
+      </div>
+
       <div id="tabMusic" role="tabpanel" class="hidden">
         <p class="mtip">Escolha a trilha da partida. Toque numa faixa para ouvir.</p>
         <div id="trackList"></div>
         <label class="vol">Volume <input type="range" id="volRange" min="0" max="100" step="1"></label>
         <p class="mtip small">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>
+        <div class="spbox">
+          <div class="sprow"><b>Spotify</b><span id="spState">desconectado</span></div>
+          <input id="spLink" placeholder="Link de playlist, álbum ou música (opcional)" autocomplete="off" spellcheck="false">
+          <button id="spBtn" class="btn" type="button">Conectar Spotify</button>
+          <small id="spNote"></small>
+        </div>
         <button id="btnMusicBack" class="btn back" type="button">Voltar</button>
       </div>
     </section>

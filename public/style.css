@@ -290,3 +290,30 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #roomInput:focus{outline:none;border-color:var(--cyan)}
 .lcode{margin:0 0 6px;text-align:center;font:400 1.5rem var(--display);letter-spacing:6px;color:var(--yellow);cursor:pointer;text-shadow:2px 2px 0 var(--pink)}
 .lcode small{display:block;font:600 .7rem var(--body);letter-spacing:1px;color:#ffd1ea;text-shadow:none}
+
+/* seleção de fases */
+#mapList{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.mapcard{display:flex;flex-direction:column;gap:6px;padding:8px;text-align:left;color:var(--white);background:#0b0214;border:3px solid var(--violet);cursor:pointer;font:inherit;transition:transform .1s,box-shadow .1s,border-color .1s}
+.mapcard:hover{border-color:var(--cyan);transform:translate(-2px,-2px)}
+.mapcard[aria-pressed="true"]{border-color:var(--yellow);background:#2b0a44;box-shadow:4px 4px 0 var(--pink)}
+.mapcard canvas{display:block;width:100%;aspect-ratio:32/20;background:#14041f;border:2px solid #000;image-rendering:pixelated}
+.mapcard b{font:400 1rem var(--display);color:var(--cyan);letter-spacing:.3px}
+.mapcard[aria-pressed="true"] b{color:var(--yellow)}
+.mapcard small{color:#c9b3e0;font-weight:600;font-size:.85rem}
+.mapcard .rnd{display:grid;place-items:center;width:100%;aspect-ratio:32/20;background:repeating-linear-gradient(45deg,#1a0430 0 10px,#240838 10px 20px);border:2px solid #000;font:400 2.6rem var(--display);color:var(--pink);text-shadow:3px 3px 0 var(--cyan)}
+#menu .mapcard{cursor:pointer}
+@media (max-width:640px){#mapList{grid-template-columns:1fr}}
+
+/* spotify */
+.spbox{display:grid;gap:8px;margin-top:14px;padding:12px;background:#0b0214;border:3px solid #1ed760}
+.sprow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.sprow b{font:400 1rem var(--display);color:#1ed760}
+#spState{font-weight:700;color:#c9b3e0;font-size:.9rem}
+#spState.ok{color:#1ed760}
+#spLink{width:100%;padding:9px 10px;background:#14041f;color:var(--white);border:2px solid var(--violet);border-radius:0;font-weight:600;user-select:text;-webkit-user-select:text;cursor:text}
+#spLink:focus{outline:none;border-color:#1ed760}
+#spBtn{color:#1ed760;border-color:#1ed760;padding:9px 14px}
+#spBtn:hover{background:#1ed760;color:#07120a;box-shadow:4px 4px 0 var(--pink)}
+#spBtn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none}
+#spNote{color:#c9b3e0;font-weight:600;font-size:.85rem}
+#menu #spBtn{cursor:pointer}
