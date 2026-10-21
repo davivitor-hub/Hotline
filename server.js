@@ -29,7 +29,7 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.json': 'application/json; charset=utf-8'
 };
-const SKINS = ['ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF'];
+const SKINS = ['ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'DRAGON'];
 
 if (!S || typeof S.Game !== 'function') {
   throw new Error('public/shared.js não exporta Game corretamente. Verifique o arquivo compartilhado.');
