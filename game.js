@@ -123,7 +123,7 @@ const TRACKS = [
 if (!TRACKS.some(t => t.id === cfg.track)) cfg.track = 'synth';
 if (!(cfg.vol >= 0 && cfg.vol <= 1)) cfg.vol = 0.6;
 const curTrack = () => TRACKS.find(t => t.id === cfg.track) || TRACKS[0];
-const bgm = new Audio(); bgm.loop = true; bgm.preload = 'none';
+const bgm = new Audio(); bgm.loop = false; bgm.preload = 'none';   // sem loop: quando acaba, começa a próxima faixa
 let bgmLoaded = null, musicOn = false, bgmTry = 0;
 // se o arquivo não for achado, tenta o próximo caminho possível (pasta music/, raiz, nome original)
 bgm.addEventListener('error', () => {
@@ -144,6 +144,14 @@ function playTrack() {
   } else bgm.pause();
   applyMusic(); refreshTracks();
 }
+// acabou a faixa: toca a próxima que tem arquivo (o synth original é infinito, então fica de fora do revezamento)
+bgm.addEventListener('ended', () => {
+  if (!musicOn) return;
+  const files = TRACKS.filter(t => t.file), i = files.findIndex(t => t.id === cfg.track);
+  const nx = files[(i + 1) % files.length];
+  if (nx.id === cfg.track) { bgm.currentTime = 0; const pr = bgm.play(); if (pr && pr.catch) pr.catch(() => { }); return; }
+  cfg.track = nx.id; saveCfg(); playTrack();
+});
 function stopTrack() { musicOn = false; bgm.pause(); applyMusic(); refreshTracks(); }
 function pickTrack(id) {
   cfg.track = id; saveCfg();
