@@ -22,7 +22,7 @@ const SKINS = {
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', diff: 'NORMAL', music: true, sfx: true, shake: true, crt: false }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'ROOSTER', diff: 'NORMAL', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
 function saveCfg() { try { localStorage.setItem('neonduel', JSON.stringify(cfg)); } catch { } }
 
 /* ---------------------------------------------------------------- ESTADO */
@@ -51,11 +51,11 @@ function initAudio() {
   try {
     ac = new (window.AudioContext || window.webkitAudioContext)();
     master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
-    musG = ac.createGain(); musG.gain.value = cfg.music ? 0.17 : 0; musG.connect(master);
+    musG = ac.createGain(); musG.gain.value = 0; musG.connect(master);
     sfxG = ac.createGain(); sfxG.gain.value = 0.55; sfxG.connect(master);
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    nextT = ac.currentTime + 0.1; setInterval(schedule, 50);
+    nextT = ac.currentTime + 0.1; setInterval(schedule, 50); applyMusic();
   } catch { ac = null; }
 }
 function osc(dest, type, f, t, d, v, f2) {
@@ -84,6 +84,54 @@ function schedule() {
     if (BASS[i - (i % 8)] && i % 2 === 0) osc(musG, 'square', BASS[i - (i % 8)] * 4 * ARP[(i / 2) % 8], t, 0.09, 0.12);
     nextT += 60 / 122 / 4; step16++;
   }
+}
+
+/* ------------------------------------------------------------ TRILHAS
+   Todos os nomes giram em torno da AURA. 'file: null' = sintetizador original do jogo. */
+const TRACKS = [
+  { id: 'synth',      name: 'Aura Neon',          sub: 'Synthwave original do duelo', file: null },
+  { id: 'batalha',    name: 'Batalha de Aura',    sub: 'Rap, quem tem mais aura vence', file: 'music/aura-batalha.mp3' },
+  { id: 'hidrogenio', name: 'Aura de Hidrogênio', sub: 'Eletrônica pesada e acelerada', file: 'music/aura-hidrogenio.mp3' },
+  { id: 'tribunal',   name: 'Aura do Tribunal',   sub: 'Tensão de quem vai ser julgado', file: 'music/aura-tribunal.mp3' },
+  { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: 'music/aura-sombria.mp3' }
+];
+if (!TRACKS.some(t => t.id === cfg.track)) cfg.track = 'synth';
+if (!(cfg.vol >= 0 && cfg.vol <= 1)) cfg.vol = 0.6;
+const curTrack = () => TRACKS.find(t => t.id === cfg.track) || TRACKS[0];
+const bgm = new Audio(); bgm.loop = true; bgm.preload = 'none';
+let bgmLoaded = null, musicOn = false;
+function applyMusic() {
+  const t = curTrack();
+  bgm.volume = cfg.music ? cfg.vol : 0;
+  if (musG) musG.gain.value = (cfg.music && musicOn && !t.file) ? 0.17 * cfg.vol / 0.6 : 0;
+}
+function playTrack() {
+  const t = curTrack(); musicOn = true;
+  if (t.file) {
+    if (bgmLoaded !== t.id) { bgm.src = t.file; bgmLoaded = t.id; }
+    const pr = bgm.play(); if (pr && pr.catch) pr.catch(() => { });
+  } else bgm.pause();
+  applyMusic(); refreshTracks();
+}
+function stopTrack() { musicOn = false; bgm.pause(); applyMusic(); refreshTracks(); }
+function pickTrack(id) {
+  cfg.track = id; saveCfg();
+  if (!cfg.music) { cfg.music = true; $('optMusic').checked = true; }
+  initAudio(); playTrack();
+}
+function nextTrack() {
+  const i = TRACKS.findIndex(t => t.id === cfg.track);
+  cfg.track = TRACKS[(i + 1) % TRACKS.length].id; saveCfg(); playTrack();
+}
+function refreshTracks() {
+  for (const b of $('trackList').children) {
+    const on = b.dataset.id === cfg.track;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.querySelector('.ic').textContent = on && musicOn && cfg.music ? '❚❚' : '▶';
+  }
+  const np = $('nowPlaying');
+  np.innerHTML = '♪ <span>' + curTrack().name + '</span>';
+  np.classList.toggle('hidden', !(mode && musicOn && cfg.music));
 }
 // voz de dano: toca uma vez por vez (sem loop); não reinicia enquanto ainda está tocando
 const hurtSnd = new Audio('voice-mx-damage-m-1.mp3');
@@ -133,7 +181,7 @@ refreshSkins();
 $('nameInput').value = cfg.name; $('diffSel').value = cfg.diff;
 $('optMusic').checked = cfg.music; $('optSfx').checked = cfg.sfx; $('optShake').checked = cfg.shake; $('optCrt').checked = cfg.crt;
 document.body.classList.toggle('nocrt', !cfg.crt);
-$('optMusic').onchange = e => { cfg.music = e.target.checked; if (musG) musG.gain.value = cfg.music ? 0.17 : 0; saveCfg(); };
+$('optMusic').onchange = e => { cfg.music = e.target.checked; applyMusic(); refreshTracks(); saveCfg(); };
 $('optSfx').onchange = e => { cfg.sfx = e.target.checked; saveCfg(); };
 $('optShake').onchange = e => { cfg.shake = e.target.checked; saveCfg(); };
 $('optCrt').onchange = e => { cfg.crt = e.target.checked; document.body.classList.toggle('nocrt', !cfg.crt); saveCfg(); };
@@ -146,12 +194,32 @@ $('btnLeave').onclick = () => { closeAll(); showMenu(''); };
 $('btnStart').onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start' })); };
 $('btnLobbyLeave').onclick = () => { closeAll(); showMenu(''); };
 const status = t => { $('status').textContent = t; };
-function showMenu(msg) { $('menu').classList.remove('hidden'); $('pause').classList.add('hidden'); $('lobby').classList.add('hidden'); $('hud').classList.add('hidden'); $('banner').classList.add('hidden'); status(msg || ''); }
-function hideMenu() { $('menu').classList.add('hidden'); $('hud').classList.remove('hidden'); }
+function showMenu(msg) { stopTrack(); $('menu').classList.remove('hidden'); $('pause').classList.add('hidden'); $('lobby').classList.add('hidden'); $('hud').classList.add('hidden'); $('banner').classList.add('hidden'); status(msg || ''); }
+function hideMenu() { playTrack(); $('menu').classList.add('hidden'); $('hud').classList.remove('hidden'); }
 function setPaused(p) {
   if (!mode) return; paused = p; $('pause').classList.toggle('hidden', !p);
   if (p) { keys = {}; mouse.down = false; }
 }
+
+/* abas do menu */
+function showTab(which) {
+  const m = which === 'music';
+  $('tabPlay').classList.toggle('hidden', m); $('tabMusic').classList.toggle('hidden', !m);
+  $('tabBtnPlay').setAttribute('aria-selected', m ? 'false' : 'true'); $('tabBtnMusic').setAttribute('aria-selected', m ? 'true' : 'false');
+}
+$('tabBtnPlay').onclick = () => showTab('play');
+$('tabBtnMusic').onclick = () => showTab('music');
+for (const t of TRACKS) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'track'; b.dataset.id = t.id;
+  b.innerHTML = '<span class="ic">▶</span><span class="tx"><b></b><small></small></span>';
+  b.querySelector('b').textContent = t.name; b.querySelector('small').textContent = t.sub;
+  b.onclick = () => { if (cfg.track === t.id && musicOn && cfg.music) stopTrack(); else pickTrack(t.id); };
+  $('trackList').appendChild(b);
+}
+$('volRange').value = Math.round(cfg.vol * 100);
+$('volRange').oninput = e => { cfg.vol = e.target.value / 100; saveCfg(); applyMusic(); };
+refreshTracks();
 const playerName = () => (cfg.name || '').trim() || 'Jogador';
 
 /* ------------------------------------------------------------ CONEXÃO */
@@ -555,7 +623,8 @@ addEventListener('keydown', e => {
   if (k === 'e') edge.pk = true;
   if (k === 'f') edge.th = true;
   if (k === 'q') edge.hl = true;
-  if (k === 'm') { cfg.music = !cfg.music; if (musG) musG.gain.value = cfg.music ? 0.17 : 0; $('optMusic').checked = cfg.music; saveCfg(); }
+  if (k === 'm') { cfg.music = !cfg.music; applyMusic(); $('optMusic').checked = cfg.music; refreshTracks(); saveCfg(); }
+  if (k === 'n') nextTrack();
 });
 addEventListener('keyup', e => { const k = e.key.toLowerCase(); const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' }; keys[map[k] || k] = false; });
 addEventListener('blur', () => { keys = {}; mouse.down = false; });
