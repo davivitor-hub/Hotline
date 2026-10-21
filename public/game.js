@@ -86,6 +86,28 @@ function schedule() {
   }
 }
 
+/* Garante a aba "Músicas" mesmo se o index.html/style.css forem de uma versão antiga */
+(function ensureMusicUI() {
+  if ($('tabMusic') && $('tabBtnMusic') && $('trackList') && $('volRange') && $('nowPlaying')) return;
+  const panel = document.querySelector('#menu .panel'); if (!panel) return;
+  if (!document.getElementById('musicCss')) { const st = document.createElement('style'); st.id = 'musicCss'; st.textContent = "/* abas do menu */\n.tabs{display:flex;gap:0;margin:0 0 18px;border-bottom:3px solid var(--violet)}\n.tab{flex:1;padding:10px 12px;font:400 1rem var(--display);letter-spacing:.5px;color:#c9b3e0;background:transparent;border:0;border-bottom:5px solid transparent;margin-bottom:-3px;cursor:pointer}\n.tab:hover{color:var(--cyan)}\n.tab[aria-selected=\"true\"]{color:var(--yellow);border-bottom-color:var(--pink);background:rgba(255,46,151,.12)}\n.mtip{margin:0 0 12px;color:#ffd1ea;font-weight:600}\n.mtip.small{margin:14px 0 0;font-size:.9rem;color:#c9b3e0}\n#trackList{display:grid;gap:8px}\n.track{display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;text-align:left;color:var(--white);background:#0b0214;border:2px solid var(--violet);cursor:pointer;font:inherit}\n.track:hover{border-color:var(--cyan)}\n.track[aria-pressed=\"true\"]{border-color:var(--yellow);background:#2b0a44;box-shadow:4px 4px 0 var(--pink)}\n.track .ic{flex:none;display:grid;place-items:center;width:34px;height:34px;border:2px solid var(--cyan);color:var(--cyan);font:400 .9rem var(--display)}\n.track[aria-pressed=\"true\"] .ic{background:var(--yellow);border-color:var(--yellow);color:var(--ink)}\n.track .tx{flex:1;min-width:0;display:grid}\n.track b{font:400 1.05rem var(--display);color:var(--cyan);letter-spacing:.3px}\n.track[aria-pressed=\"true\"] b{color:var(--yellow)}\n.track small{color:#c9b3e0;font-weight:600;font-size:.9rem}\n.vol{display:flex;align-items:center;gap:12px;margin-top:14px;font-weight:700;color:var(--cyan)}\n.vol input{flex:1;accent-color:var(--pink)}\n#nowPlaying{position:absolute;right:16px;bottom:18px;padding:6px 14px;background:rgba(20,4,31,.85);border:3px solid var(--cyan);box-shadow:-4px 4px 0 var(--pink);font:400 .85rem var(--display);color:var(--cyan)}\n#nowPlaying span{color:var(--yellow)}\n\n@media (max-width:640px){#nowPlaying{right:8px;bottom:8px;font-size:.7rem}}\n"; document.head.appendChild(st); }
+  if (!$('tabPlay')) {
+    const kids = Array.from(panel.children).filter(el => el.tagName !== 'H1' && !el.classList.contains('tag'));
+    const wrap = document.createElement('div'); wrap.id = 'tabPlay'; wrap.setAttribute('role', 'tabpanel');
+    const tag = panel.querySelector('.tag'); (tag ? tag.after(wrap) : panel.appendChild(wrap));
+    for (const el of kids) wrap.appendChild(el);
+    const tabs = document.createElement('div'); tabs.className = 'tabs'; tabs.setAttribute('role', 'tablist');
+    tabs.innerHTML = '<button id="tabBtnPlay" class="tab" role="tab" aria-selected="true" type="button">Jogar</button><button id="tabBtnMusic" class="tab" role="tab" aria-selected="false" type="button">Músicas</button>';
+    wrap.before(tabs);
+  }
+  if (!$('tabMusic')) {
+    const m = document.createElement('div'); m.id = 'tabMusic'; m.setAttribute('role', 'tabpanel'); m.className = 'hidden';
+    m.innerHTML = '<p class="mtip">Escolha a trilha da partida. Toque numa faixa para ouvir.</p><div id="trackList"></div><label class="vol">Volume <input type="range" id="volRange" min="0" max="100" step="1"></label><p class="mtip small">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>';
+    $('tabPlay').after(m);
+  }
+  if (!$('nowPlaying')) { const n = document.createElement('div'); n.id = 'nowPlaying'; n.className = 'hidden'; const hud = $('hud'); if (hud) hud.appendChild(n); }
+})();
+
 /* ------------------------------------------------------------ TRILHAS
    Todos os nomes giram em torno da AURA. 'file: null' = sintetizador original do jogo. */
 const TRACKS = [
