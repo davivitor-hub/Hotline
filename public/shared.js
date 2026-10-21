@@ -1,5 +1,5 @@
 /* ==========================================================================
-   NEON DUEL — simulação compartilhada
+   7 SHADOWS — simulação compartilhada
    Roda no servidor (Node) E no navegador (modo treino vs bot + predição).
    ========================================================================== */
 (function (root, factory) {
