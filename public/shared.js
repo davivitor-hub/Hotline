@@ -19,6 +19,7 @@
   const DOOR_DMG = 0;      // % tirado por porta na cara (como no Hotline Miami: só derruba/atordoa)
   const HEAL_PCT = 20;     // % da vida máxima que a cura devolve
   const HEAL_TIME = 2;     // segundos parado (e invulnerável) enquanto cura; a cura é ilimitada
+  const SWAP_TIME = 0.2;      // segundos para sacar a outra arma do inventário (2 espaços)
   const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: mata na hora (senão acerta o cabo)
   const SPEAR_CHARGE = 1.1;   // segundos segurando o arremesso para a lança chegar na força máxima
   const SPEAR_THROW_MIN = 20, SPEAR_THROW_MAX = 100;   // % de vida tirada pela lança arremessada: toque rápido -> segurando até o fim
@@ -277,7 +278,9 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0) return null;
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
-        weapon: null, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0 };
+        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0 };
+      // inventário de 2 espaços: `weapon` continua sendo a arma NA MÃO (o espaço selecionado), então todo o resto do código funciona igual
+      Object.defineProperty(p, 'weapon', { get() { return this.inv[this.sel]; }, set(v) { this.inv[this.sel] = v; }, enumerable: false, configurable: true });
       this.players[slot] = p;
       if (this.phase === 'waiting' || this.phase === 'lobby' || !this.level) {
         if (!this.autoStart) this.phase = 'lobby';                       // espera o anfitrião apertar Iniciar
@@ -297,7 +300,7 @@
       this.players[p.slot] = null;
       if (this.count < MIN_PLAYERS) {
         // sem adversários: volta para a sala de espera
-        for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.healT = 0; q.weapon = null; }
+        for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
         this.phase = this.autoStart ? 'waiting' : 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
       }
     }
@@ -309,7 +312,7 @@
       this.startMatch(); return true;
     }
     toLobby() {
-      for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.healT = 0; q.weapon = null; q.fire = false; }
+      for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
       this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
@@ -318,7 +321,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.weapon = null; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0;
+      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0;
     }
     startMatch() { for (const p of this.players) if (p) p.score = 0; this.round = 0; this.startRound(); }
     startRound() {
@@ -353,6 +356,8 @@
       if (inp.fp) p.buf = 0.16;
       if (this.phase === 'live' && p.alive && !p.down && !(p.healT > 0)) {
         if (inp.pk) this.pickup(p);
+        if (inp.sw) this.swapTo(p, 1 - p.sel);              // scroll do mouse: alterna entre as 2 armas
+        else if (inp.ss) this.swapTo(p, (inp.ss | 0) - 1);  // teclas 1 / 2: escolhe o espaço direto
         if (inp.th) this.startThrow(p);
         if (inp.hl) this.heal(p);
       }
@@ -369,7 +374,7 @@
     tick(dt) {
       for (const p of this.players) {
         if (!p) continue;
-        p.cd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; p.budget = Math.min(0.3, p.budget + dt);
+        p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; p.budget = Math.min(0.3, p.budget + dt);
         if (p.charging) {   // lança: enquanto segura o botão de arremesso a força sobe; soltou = arremessa
           if (!p.alive || p.down || p.healT > 0 || !p.weapon || p.weapon.type !== 'SPEAR' || this.phase !== 'live') { p.charging = false; p.chg = 0; }
           else {
@@ -377,6 +382,7 @@
             if (!p.tc) { const c = p.chg / SPEAR_CHARGE; p.charging = false; p.chg = 0; this.throwWeapon(p, c); }
           }
         }
+        if (p.alive && !p.inv[p.sel] && p.inv[1 - p.sel]) p.sel = 1 - p.sel;   // largou/arremessou/perdeu a arma da mão: saca a outra sozinho
         if (p.down) { p.downT -= dt; if (p.downT <= 0) p.down = false; }
         if (p.healT > 0) {
           if (!p.alive || p.down || this.phase !== 'live') p.healT = 0;
@@ -464,7 +470,7 @@
     kill(v, by, how, a) {
       if (!v.alive || this.phase !== 'live') return;
       v.alive = false; v.down = false; v.fire = false; v.charging = false;
-      this.dropWeapon(v, Math.cos(a) * 120, Math.sin(a) * 120);
+      this.dropAll(v, Math.cos(a) * 120, Math.sin(a) * 120);
       this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin });
     }
     knockdown(p, dur, a) {
@@ -478,6 +484,24 @@
       this.addItem(p.weapon.type, p.x, p.y, vx * 0.5 + (Math.random() - 0.5) * 60, vy * 0.5 + (Math.random() - 0.5) * 60, p.weapon.ammo);
       p.weapon = null;
     }
+    // ao morrer, as duas armas do inventário caem no chão
+    dropAll(p, vx = 0, vy = 0) {
+      this.dropWeapon(p, vx, vy);
+      const o = p.inv[1 - p.sel];
+      if (o) {
+        this.addItem(o.type, p.x, p.y, -vx * 0.4 + (Math.random() - 0.5) * 90, -vy * 0.4 + (Math.random() - 0.5) * 90, o.ammo);
+        p.inv[1 - p.sel] = null;
+      }
+    }
+    // troca a arma da mão por a do outro espaço (precisa ter arma lá)
+    swapTo(p, idx) {
+      if (idx !== 0 && idx !== 1) return false;
+      if (idx === p.sel || p.swcd > 0 || !p.inv[idx]) return false;
+      p.sel = idx; p.swcd = SWAP_TIME; p.cd = Math.max(p.cd, SWAP_TIME);
+      p.buf = 0; p.fire = false; p.charging = false; p.chg = 0;
+      this.events.push({ t: 'swap', by: p.id, w: p.inv[idx].type, x: p.x, y: p.y });
+      return true;
+    }
     // Cura ilimitada: o jogador fica parado (e vulnerável) por HEAL_TIME s; ao fim recebe HEAL_PCT% da vida máxima.
     heal(p) {
       if (!p.alive || p.down || p.healT > 0 || p.hp >= MAX_HP) return false;
@@ -489,8 +513,10 @@
       let best = null, bd = 54;
       for (const it of this.items) { if (it.thrown) continue; const d = Math.hypot(it.x - p.x, it.y - p.y); if (d < bd) { bd = d; best = it; } }
       if (!best) return false;
-      const old = p.weapon;
-      p.weapon = { type: best.type, ammo: best.ammo };
+      // mão ocupada e o outro espaço livre -> guarda no espaço livre e já saca a nova; os dois cheios -> troca com a da mão
+      const target = (p.inv[p.sel] && !p.inv[1 - p.sel]) ? 1 - p.sel : p.sel;
+      const old = p.inv[target];
+      p.inv[target] = { type: best.type, ammo: best.ammo }; p.sel = target; p.charging = false; p.chg = 0;
       this.items.splice(this.items.indexOf(best), 1);
       if (old) this.addItem(old.type, p.x, p.y, 0, 0, old.ammo);
       this.events.push({ t: 'pick', by: p.id, w: best.type, x: p.x, y: p.y });
@@ -662,7 +688,7 @@
         pl: this.players.filter(Boolean).map(p => ({
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
-          w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1
+          w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy)]),
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
@@ -700,7 +726,7 @@
       const D = { EASY: { turn: 3.2, react: 0.55, acc: 0.14 }, NORMAL: { turn: 5.5, react: 0.32, acc: 0.07 }, HARD: { turn: 9, react: 0.16, acc: 0.03 } };
       this.d = D[diff] || D.NORMAL;
       this.ang = slot ? Math.PI : 0; this.path = []; this.pathT = 0; this.seen = 0; this.noise = 0; this.noiseT = 0;
-      this.st = 1; this.stT = 0; this.pkCd = 0; this.thCd = 0; this.hlCd = 0;
+      this.st = 1; this.stT = 0; this.pkCd = 0; this.thCd = 0; this.hlCd = 0; this.swCd = 0;
     }
     think(dt) {
       const g = this.g, me = g.players[this.slot];
@@ -721,7 +747,7 @@
       this.seen = los ? this.seen + dt : 0;
       this.noiseT -= dt; if (this.noiseT <= 0) { this.noiseT = 0.4; this.noise = (Math.random() - 0.5) * D.acc * 2; }
       this.stT -= dt; if (this.stT <= 0) { this.stT = 0.5 + Math.random() * 1.2; this.st = Math.random() < 0.5 ? -1 : 1; }
-      this.pkCd -= dt; this.thCd -= dt; this.hlCd -= dt;
+      this.pkCd -= dt; this.thCd -= dt; this.hlCd -= dt; this.swCd -= dt;
 
       const wd = me.weapon ? WEAPONS[me.weapon.type] : WEAPONS.FISTS;
       const hasGun = !!me.weapon && !wd.melee && me.weapon.ammo > 0;
@@ -761,7 +787,10 @@
           if (this.seen > D.react && err < 0.1) { if (wd.auto) fire = 1; else if (me.cd <= 0) fp = 1; }
         } else if (los && dist < wd.range + PR + 4 && err < 0.7 && me.cd <= 0 && this.seen > D.react * 0.5) fp = 1;
       }
-      if (emptyGun && los && dist < 400 && !en.down && this.thCd <= 0 && err < 0.2) { th = 1; this.thCd = 1; }
+      const alt = me.inv[1 - me.sel];
+      let sw = 0;
+      if (emptyGun && alt && this.swCd <= 0) { sw = 1; this.swCd = 0.6; }   // pente vazio: saca a outra arma
+      else if (emptyGun && !alt && los && dist < 400 && !en.down && this.thCd <= 0 && err < 0.2) { th = 1; this.thCd = 1; }
 
       // 4) movimento
       let mx = 0, my = 0;
@@ -791,7 +820,7 @@
       // bot se cura quando a vida baixa de 40%, sem inimigo à vista e com intervalo entre curas
       const hl = me.hp <= MAX_HP * 0.4 && !los && this.hlCd <= 0 ? 1 : 0;
       if (hl) this.hlCd = 6;
-      g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th, hl }, dt);
+      g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th, hl, sw }, dt);
     }
   }
 
