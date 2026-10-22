@@ -1658,12 +1658,11 @@ function render(now, dt) {
     }
     ctx.globalAlpha = 1;
   }
-  // nome, vida, cura e carga do PRÓPRIO jogador: por cima de tetos/efeitos, com o estado do canvas zerado
+  // barras de cura e de carga da lança do PRÓPRIO jogador: por cima de tetos/efeitos, com o estado do canvas zerado
   if (me && me.al) {
     ctx.save();
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
-    drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true);
-    drawName(pred.x, pred.y, me.nm || playerName(), me.id);
+    // (nome e barra de vida do próprio jogador não são mais desenhados sobre o boneco: ficam só no painel de vitais)
     drawHealBar(pred.x, pred.y, me.hz, now);
     drawChargeBar(pred.x, pred.y, me.ch);
     ctx.restore();
