@@ -23,7 +23,7 @@ const SKINS = {
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('7shadows') || localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'batalha', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'hidrogenio', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
 function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg)); } catch { } }
 if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
 
@@ -115,7 +115,6 @@ function schedule() {
 /* ------------------------------------------------------------ TRILHAS
    Todos os nomes giram em torno da AURA. 'file: null' = sintetizador original do jogo. */
 const TRACKS = [
-  { id: 'batalha',    name: 'Batalha de Aura',    sub: 'Rap, quem tem mais aura vence', file: ['music/aura-batalha.mp3', 'aura-batalha.mp3', 'Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3', 'music/Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3'] },
   { id: 'hidrogenio', name: 'Aura de Hidrogênio', sub: 'Eletrônica pesada e acelerada', file: ['music/aura-hidrogenio.mp3', 'aura-hidrogenio.mp3', 'M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3', 'music/M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3'] },
   { id: 'tribunal',   name: 'Aura do Tribunal',   sub: 'Tensão de quem vai ser julgado', file: ['music/aura-tribunal.mp3', 'aura-tribunal.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3'] },
   { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: ['music/aura-sombria.mp3', 'aura-sombria.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3'] },
@@ -237,7 +236,6 @@ $('optShake').onchange = e => { cfg.shake = e.target.checked; saveCfg(); };
 $('optCrt').onchange = e => { cfg.crt = e.target.checked; document.body.classList.toggle('nocrt', !cfg.crt); saveCfg(); };
 $('nameInput').oninput = e => { cfg.name = e.target.value; saveCfg(); };
 $('diffSel').onchange = e => { cfg.diff = e.target.value; saveCfg(); };
-$('btnOnline').onclick = () => { initAudio(); startOnline({ mode: 'quick' }); };
 $('btnCreateRoom').onclick = () => { initAudio(); startOnline({ mode: 'create' }); };
 const roomCodeOf = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
 $('roomInput').oninput = e => { e.target.value = roomCodeOf(e.target.value); };
@@ -756,7 +754,7 @@ function onSnapshot(s) {
   const me = s.pl.find(p => p.id === myId);
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
-    const t = { x: me.x, y: me.y }, S = { t: me.sd || 0, a: me.sa || 0, cd: me.sk || 0 };
+    const t = { x: me.x, y: me.y }, S = { t: me.sd || 0, a: me.sa || 0, cd: me.sq || 0 };
     if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMotion(level, t, S, p.k, p.a, p.sl, p.dt, p.sm, p.can);
     pslide = S;
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
@@ -1705,16 +1703,29 @@ function ensureVitals() {
   if (vit) return vit;
   const hud = $('hud'); if (!hud) return null;
   const el = document.createElement('div'); el.id = 'vitals'; el.className = 'hidden';
-  el.innerHTML = '<div class="v-top"><span class="v-name"></span><span class="v-tag">EM PÉ</span></div>' +
+  el.innerHTML = '<canvas class="v-face" width="112" height="112"></canvas><div class="v-main">' +
+    '<div class="v-top"><span class="v-name"></span><span class="v-tag">EM PÉ</span></div>' +
     '<div class="v-hp"><i class="v-ghost"></i><i class="v-fill"></i></div>' +
     '<div class="v-heal"><i></i></div>' +
     '<div class="v-row"><b class="v-num">100</b><span class="v-unit">% VIDA</span>' +
     '<span class="v-keys"><span class="v-key"><kbd>Q</kbd>CURAR</span><span class="v-key v-sl"><kbd>SHIFT</kbd>RASTEIRA</span></span></div>' +
-    '<div class="v-cd"><i></i></div>';
+    '<div class="v-cd"><i></i></div></div>';
   hud.appendChild(el);
-  vit = { el, name: el.querySelector('.v-name'), tag: el.querySelector('.v-tag'), fill: el.querySelector('.v-fill'), ghost: el.querySelector('.v-ghost'),
+  vit = { el, face: el.querySelector('.v-face'), name: el.querySelector('.v-name'), tag: el.querySelector('.v-tag'), fill: el.querySelector('.v-fill'), ghost: el.querySelector('.v-ghost'),
     heal: el.querySelector('.v-heal'), healI: el.querySelector('.v-heal i'), num: el.querySelector('.v-num'), sl: el.querySelector('.v-sl'), cdI: el.querySelector('.v-cd i'), c: {} };
   return vit;
+}
+// rosto da máscara no painel de vida: reaproveita drawHead() num canvas próprio (mesma troca de ctx dos ícones de arma)
+function drawFace(cvs, skin, jacket) {
+  const old = ctx; ctx = cvs.getContext('2d');
+  try {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cvs.width, cvs.height);
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, cvs.width, cvs.height);
+    ctx.setTransform(3.9, 0, 0, 3.9, cvs.width / 2, cvs.height / 2 + 4); ctx.rotate(-Math.PI / 2);
+    ctx.translate(-5, 0);
+    drawHead(SKINS[skin] ? skin : 'ROOSTER');
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = jacket || '#e2a93b'; ctx.fillRect(0, cvs.height - 6, cvs.width, 6);   // faixa na cor da jaqueta
+  } finally { ctx = old; }
 }
 function updateVitals(me) {
   const V = ensureVitals(); if (!V) return;
@@ -1725,6 +1736,8 @@ function updateVitals(me) {
   if (V.c.pct !== pct) { V.c.pct = pct; V.fill.style.width = pct + '%'; V.ghost.style.width = pct + '%'; V.num.textContent = pct; }
   if (V.c.st !== st) { V.c.st = st; V.el.classList.remove('ok', 'mid', 'low'); V.el.classList.add(st); V.tag.textContent = st === 'low' ? 'CRÍTICO' : st === 'mid' ? 'FERIDO' : 'EM PÉ'; }
   const nm = me.nm || ''; if (V.c.nm !== nm) { V.c.nm = nm; V.name.textContent = nm; }
+  const fk = (me.sk || 'ROOSTER') + '|' + jacketOf(me.id);   // retrato da máscara: redesenha só quando muda
+  if (V.c.fk !== fk) { V.c.fk = fk; drawFace(V.face, me.sk, jacketOf(me.id)); }
   const hz = me.hz > 0 ? Math.round((1 - me.hz / HEAL_TIME) * 100) : -1;
   if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
   const ready = pslide.cd <= 0, cd = ready ? 100 : Math.round((1 - pslide.cd / SLIDE_CD) * 100);
