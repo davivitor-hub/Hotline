@@ -42,7 +42,7 @@ let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv 
 const INTERP = () => (mode === 'local' ? 34 : 50);   // online: snapshots a 60 Hz → ~3 amostras de buffer
 
 function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 2); W = innerWidth; H = innerHeight;
+  dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
   cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
   S = Math.max(0.7, Math.min(1.6, H / 780));
 }
@@ -879,7 +879,7 @@ addEventListener('keydown', e => {
   if (!mode || paused) return;
   if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
-  if (k === 'shift') lockStep();   // Shift (com o Dragão + ESPAÇO) troca o alvo da mira
+  if (k === 'shift') lockStep();   // Shift (Dragão, segurando C): troca o alvo; com um só inimigo, destrava a mira/câmera
   if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
@@ -925,7 +925,7 @@ function enemyVel(id) {
 // Sem ESPAÇO a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
 const isDragon = () => cfg.skin === 'DRAGON' && !!cfg.secret;
 // SHIFT (com ESPAÇO apertado) troca o alvo da mira: passa pro próximo inimigo vivo, na ordem dos slots. Soltar o ESPAÇO volta ao automático.
-let lockId = null;
+let lockId = null, lockOff = false;
 function nearestFoe() {
   let best = null, bs = Infinity;
   for (const f of foesOf()) {
@@ -937,16 +937,17 @@ function nearestFoe() {
 }
 function lockStep() {
   const me = myState();
-  if (!me || !me.al || !isDragon() || !keys[' '] || !level) return;
-  const l = foesOf().filter(f => f.al).sort((a, b) => a.sl - b.sl); if (l.length < 2) return;
+  if (!me || !me.al || !isDragon() || !keys['c'] || !level) return;
+  const l = foesOf().filter(f => f.al).sort((a, b) => a.sl - b.sl);
+  if (l.length < 2) { lockId = null; lockOff = true; sfx('tick'); return; }   // só um alvo: Shift solta a mira e a câmera (volta ao pressionar C de novo)
   const cur = (lockId && l.find(f => f.id === lockId)) || nearestFoe();
   const i = cur ? l.findIndex(f => f.id === cur.id) : -1;
   lockId = l[(i + 1) % l.length].id;
   sfx('tick');
 }
 function aimBotPoint(me) {
-  if (!keys[' ']) lockId = null;
-  if (!me || !me.al || !isDragon() || !keys[' '] || !level) return null;
+  if (!keys['c']) { lockId = null; lockOff = false; }
+  if (lockOff || !me || !me.al || !isDragon() || !keys['c'] || !level) return null;
   let best = lockId ? foesOf().find(f => f.id === lockId && f.al) : null;
   if (!best) { lockId = null; best = nearestFoe(); }
   if (!best) return null;
@@ -1378,6 +1379,7 @@ function updateFx(dt) {
     }
   }
   fx.parts = fx.parts.filter(p => p.life > 0);
+  if (fx.parts.length > 700) fx.parts.splice(0, fx.parts.length - 700);   // teto de partículas
   for (const l of fx.lights) l.t -= d; fx.lights = fx.lights.filter(l => l.t > 0);
   fx.slashes = fx.slashes.filter(s => performance.now() - s.t0 < swDur(s.w) + 40);
   if (pbul.length && level) {
@@ -1426,6 +1428,11 @@ function drawIdle(now) {
   ctx.stroke();
 }
 
+// desenha só o pedaço visível de uma camada gigante (mapa grande = muito menos pixels por quadro)
+function blitView(cvs, x0, y0, w, h) {
+  const sx = Math.max(0, Math.floor(x0)), sy = Math.max(0, Math.floor(y0)), ex = Math.min(cvs.width, Math.ceil(x0 + w)), ey = Math.min(cvs.height, Math.ceil(y0 + h));
+  if (ex > sx && ey > sy) ctx.drawImage(cvs, sx, sy, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+}
 function render(now, dt) {
   if (!mode || !snap || !level || !levelCv) { drawIdle(now); updateHud(now); return; }
   updateFx(dt);
@@ -1444,14 +1451,17 @@ function render(now, dt) {
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = level.m.theme.out; ctx.fillRect(0, 0, W, H);
   ctx.setTransform(dpr * Z, 0, 0, dpr * Z, dpr * (W / 2 - (cam.x + sx) * Z), dpr * (H / 2 - (cam.y + sy) * Z));
-  ctx.drawImage(levelCv, 0, 0); ctx.drawImage(decal, 0, 0);
-  for (const d of level.doors) drawDoor(d);
-  for (const c of fx.corpses) drawCorpse(c);
+  const vhw = W / Z / 2 + 40, vhh = H / Z / 2 + 40, vx0 = cam.x - vhw, vx1 = cam.x + vhw, vy0 = cam.y - vhh, vy1 = cam.y + vhh;
+  const inView = (x, y, m) => x > vx0 - m && x < vx1 + m && y > vy0 - m && y < vy1 + m;   // fora da tela não desenha
+  blitView(levelCv, vx0, vy0, vx1 - vx0, vy1 - vy0); blitView(decal, vx0, vy0, vx1 - vx0, vy1 - vy0);
+  for (const d of level.doors) if (inView(d.hx, d.hy, TILE)) drawDoor(d);
+  for (const c of fx.corpses) if (inView(c.x, c.y, 80)) drawCorpse(c);
 
   // itens no chão
   let near = null, nd = PICK_R;
   for (const it of snap.it) {
     const [, x, y, type, , rot, thrown] = it;
+    if (!inView(x, y, 140)) continue;
     ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
     ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; ctx.scale(CS * 1.05, CS * 1.05); if (thrown && type === 'SPEAR') ctx.translate(-55, 0); drawWeaponSprite(type); ctx.restore();
     if (!thrown && me && me.al) { const d = itemDist(type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
@@ -1478,6 +1488,7 @@ function render(now, dt) {
   ctx.lineCap = 'round';
   for (const b of snap.b) {
     if (hiddenB.has(b[0])) continue;   // é uma bala minha: já estou desenhando a prevista
+    if (!inView(b[1], b[2], 130)) continue;
     const x = b[1] + b[3] * age, y = b[2] + b[4] * age, l = Math.hypot(b[3], b[4]) || 1, snipe = l > 2000, tl = snipe ? 110 : Math.min(42, l * 0.032);
     ctx.strokeStyle = snipe ? '#ffd0da' : '#fff3a8'; ctx.lineWidth = snipe ? 4 : 2.8; ctx.shadowColor = snipe ? '#ff5a7a' : '#ffd23f'; ctx.shadowBlur = snipe ? 14 : 8;
     ctx.beginPath(); ctx.moveTo(x - b[3] / l * tl, y - b[4] / l * tl); ctx.lineTo(x, y); ctx.stroke();
@@ -1489,13 +1500,14 @@ function render(now, dt) {
   }
   ctx.shadowBlur = 0;
   // paredes antes dos personagens: evita que a camada de paredes cubra o sprite
-  ctx.drawImage(wallCv, 0, 0);
+  blitView(wallCv, vx0, vy0, vx1 - vx0, vy1 - vy0);
 
   // jogadores
   // Sem névoa no mapa, todos os adversários vivos são sempre desenhados.
   for (const f of foesOf()) {
     if (!f.al) continue;
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
+    if (!inView(ie.x, ie.y, 160) && !(spec && f.id === spec.id)) continue;
     if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
     drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, f.id);   // barras de cura e de carga da lança só aparecem para o próprio jogador
   }
