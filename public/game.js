@@ -879,12 +879,12 @@ addEventListener('keydown', e => {
   if (!mode || paused) return;
   if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
-  if (k === 'shift') lockStep();   // Shift (Dragão, segurando C): troca o alvo; com um só inimigo, destrava a mira/câmera
-  if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
+    if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
   if (k === 'e') edge.pk = true;
-  if (k === 'f') edge.sl = true;   // F = rasteira
+  if (k === ' ') edge.sl = true;   // ESPAÇO = rasteira
+  if (k === 'f') edge.th = true;   // F = arremessar
   if (k === 'q') edge.hl = true;
   if (k === '1') edge.ss = 1;
   if (k === '2') edge.ss = 2;
@@ -925,7 +925,7 @@ function enemyVel(id) {
 // Sem ESPAÇO a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
 const isDragon = () => cfg.skin === 'DRAGON' && !!cfg.secret;
 // SHIFT (com ESPAÇO apertado) troca o alvo da mira: passa pro próximo inimigo vivo, na ordem dos slots. Soltar o ESPAÇO volta ao automático.
-let lockId = null, lockOff = false;
+let lockId = null;
 function nearestFoe() {
   let best = null, bs = Infinity;
   for (const f of foesOf()) {
@@ -935,19 +935,9 @@ function nearestFoe() {
   }
   return best;
 }
-function lockStep() {
-  const me = myState();
-  if (!me || !me.al || !isDragon() || !keys['c'] || !level) return;
-  const l = foesOf().filter(f => f.al).sort((a, b) => a.sl - b.sl);
-  if (l.length < 2) { lockId = null; lockOff = true; sfx('tick'); return; }   // só um alvo: Shift solta a mira e a câmera (volta ao pressionar C de novo)
-  const cur = (lockId && l.find(f => f.id === lockId)) || nearestFoe();
-  const i = cur ? l.findIndex(f => f.id === cur.id) : -1;
-  lockId = l[(i + 1) % l.length].id;
-  sfx('tick');
-}
 function aimBotPoint(me) {
-  if (!keys['c']) { lockId = null; lockOff = false; }
-  if (lockOff || !me || !me.al || !isDragon() || !keys['c'] || !level) return null;
+  if (!keys['c']) lockId = null;
+  if (!me || !me.al || !isDragon() || !keys['c'] || !level) return null;
   let best = lockId ? foesOf().find(f => f.id === lockId && f.al) : null;
   if (!best) { lockId = null; best = nearestFoe(); }
   if (!best) return null;
@@ -975,7 +965,7 @@ function doStep() {
 }
 function stepInput() {
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ss: edge.ss, tc: mouse.right ? 1 : 0 };
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
   edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   const can = !!me && snap.ph === 'live' && me.al && !me.dn && !(me.hz > 0) && !(me.ch >= 0);   // mesmas regras do servidor para iniciar a rasteira
@@ -1439,10 +1429,11 @@ function render(now, dt) {
   const me = myState(), alive = !me || me.al;
   Z = S * (1 + zoomKick);
   // câmera
-  const look = keys[' '] ? 0.85 : 0.33, maxL = keys[' '] ? 520 : 290;
+  const look = keys.shift ? 0.85 : 0.33, maxL = keys.shift ? 520 : 290;   // SHIFT: solta/estende a câmera
   const spec = me && !me.al ? specTarget() : null;   // espectando alguém?
   const lkc = me && me.al ? aimBotPoint(me) : null;
-  let ox = lkc ? (lkc.dx - pred.x) * 0.5 : (mouse.x - W / 2) / Z * look, oy = lkc ? (lkc.dy - pred.y) * 0.5 : (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
+  const camLock = lkc && !keys.shift;   // com SHIFT a câmera fica solta (segue o mouse), mesmo com a mira travada
+  let ox = camLock ? (lkc.dx - pred.x) * 0.5 : (mouse.x - W / 2) / Z * look, oy = camLock ? (lkc.dy - pred.y) * 0.5 : (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
   if (ol > maxL) { ox *= maxL / ol; oy *= maxL / ol; }
   let tx = pred.x + ox, ty = pred.y + oy;
   if (spec) { const ie = interpEnemy(spec.id) || { x: spec.x, y: spec.y }; tx = ie.x; ty = ie.y; }
