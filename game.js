@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_CD, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT } = Shared;
 const $ = id => document.getElementById(id);
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
@@ -23,9 +23,8 @@ const SKINS = {
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('7shadows') || localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', map: 'RANDOM', music: true, track: 'synth', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'batalha', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
 function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg)); } catch { } }
-if (cfg.map !== 'RANDOM' && !MAPS[cfg.map]) cfg.map = 'RANDOM';
 if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
 
 /* ---------------------------------------------------------------- ESTADO */
@@ -33,13 +32,13 @@ const cv = $('game'); let ctx = cv.getContext('2d', { alpha: false });   // let:
 let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
-let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
-let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0 };
+let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false, pslide = { t: 0, a: 0, cd: 0 };   // pslide = estado previsto da rasteira (Shift)
+let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0, sl: false };
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
 // predição dos MEUS tiros (online): o tiro aparece na hora do clique; quando o do servidor chega, ele é escondido para não duplicar
 let pbul = [], pshots = [], hiddenB = new Set(), knownB = new Set(), gotShot = 0, pcd = 0, pbuf = 0;
-let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null;
+let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [];   // roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
 const INTERP = () => (mode === 'local' ? 34 : 50);   // online: snapshots a 60 Hz → ~3 amostras de buffer
 
 function resize() {
@@ -116,14 +115,13 @@ function schedule() {
 /* ------------------------------------------------------------ TRILHAS
    Todos os nomes giram em torno da AURA. 'file: null' = sintetizador original do jogo. */
 const TRACKS = [
-  { id: 'synth',      name: 'Aura Neon',          sub: 'Synthwave original do duelo', file: null },
   { id: 'batalha',    name: 'Batalha de Aura',    sub: 'Rap, quem tem mais aura vence', file: ['music/aura-batalha.mp3', 'aura-batalha.mp3', 'Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3', 'music/Oliver_Tree_vs_Cachorro_Orelha___Batalha_de_Rap_MP3_160K_.mp3'] },
   { id: 'hidrogenio', name: 'Aura de Hidrogênio', sub: 'Eletrônica pesada e acelerada', file: ['music/aura-hidrogenio.mp3', 'aura-hidrogenio.mp3', 'M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3', 'music/M_O_O_N__-__Hydrogen___Hotline_Miami_Soundtrack__MP3_160K_.mp3'] },
   { id: 'tribunal',   name: 'Aura do Tribunal',   sub: 'Tensão de quem vai ser julgado', file: ['music/aura-tribunal.mp3', 'aura-tribunal.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Trial_MP3_160K_.mp3'] },
   { id: 'sombria',    name: 'Aura Sombria',       sub: 'Escura, fria e silenciosa', file: ['music/aura-sombria.mp3', 'aura-sombria.mp3', 'Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3', 'music/Apollo_Justice__Ace_Attorney__Soundtrack_-_Solitary_Confinement___Darkness_Theme_MP3_160K_.mp3'] },
   { id: 'chorona',    name: 'Aura Chorona',       sub: 'Rock pesado de quem chora e luta', file: ['music/aura-chorona.mp3', 'aura-chorona.mp3', 'Devil_May_Cry_3_-_Devils_Never_Cry_MP3_160K_.mp3', 'music/Devil_May_Cry_3_-_Devils_Never_Cry_MP3_160K_.mp3'] }
 ];
-if (!TRACKS.some(t => t.id === cfg.track)) cfg.track = 'synth';
+if (!TRACKS.some(t => t.id === cfg.track)) cfg.track = TRACKS[0].id;
 if (!(cfg.vol >= 0 && cfg.vol <= 1)) cfg.vol = 0.6;
 const curTrack = () => TRACKS.find(t => t.id === cfg.track) || TRACKS[0];
 const bgm = new Audio(); bgm.loop = false; bgm.preload = 'none';   // sem loop: quando acaba, começa a próxima faixa
@@ -270,43 +268,30 @@ function setPaused(p) {
   if (p) { keys = {}; mouse.down = false; mouse.right = false; }
 }
 
+/* remove o texto "ngc" do menu (partida rápida) — varre textos e atributos do menu/sala */
+(function stripNgc() {
+  const re = /\s*[·•|:–—-]?\s*\bngc\b\s*/gi;
+  for (const rootId of ['menu', 'lobby']) {
+    const root = $(rootId); if (!root) continue;
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), nodes = [];
+    while (w.nextNode()) nodes.push(w.currentNode);
+    for (const n of nodes) {
+      if (!/\bngc\b/i.test(n.nodeValue)) continue;
+      n.nodeValue = n.nodeValue.replace(re, ' ').replace(/\s{2,}/g, ' ').trim();
+      const p = n.parentElement;
+      if (!n.nodeValue && p && !p.children.length && !['BUTTON', 'LABEL', 'SUMMARY'].includes(p.tagName)) p.remove();
+    }
+    for (const el of root.querySelectorAll('[placeholder],[title],[aria-label]')) for (const a of ['placeholder', 'title', 'aria-label']) {
+      const v = el.getAttribute(a); if (v && /\bngc\b/i.test(v)) el.setAttribute(a, v.replace(re, ' ').trim());
+    }
+  }
+})();
+
 /* abas do menu */
 function showTab(which) {
-  $('tabPlay').classList.toggle('hidden', which !== 'play');
-  $('tabMusic').classList.toggle('hidden', which !== 'music');
-  $('tabMaps').classList.toggle('hidden', which !== 'maps');
-  $('tabBtnPlay').setAttribute('aria-selected', which === 'music' ? 'false' : 'true'); $('tabBtnMusic').setAttribute('aria-selected', which === 'music' ? 'true' : 'false');
-}
-/* seleção de fases: miniaturas desenhadas a partir dos próprios dados do mapa */
-const MAP_PICK = ['RANDOM', ...Shared.MAP_IDS];
-function mapThumb(id) {
-  const m = MAPS[id], T = 12, cv2 = document.createElement('canvas'); cv2.width = m.W * T; cv2.height = m.H * T;
-  const c = cv2.getContext('2d'), FL = { wood: '#b57e48', carpet: '#8b6a8c', tile: '#d6e8ea', ktile: '#efe8d6', sand: '#e2c78f', stone: '#cdb88e', grass: '#54964a', deck: '#c9a06a', path: '#bdb7aa' };
-  for (let y = 0; y < m.H; y++) for (let x = 0; x < m.W; x++) {
-    const v = m.g[y][x];
-    c.fillStyle = v === 1 ? (m.theme.hedge && (x === 0 || y === 0 || x === m.W - 1 || y === m.H - 1) ? '#2f6b2a' : m.theme.wall) : v === 2 ? '#6e4a28' : v === 4 ? '#27b8e0' : (FL[m.fl[y][x]] || '#b57e48');
-    c.fillRect(x * T, y * T, T, T);
-    if (v === 3) { c.fillStyle = 'rgba(60,30,10,.55)'; c.fillRect(x * T + 1, y * T + 1, T - 2, T - 2); }
-    if (v === 1) { c.strokeStyle = m.theme.edge; c.lineWidth = 1; c.strokeRect(x * T + .5, y * T + .5, T - 1, T - 1); }
-  }
-  return cv2;
-}
-function buildMaps() {
-  const list = $('mapList'); list.textContent = '';
-  for (const id of MAP_PICK) {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'mapcard'; b.dataset.id = id;
-    const prev = id === 'RANDOM' ? Object.assign(document.createElement('div'), { className: 'rnd', textContent: '?' }) : mapThumb(id);
-    const nm = document.createElement('b'), sb = document.createElement('small');
-    nm.textContent = id === 'RANDOM' ? 'Aleatório' : MAPS[id].name; sb.textContent = id === 'RANDOM' ? 'um mapa novo a cada rodada' : MAPS[id].W + '×' + MAPS[id].H + ' · espelhado, justo';
-    b.append(prev, nm, sb);
-    b.onclick = () => { cfg.map = id; saveCfg(); refreshMaps(); };
-    list.appendChild(b);
-  }
-  refreshMaps();
-}
-function refreshMaps() {
-  for (const b of $('mapList').children) b.setAttribute('aria-pressed', b.dataset.id === cfg.map ? 'true' : 'false');
-  $('mapSmall').textContent = 'escolha o mapa · ' + (cfg.map === 'RANDOM' ? 'Aleatório' : MAPS[cfg.map].name);
+  const m = which === 'music';
+  $('tabPlay').classList.toggle('hidden', m); $('tabMusic').classList.toggle('hidden', !m);
+  $('tabBtnPlay').setAttribute('aria-selected', m ? 'false' : 'true'); $('tabBtnMusic').setAttribute('aria-selected', m ? 'true' : 'false');
 }
 $('tabBtnPlay').onclick = () => showTab('play');
 $('tabBtnMusic').onclick = () => showTab('music');
@@ -335,7 +320,7 @@ function startOnline(opt = { mode: 'quick' }) {
   try { ws = new WebSocket(SERVER_URL); } catch { mode = null; return status('Endereço do servidor inválido.'); }
   const sock = ws;
   sock.onopen = () => {
-    sock.send(JSON.stringify({ type: 'join', name: playerName(), skin: cfg.skin, mode: opt.mode, room: opt.room || '', map: cfg.map }));
+    sock.send(JSON.stringify({ type: 'join', name: playerName(), skin: cfg.skin, mode: opt.mode, room: opt.room || '' }));
     pingTimer = setInterval(() => { if (sock.readyState === 1) sock.send(JSON.stringify({ type: 'ping', t: performance.now() })); }, 2000);
   };
   sock.onmessage = e => {
@@ -353,7 +338,7 @@ function startOnline(opt = { mode: 'quick' }) {
 }
 function startLocal(diff) {
   closeAll(); mode = 'local'; myId = 'me';
-  const g = new Game({ autoStart: true, map: cfg.map });
+  const g = new Game({ autoStart: true });
   const me = g.addPlayer('me', playerName(), cfg.skin);
   const keysSk = Object.keys(SKINS).filter(k => k !== cfg.skin);
   const bot = g.addPlayer('bot', 'BOT ' + ({ EASY: 'fácil', NORMAL: 'normal', HARD: 'difícil' }[diff] || ''), keysSk[Math.floor(Math.random() * keysSk.length)]);
@@ -403,7 +388,8 @@ function resetFx() {
 /* ------------------------------------------------- CASA: pisos, paredes e móveis */
 const PAL = {
   wood: ['#b57e48', '#ab7440'], carpet: ['#8b6a8c', '#836284'], tile: ['#d6e8ea', '#c4dadd'],
-  ktile: ['#efe8d6', '#ddd4bb'], sand: ['#e2c78f', '#dbbf86'], stone: ['#cdb88e', '#c3ad80'], grass: ['#54964a', '#4e8d44'], deck: ['#c9a06a', '#bd945d'], path: ['#bdb7aa', '#b2ac9e']
+  ktile: ['#efe8d6', '#ddd4bb'], sand: ['#e2c78f', '#dbbf86'], stone: ['#cdb88e', '#c3ad80'], grass: ['#54964a', '#4e8d44'], deck: ['#c9a06a', '#bd945d'], path: ['#bdb7aa', '#b2ac9e'],
+  sidewalk: ['#bdb8ae', '#b4afa5'], road: ['#3f424a', '#3b3e46'], laneh: ['#3f424a', '#3b3e46'], lanev: ['#3f424a', '#3b3e46'], zebrah: ['#3f424a', '#3b3e46'], zebrav: ['#3f424a', '#3b3e46']
 };
 const OUT = 'rgba(40,24,10,.7)';
 function hash(x, y) { let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
@@ -449,6 +435,17 @@ function floorTile(c, kind, x, y, T) {
   } else if (kind === 'stone') {
     c.fillStyle = 'rgba(90,60,25,.25)'; c.fillRect(X, Y + T - 1.5, T, 1.5); c.fillRect(X + T - 1.5, Y, 1.5, T);
     c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(X, Y, T, 1);
+  } else if (kind === 'sidewalk') {
+    c.fillStyle = 'rgba(0,0,0,.16)'; c.fillRect(X + T - 1.5, Y, 1.5, T); c.fillRect(X, Y + T - 1.5, T, 1.5);
+    c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(X, Y, T, 1);
+    if (hash(x * 3, y * 7) > .86) { c.fillStyle = 'rgba(0,0,0,.07)'; c.fillRect(X + 6 + hash(x, y) * 24, Y + 6 + hash(y, x) * 24, 10, 6); }
+  } else if (kind === 'road' || kind === 'laneh' || kind === 'lanev' || kind === 'zebrah' || kind === 'zebrav') {
+    for (let i = 0; i < 5; i++) { const r1 = hash(x * 13 + i, y), r2 = hash(x, y * 13 + i); c.fillStyle = r1 < .5 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.14)'; c.fillRect(X + r1 * (T - 3), Y + r2 * (T - 3), 2, 2); }
+    c.fillStyle = kind === 'zebrah' || kind === 'zebrav' ? 'rgba(240,240,236,.88)' : '#f0cf48';
+    if (kind === 'laneh') c.fillRect(X + 11, Y + T / 2 - 1.5, 28, 3);
+    else if (kind === 'lanev') c.fillRect(X + T / 2 - 1.5, Y + 11, 3, 28);
+    else if (kind === 'zebrah') for (let i = 0; i < 4; i++) c.fillRect(X + 3, Y + 4 + i * 12, T - 6, 6);
+    else if (kind === 'zebrav') for (let i = 0; i < 4; i++) c.fillRect(X + 4 + i * 12, Y + 3, 6, T - 6);
   } else if (kind === 'path') {
     for (let i = 0; i < 4; i++) rrect(c, X + (i & 1) * 25 + 2, Y + (i >> 1) * 25 + 2, 21, 21, 5, 'rgba(255,255,255,.12)', 'rgba(70,60,50,.3)', 1);
   }
@@ -611,6 +608,42 @@ const FURN = {
     c.strokeStyle = OUT; c.lineWidth = 1.2; c.strokeRect(3, 5, w - 6, h - 10);
     for (const [x, col] of [[.25, '#e8b14a'], [.5, '#6cc070'], [.75, '#ff8a5a']]) dot(c, w * x, h / 2, 5, col, OUT, 1);
   },
+  car(c, w, h, f) {
+    const col = (f && f.col) || '#d0463c';
+    c.save(); if (h > w) { c.translate(w, 0); c.rotate(Math.PI / 2); const t = w; w = h; h = t; }
+    rrect(c, 2, 6, w - 4, h - 8, 11, 'rgba(0,0,0,.25)');
+    rrect(c, 3, 4, w - 6, h - 8, 11, col, OUT, 1.8);
+    rrect(c, w * .27, 8, w * .42, h - 16, 7, 'rgba(25,35,50,.92)');
+    rrect(c, w * .33, 11, w * .30, h - 22, 5, col, 'rgba(0,0,0,.35)', 1);
+    rrect(c, w * .68, 9, 5, h - 18, 2, 'rgba(150,215,240,.85)');
+    rrect(c, w - 8, 8, 4, 7, 2, '#fff3a8'); rrect(c, w - 8, h - 15, 4, 7, 2, '#fff3a8');
+    rrect(c, 4, 8, 3, 7, 1, '#c0202a'); rrect(c, 4, h - 15, 3, 7, 1, '#c0202a');
+    c.restore();
+  },
+  bus(c, w, h, f) {
+    const col = (f && f.col) || '#e8a02a';
+    c.save(); if (h > w) { c.translate(w, 0); c.rotate(Math.PI / 2); const t = w; w = h; h = t; }
+    rrect(c, 2, 4, w - 4, h - 7, 8, 'rgba(0,0,0,.25)'); rrect(c, 2, 3, w - 4, h - 7, 8, col, OUT, 1.8);
+    c.fillStyle = 'rgba(255,255,255,.75)'; c.fillRect(4, h / 2 - 2, w - 8, 4);
+    const n = Math.floor((w - 34) / 24); for (let i = 0; i < n; i++) rrect(c, 10 + i * 24, 8, 17, h - 18, 2, 'rgba(35,55,75,.92)');
+    rrect(c, w - 17, 7, 9, h - 16, 3, '#9ad8f0', OUT, 1); rrect(c, w - 6, 8, 3, 7, 1, '#fff3a8'); rrect(c, w - 6, h - 15, 3, 7, 1, '#fff3a8');
+    rrect(c, 3, 8, 3, 7, 1, '#c0202a'); rrect(c, 3, h - 15, 3, 7, 1, '#c0202a');
+    c.restore();
+  },
+  lamp(c, w, h) {
+    const g = c.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, 24); g.addColorStop(0, 'rgba(255,232,150,.4)'); g.addColorStop(1, 'rgba(255,232,150,0)'); c.fillStyle = g; c.fillRect(0, 0, w, h);
+    dot(c, w / 2, h / 2, 9, '#3a3f48', OUT, 1.5); dot(c, w / 2, h / 2, 5, '#ffe9a0'); dot(c, w / 2 - 1, h / 2 - 1, 2, '#fff');
+  },
+  dumpster(c, w, h) {
+    rrect(c, 3, 5, w - 6, h - 10, 4, '#2f6b4a', OUT); rrect(c, 6, 8, w - 12, h - 16, 3, '#3d8a60', 'rgba(0,0,0,.4)', 1);
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; for (let x = 14; x < w - 8; x += 14) { c.beginPath(); c.moveTo(x, 9); c.lineTo(x, h - 9); c.stroke(); }
+  },
+  fountain(c, w, h) {
+    rrect(c, 0, 0, w, h, w / 2, '#d5cfc0', OUT, 2.5); rrect(c, 8, 8, w - 16, h - 16, (w - 16) / 2, '#35b9e6', '#1a86ad', 2.5);
+    const g = c.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 2); g.addColorStop(0, 'rgba(130,235,250,.6)'); g.addColorStop(1, 'rgba(20,110,150,0)'); c.fillStyle = g; c.fillRect(8, 8, w - 16, h - 16);
+    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 2; for (const r of [w * .3, w * .22]) { c.beginPath(); c.arc(w / 2, h / 2, r, 0, TAU); c.stroke(); }
+    dot(c, w / 2, h / 2, 17, '#d8d2c4', OUT, 2); dot(c, w / 2, h / 2, 10, '#8fe2f5', 'rgba(20,110,150,.7)', 1.5); dot(c, w / 2 - 3, h / 2 - 3, 3, '#fff');
+  },
   sandbags(c, w, h) {
     const n = Math.max(2, Math.round(w / 22));
     for (let r = 0; r < 2; r++) for (let i = 0; i < n; i++) rrect(c, 3 + i * (w - 6) / n, 4 + r * (h - 8) / 2, (w - 6) / n - 2, (h - 8) / 2 - 1, 6, r ? '#c8ad78' : '#d4ba84', OUT, 1.2);
@@ -620,7 +653,7 @@ function drawFurn(c, f, T) {
   const w = f.w * T, h = f.h * T;
   c.save(); c.translate((f.x + f.w / 2) * T, (f.y + f.h / 2) * T);
   if (f.r) c.rotate(Math.PI);
-  c.translate(-w / 2, -h / 2); (FURN[f.k] || FURN.box)(c, w, h); c.restore();
+  c.translate(-w / 2, -h / 2); (FURN[f.k] || FURN.box)(c, w, h, f); c.restore();
 }
 function drawRug(c, r, T) {
   const x = r.x * T + 4, y = r.y * T + 4, w = r.w * T - 8, h = r.h * T - 8;
@@ -629,6 +662,26 @@ function drawRug(c, r, T) {
   rrect(c, x + 13, y + 13, w - 26, h - 26, 3, null, 'rgba(0,0,0,.18)', 2);
   c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1.5;
   for (let i = 0; i < w; i += 7) { c.beginPath(); c.moveTo(x + i, y - 3); c.lineTo(x + i, y); c.moveTo(x + i, y + h); c.lineTo(x + i, y + h + 3); c.stroke(); }
+}
+
+// TETO da construção (estilo Goose Goose Duck): desenhado uma vez; no render ele some (fade) quando o jogador está dentro
+function drawRoof(c, r, T, g) {
+  const x = r.x * T, y = r.y * T, w = r.w * T, h = r.h * T;
+  c.save();
+  rrect(c, x - 3, y - 2, w + 8, h + 9, 6, 'rgba(0,0,0,.3)');                        // sombra do beiral
+  rrect(c, x, y, w, h, 4, r.col, 'rgba(25,14,8,.85)', 2.5);
+  c.save(); c.beginPath(); c.rect(x + 2, y + 2, w - 4, h - 4); c.clip();
+  const row = 16;
+  for (let ty = 0; ty < h; ty += row) {
+    c.fillStyle = (ty / row) & 1 ? 'rgba(0,0,0,.10)' : 'rgba(255,255,255,.07)'; c.fillRect(x, y + ty, w, row);
+    c.fillStyle = 'rgba(0,0,0,.24)'; c.fillRect(x, y + ty + row - 1.5, w, 1.5);
+    for (let tx = (ty / row) & 1 ? 8 : 0; tx < w; tx += row) c.fillRect(x + tx, y + ty, 1.2, row - 1.5);
+  }
+  c.fillStyle = 'rgba(0,0,0,.28)'; if (w >= h) c.fillRect(x, y + h / 2 - 4, w, 8); else c.fillRect(x + w / 2 - 4, y, 8, h);   // cumeeira
+  c.fillStyle = 'rgba(255,255,255,.22)'; if (w >= h) c.fillRect(x, y + h / 2 - 4, w, 2); else c.fillRect(x + w / 2 - 4, y, 2, h);
+  c.restore();
+  for (let ty = r.y; ty < r.y + r.h; ty++) for (let tx = r.x; tx < r.x + r.w; tx++) if (g[ty][tx] === 2) c.clearRect(tx * T - 1, ty * T - 1, T + 2, T + 2);   // a porta fica visível por fora
+  c.restore();
 }
 
 function buildStatic() {
@@ -666,11 +719,18 @@ function buildStatic() {
   wc.lineCap = 'butt';
   // móveis
   for (const f of m.furn) drawFurn(c, f, T);
+  roofCv = null; roofA = [];
+  if (m.roofs && m.roofs.length) {
+    roofCv = document.createElement('canvas'); roofCv.width = W * TILE; roofCv.height = H * TILE;
+    const rc = roofCv.getContext('2d'); rc.scale(K, K);
+    for (const r of m.roofs) drawRoof(rc, r, T, g);
+    roofA = m.roofs.map(() => 1);
+  }
   decal = document.createElement('canvas'); decal.width = W * TILE; decal.height = H * TILE; dctx = decal.getContext('2d');
 }
 function newRound(s) {
-  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx();
-  if (s.map) { level = new Level(s.map); buildStatic(); } else { level = null; levelCv = null; }
+  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx(); pslide = { t: 0, a: 0, cd: 0 };
+  if (s.map) { level = new Level(s.map); buildStatic(); } else { level = null; levelCv = null; roofCv = null; roofA = []; }
 }
 function onSnapshot(s) {
   const now = performance.now();
@@ -696,8 +756,9 @@ function onSnapshot(s) {
   const me = s.pl.find(p => p.id === myId);
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
-    const t = { x: me.x, y: me.y };
-    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt, p.sm);
+    const t = { x: me.x, y: me.y }, S = { t: me.sd || 0, a: me.sa || 0, cd: me.sk || 0 };
+    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMotion(level, t, S, p.k, p.a, p.sl, p.dt, p.sm, p.can);
+    pslide = S;
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
     if (first || err > 40) { pred.x = t.x; pred.y = t.y; first = false; }
     else { pred.x += (t.x - pred.x) * 0.35; pred.y += (t.y - pred.y) * 0.35; }
@@ -733,6 +794,16 @@ function handleEvent(e, now) {
       break;
     }
     case 'swap': sfx('swap', e.x, e.y); break;
+    case 'slide': {   // começou a rasteira: poeira para trás
+      sfx('swing', e.x, e.y);
+      for (let i = 0; i < 10; i++) { const a = e.a + Math.PI + (Math.random() - .5) * 1.5, sp = 120 + Math.random() * 180; fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.3, sz: 4, col: '#d9cfb4' }); }
+      break;
+    }
+    case 'trip': {    // rasteira acertou
+      sfx('down', e.x, e.y); addShake(e.by === myId || e.id === myId ? 7 : 3); addPop(e.x, e.y - 24, 'RASTEIRA!', '#e2a93b');
+      for (let i = 0; i < 10; i++) fx.parts.push({ k: 's', x: e.x, y: e.y, vx: (Math.random() - .5) * 300, vy: (Math.random() - .5) * 300, life: 0.25, sz: 4, col: '#fff6a0' });
+      break;
+    }
     case 'swing': {
       const st = animOf(e.by); st.sw0 = now; st.sw = e.w; st.punch *= -1;
       sfx('swing', e.x, e.y);
@@ -810,7 +881,7 @@ addEventListener('keydown', e => {
   if (!mode || paused) return;
   if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
-  if (k === 'shift') lockStep();
+  if (k === 'shift') { lockStep(); if (!(isDragon() && keys[' '])) edge.sl = true; }   // Shift = rasteira (com o Dragão + ESPAÇO continua trocando o alvo da mira)
   if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
@@ -905,11 +976,12 @@ function doStep() {
 }
 function stepInput() {
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
-  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = false; edge.ss = 0;
-  const me = myState();
-  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP, me.hz > 0 ? HEAL_SLOW : 1);
-  pending.push({ seq: inp.seq, dt: STEP, k, sm: me && me.hz > 0 ? HEAL_SLOW : 1 }); if (pending.length > 120) pending.shift();
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = false; edge.ss = 0;
+  const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
+  const can = !!me && snap.ph === 'live' && me.al && !me.dn && !(me.hz > 0) && !(me.ch >= 0);   // mesmas regras do servidor para iniciar a rasteira
+  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMotion(level, pred, pslide, k, inp.a, inp.sl, STEP, sm, can);
+  pending.push({ seq: inp.seq, dt: STEP, k, sm, a: inp.a, sl: inp.sl, can }); if (pending.length > 120) pending.shift();
   predictShots(inp);
   sendInput(inp);
 }
@@ -1151,6 +1223,8 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   if (moved > 0.25 && moved < 40) { st.la += angDiff(Math.atan2(y - st.ly, x - st.lx), st.la) * 0.35; st.mv += (1 - st.mv) * 0.3; }
   else { st.la += angDiff(ang, st.la) * 0.12; st.mv *= 0.78; }
   st.walk += Math.min(moved, 8) * 0.17; st.lx = x; st.ly = y;
+  const sliding = isMe ? (pslide.t > 0 && p.al !== 0) : p.sd > 0, sAng = isMe ? pslide.a : p.sa;
+  if (sliding) { st.la = sAng; st.mv = 1; if (!paused && Math.random() < 0.7) fx.parts.push({ k: 's', x: x - Math.cos(sAng) * 14, y: y - Math.sin(sAng) * 14, vx: -Math.cos(sAng) * 60 + (Math.random() - .5) * 90, vy: -Math.sin(sAng) * 60 + (Math.random() - .5) * 90, life: 0.22, sz: 3, col: '#cfc6a8' }); }
   st.recoil = Math.max(0, st.recoil - 0.12);
   const jacket = jacketOf(p.id, isMe);
   ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
@@ -1178,8 +1252,14 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     }
     ctx.restore();
   }
+  if (sliding) {   // riscos de velocidade atrás de quem desliza
+    ctx.save(); ctx.rotate(sAng); ctx.strokeStyle = 'rgba(235,228,205,.55)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (const [oy, len] of [[-9, 24], [0, 34], [9, 20]]) { ctx.beginPath(); ctx.moveTo(-14, oy); ctx.lineTo(-14 - len, oy); ctx.stroke(); }
+    ctx.restore();
+  }
   ctx.rotate(ang);
   if (healing) ctx.scale(0.94, 0.94);   // agachadinho enquanto se cura
+  if (sliding) ctx.scale(1.08, 0.86);   // corpo baixo e esticado na rasteira
   const swW = st.sw || 'FISTS', swSp = Math.min(1, (now - st.sw0) / swDur(p.w || 'FISTS')), swOn = swSp < 1;
   if (swOn && !p.dn && (!p.w || (WEAPONS[p.w] && WEAPONS[p.w].melee))) ctx.translate(swingLunge(swSp) * (p.w === 'SPEAR' ? 5 : p.w ? 8 : 6), 0);   // passada do corpo
   if (p.dn) {
@@ -1193,7 +1273,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   }
   // pernas estilo Hotline Miami: uma vai para frente e a outra para TRÁS, alternando; o pé que vem à frente levanta um pouco
   ctx.save(); ctx.rotate(angDiff(st.la, ang)); ctx.lineCap = 'round';
-  const stp = Math.sin(st.walk) * 10 * st.mv;
+  const stp = sliding ? 10 : Math.sin(st.walk) * 10 * st.mv;   // na rasteira: uma perna esticada à frente, a outra atrás
   for (const [s, o] of [[-1, stp], [1, -stp]]) {
     const fxp = 1.5 + o * 1.5, lift = 1 + Math.max(0, o) / 10 * 0.2;
     ctx.strokeStyle = OL; ctx.lineWidth = 8.4; ctx.beginPath(); ctx.moveTo(-1, s * 3.6); ctx.lineTo(fxp - 2, s * 5.2); ctx.stroke();
@@ -1250,8 +1330,19 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   }
   ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
   drawBody(p.sk, jacket, false);
+  drawBackWeapon(p);   // a outra arma do inventário fica nas costas
   ctx.save(); ctx.translate(2.5, 0); ctx.scale(0.8, 0.8); drawHead(p.sk); ctx.restore();
   ctx.restore();
+  ctx.restore();
+}
+// arma do outro espaço do inventário, pendurada nas costas (alça + arma na diagonal, reduzida se for comprida)
+function drawBackWeapon(p) {
+  const bw = p.iv && p.iv[1 - (p.se | 0)]; if (!bw) return;
+  const type = bw[0], e = ITEM_EXT[type] || [8, 30], len = (e[0] + e[1]) / CS, s = Math.max(0.42, Math.min(0.85, 36 / len)), cA = (e[1] - e[0]) / 2 / CS;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(18,14,10,.8)'; ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-3, -8.5); ctx.lineTo(1, 8.5); ctx.stroke();   // alça
+  ctx.translate(-7, 0); ctx.rotate(2.2); ctx.scale(s, s); ctx.translate(-cA, 0);
+  drawWeaponSprite(type);
   ctx.restore();
 }
 function drawCorpse(c) {
@@ -1368,8 +1459,12 @@ function render(now, dt) {
     if (!thrown && me && me.al) { const d = itemDist(type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
   }
   if (near) {
-    ctx.save(); ctx.font = '700 15px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.fillStyle = '#ffe600';
-    const t = `E · ${WEAPONS[near[3]].name}${near[4] ? ' (' + near[4] + ')' : ''}`; ctx.strokeText(t, near[1], near[2] - 32); ctx.fillText(t, near[1], near[2] - 32); ctx.restore();
+    const t = (WEAPONS[near[3]].name + (near[4] ? ' · ' + near[4] : '')).toUpperCase();
+    ctx.save(); ctx.font = '700 14px Rajdhani, sans-serif'; ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(t).width, bw = tw + 38, bx = near[1] - bw / 2, by = near[2] - 48;
+    rrect(ctx, bx, by, bw, 22, 2, 'rgba(11,12,10,.9)', 'rgba(226,169,59,.9)', 1.2);
+    rrect(ctx, bx + 3, by + 3, 16, 16, 2, '#e2a93b'); ctx.fillStyle = '#14120c'; ctx.textAlign = 'center'; ctx.fillText('E', bx + 11, by + 11.5);
+    ctx.fillStyle = '#e8e6d8'; ctx.textAlign = 'left'; ctx.fillText(t, bx + 25, by + 11.5); ctx.restore();
   }
   // mira a laser de quem segura o sniper
   const laser = (px, py, pa) => {
@@ -1435,6 +1530,19 @@ function render(now, dt) {
     }
     ctx.restore();
   }
+  // tetos: cobrem tudo que está dentro da casa (jogadores, armas, tiros) e somem quando EU estou dentro (ou a câmera, se estou espectando)
+  if (roofCv) {
+    const rs = level.m.roofs, vx = me && me.al ? pred.x : cam.x, vy = me && me.al ? pred.y : cam.y, pad = 14;
+    ctx.shadowBlur = 0;
+    for (let i = 0; i < rs.length; i++) {
+      const r = rs[i], x0 = r.x * TILE, y0 = r.y * TILE, w0 = r.w * TILE, h0 = r.h * TILE, inside = vx >= x0 && vx < x0 + w0 && vy >= y0 && vy < y0 + h0;
+      roofA[i] += ((inside ? 0 : 1) - roofA[i]) * Math.min(1, dt * 9);
+      if (roofA[i] < 0.02) continue;
+      const sx = Math.max(0, x0 - pad), sy = Math.max(0, y0 - pad), sw = Math.min(roofCv.width - sx, w0 + pad * 2), sh = Math.min(roofCv.height - sy, h0 + pad * 2);
+      ctx.globalAlpha = roofA[i]; ctx.drawImage(roofCv, sx, sy, sw, sh, sx, sy, sw, sh);
+    }
+    ctx.globalAlpha = 1;
+  }
   for (const q of fx.pops) {
     const k = 1 - q.t / 0.9; ctx.save(); ctx.globalAlpha = Math.min(1, q.t * 3);
     ctx.font = '400 20px Bungee, Impact, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.fillStyle = q.col;
@@ -1464,8 +1572,9 @@ function drawName(x, y, name, id) {
 }
 function drawHpBar(x, y, hp, mine) {
   const k = Math.max(0, Math.min(1, hp / MAX_HP)), w = 44;
-  ctx.fillStyle = 'rgba(10,0,20,.85)'; ctx.fillRect(x - w / 2 - 1.5, y - 49, w + 3, 8);
-  ctx.fillStyle = k > 0.3 ? (mine ? '#00e5ff' : '#ff2e97') : '#ffe600'; ctx.fillRect(x - w / 2, y - 47.5, w * k, 5);
+  ctx.fillStyle = 'rgba(8,9,8,.88)'; ctx.fillRect(x - w / 2 - 1.5, y - 49, w + 3, 7);
+  ctx.fillStyle = k > 0.3 ? (mine ? '#93aa5c' : '#c4372c') : '#e2a93b'; ctx.fillRect(x - w / 2, y - 47.5, w * k, 4);
+  ctx.fillStyle = 'rgba(8,9,8,.9)'; for (let i = 1; i < 4; i++) ctx.fillRect(x - w / 2 + w * i / 4 - 0.5, y - 47.5, 1, 4);
 }
 // barra de cura: barra verde carregando acima da cabeça
 function drawHealBar(x, y, hz, now) {
@@ -1493,9 +1602,15 @@ function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
   const lk = aimBotPoint(me); let cx = mouse.x, cy = mouse.y;
   if (lk) { cx = W / 2 + (lk.dx - cam.x) * Z; cy = H / 2 + (lk.dy - cam.y) * Z; }   // ESPAÇO: mira centrada no inimigo
-  ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 900); ctx.strokeStyle = empty ? '#ff2e97' : '#ffe600'; ctx.lineWidth = 2; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
-  ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.moveTo(-15, 0); ctx.lineTo(-5, 0); ctx.moveTo(5, 0); ctx.lineTo(15, 0); ctx.moveTo(0, -15); ctx.lineTo(0, -5); ctx.moveTo(0, 5); ctx.lineTo(0, 15); ctx.stroke(); ctx.restore();
-  if (lk && lk.nm) { ctx.save(); ctx.font = '700 13px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#ffe600'; ctx.strokeText(lk.nm, cx, cy + 30); ctx.fillText(lk.nm, cx, cy + 30); ctx.restore(); }
+  ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 900);
+  const col = empty ? '#c4372c' : '#e8e6d8'; ctx.lineCap = 'butt';
+  for (const lw of [4, 1.6]) {   // mira tática: quatro traços com vão no centro + ponto
+    ctx.strokeStyle = lw === 4 ? 'rgba(0,0,0,.6)' : col; ctx.lineWidth = lw; ctx.beginPath();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(dx * 6, dy * 6); ctx.lineTo(dx * 14, dy * 14); }
+    ctx.stroke();
+  }
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, 1.7, 0, TAU); ctx.fill(); ctx.restore();
+  if (lk && lk.nm) { ctx.save(); ctx.font = '700 13px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#e2a93b'; ctx.strokeText(lk.nm, cx, cy + 30); ctx.fillText(lk.nm, cx, cy + 30); ctx.restore(); }
 }
 
 /* -------------------------------------------------------------------- HUD */
@@ -1584,6 +1699,38 @@ function updateInv(me) {
     E.ammo.classList.toggle('low', gun && s[1] <= Math.ceil(wd.ammo * 0.25));
   }
 }
+// painel de vitais (canto inferior esquerdo): vida segmentada, cura e recarga da rasteira
+let vit = null;
+function ensureVitals() {
+  if (vit) return vit;
+  const hud = $('hud'); if (!hud) return null;
+  const el = document.createElement('div'); el.id = 'vitals'; el.className = 'hidden';
+  el.innerHTML = '<div class="v-top"><span class="v-name"></span><span class="v-tag">EM PÉ</span></div>' +
+    '<div class="v-hp"><i class="v-ghost"></i><i class="v-fill"></i></div>' +
+    '<div class="v-heal"><i></i></div>' +
+    '<div class="v-row"><b class="v-num">100</b><span class="v-unit">% VIDA</span>' +
+    '<span class="v-keys"><span class="v-key"><kbd>Q</kbd>CURAR</span><span class="v-key v-sl"><kbd>SHIFT</kbd>RASTEIRA</span></span></div>' +
+    '<div class="v-cd"><i></i></div>';
+  hud.appendChild(el);
+  vit = { el, name: el.querySelector('.v-name'), tag: el.querySelector('.v-tag'), fill: el.querySelector('.v-fill'), ghost: el.querySelector('.v-ghost'),
+    heal: el.querySelector('.v-heal'), healI: el.querySelector('.v-heal i'), num: el.querySelector('.v-num'), sl: el.querySelector('.v-sl'), cdI: el.querySelector('.v-cd i'), c: {} };
+  return vit;
+}
+function updateVitals(me) {
+  const V = ensureVitals(); if (!V) return;
+  const show = !!me && me.al && snap.ph !== 'lobby';
+  if (V.c.show !== show) { V.c.show = show; V.el.classList.toggle('hidden', !show); }
+  if (!show) return;
+  const pct = Math.max(0, Math.round((me.hp ?? MAX_HP) / MAX_HP * 100)), st = pct <= 30 ? 'low' : pct <= 60 ? 'mid' : 'ok';
+  if (V.c.pct !== pct) { V.c.pct = pct; V.fill.style.width = pct + '%'; V.ghost.style.width = pct + '%'; V.num.textContent = pct; }
+  if (V.c.st !== st) { V.c.st = st; V.el.classList.remove('ok', 'mid', 'low'); V.el.classList.add(st); V.tag.textContent = st === 'low' ? 'CRÍTICO' : st === 'mid' ? 'FERIDO' : 'EM PÉ'; }
+  const nm = me.nm || ''; if (V.c.nm !== nm) { V.c.nm = nm; V.name.textContent = nm; }
+  const hz = me.hz > 0 ? Math.round((1 - me.hz / HEAL_TIME) * 100) : -1;
+  if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
+  const ready = pslide.cd <= 0, cd = ready ? 100 : Math.round((1 - pslide.cd / SLIDE_CD) * 100);
+  if (V.c.cd !== cd) { V.c.cd = cd; V.cdI.style.width = cd + '%'; }
+  if (V.c.rd !== ready) { V.c.rd = ready; V.sl.classList.toggle('ready', ready); V.el.classList.toggle('cooling', !ready); }
+}
 function updateHud(now) {
   if (!snap) return;
   const me = myState();
@@ -1592,6 +1739,7 @@ function updateHud(now) {
   updateRoster();
   if (me) {
     updateInv(me);
+    updateVitals(me);
     { const sp = canSpec() ? specTarget() : null; $('spectate').classList.toggle('hidden', !sp); if (sp) { setText('specName', sp.nm); $('specName').style.color = jacketOf(sp.id); } }
 
   }
@@ -1835,9 +1983,6 @@ introLast = performance.now(); requestAnimationFrame(introFrame);
 
 /* ------------------------------------------------ MENU: música e personagem secreto */
 $('btnMusic').onclick = () => showTab('music');
-$('btnMaps').onclick = () => showTab('maps');
-$('btnMapsBack').onclick = () => showTab('play');
-buildMaps();
 $('btnMusicBack').onclick = () => showTab('play');
 
 // explosão de partículas douradas ao desbloquear

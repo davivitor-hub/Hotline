@@ -291,29 +291,104 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 .lcode{margin:0 0 6px;text-align:center;font:400 1.5rem var(--display);letter-spacing:6px;color:var(--yellow);cursor:pointer;text-shadow:2px 2px 0 var(--pink)}
 .lcode small{display:block;font:600 .7rem var(--body);letter-spacing:1px;color:#ffd1ea;text-shadow:none}
 
-/* seleção de fases */
-#mapList{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.mapcard{display:flex;flex-direction:column;gap:6px;padding:8px;text-align:left;color:var(--white);background:#0b0214;border:3px solid var(--violet);cursor:pointer;font:inherit;transition:transform .1s,box-shadow .1s,border-color .1s}
-.mapcard:hover{border-color:var(--cyan);transform:translate(-2px,-2px)}
-.mapcard[aria-pressed="true"]{border-color:var(--yellow);background:#2b0a44;box-shadow:4px 4px 0 var(--pink)}
-.mapcard canvas{display:block;width:100%;aspect-ratio:32/20;background:#14041f;border:2px solid #000;image-rendering:pixelated}
-.mapcard b{font:400 1rem var(--display);color:var(--cyan);letter-spacing:.3px}
-.mapcard[aria-pressed="true"] b{color:var(--yellow)}
-.mapcard small{color:#c9b3e0;font-weight:600;font-size:.85rem}
-.mapcard .rnd{display:grid;place-items:center;width:100%;aspect-ratio:32/20;background:repeating-linear-gradient(45deg,#1a0430 0 10px,#240838 10px 20px);border:2px solid #000;font:400 2.6rem var(--display);color:var(--pink);text-shadow:3px 3px 0 var(--cyan)}
-#menu .mapcard{cursor:pointer}
-@media (max-width:640px){#mapList{grid-template-columns:1fr}}
 
-/* spotify */
-.spbox{display:grid;gap:8px;margin-top:14px;padding:12px;background:#0b0214;border:3px solid #1ed760}
-.sprow{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.sprow b{font:400 1rem var(--display);color:#1ed760}
-#spState{font-weight:700;color:#c9b3e0;font-size:.9rem}
-#spState.ok{color:#1ed760}
-#spLink{width:100%;padding:9px 10px;background:#14041f;color:var(--white);border:2px solid var(--violet);border-radius:0;font-weight:600;user-select:text;-webkit-user-select:text;cursor:text}
-#spLink:focus{outline:none;border-color:#1ed760}
-#spBtn{color:#1ed760;border-color:#1ed760;padding:9px 14px}
-#spBtn:hover{background:#1ed760;color:#07120a;box-shadow:4px 4px 0 var(--pink)}
-#spBtn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none}
-#spNote{color:#c9b3e0;font-weight:600;font-size:.85rem}
-#menu #spBtn{cursor:pointer}
+/* ==========================================================================
+   HUD ESTILO AFTERMATH (survival tático): painéis escuros e foscos, linhas finas,
+   cantos marcados e tons de oliva / âmbar / vermelho-sangue. Só o HUD da partida.
+   ========================================================================== */
+#hud{--hb:rgba(11,12,10,.84);--hl:#3a3d35;--hl2:#6a6e60;--ht:#e4e2d3;--hd:#8f9281;--ha:#e2a93b;--hg:#93aa5c;--hr:#c4372c;--hf:var(--body);font-variant-numeric:tabular-nums}
+#vitals,#roster,#invBar .slot,#scoreboard .side,#scoreboard .mid,#spectate,#netHud{
+  background:var(--hb);border:1px solid var(--hl);border-radius:0;box-shadow:0 2px 14px rgba(0,0,0,.5);color:var(--ht);
+  font-family:var(--hf);text-transform:uppercase;letter-spacing:.08em;transform:none}
+/* cantos marcados (âmbar) */
+#vitals::before,#roster::before,#invBar .slot.active::before{content:'';position:absolute;left:-1px;top:-1px;width:10px;height:10px;border-left:2px solid var(--ha);border-top:2px solid var(--ha)}
+#vitals::after,#roster::after,#invBar .slot.active::after{content:'';position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-right:2px solid var(--ha);border-bottom:2px solid var(--ha)}
+#hud.inlobby #vitals{display:none}
+
+/* ---- vitais (canto inferior esquerdo) ---- */
+#vitals{position:absolute;left:20px;bottom:20px;width:318px;padding:10px 12px 9px;display:grid;gap:6px}
+#vitals .v-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+#vitals .v-name{font:700 1rem var(--hf);letter-spacing:.14em;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#vitals .v-tag{font:700 .68rem var(--hf);letter-spacing:.22em;color:var(--hg)}
+#vitals.mid .v-tag{color:var(--ha)}
+#vitals.low .v-tag{color:var(--hr);animation:blink .6s steps(2) infinite}
+#vitals .v-hp{position:relative;height:16px;background:#060706;border:1px solid var(--hl)}
+#vitals .v-hp i{position:absolute;left:0;top:0;bottom:0;display:block}
+#vitals .v-ghost{background:rgba(255,255,255,.5);transition:width .7s ease .3s}
+#vitals .v-fill{background:var(--hg);transition:width .12s linear,background .2s}
+#vitals.mid .v-fill{background:var(--ha)}
+#vitals.low .v-fill{background:var(--hr);animation:blink .7s steps(2) infinite}
+#vitals .v-hp::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0,transparent calc(10% - 2px),#060706 calc(10% - 2px),#060706 10%)}
+#vitals .v-heal{display:none;height:4px;background:#060706;border:1px solid var(--hl)}
+#vitals .v-heal.on{display:block}
+#vitals .v-heal i{display:block;height:100%;width:0;background:#7dff8a}
+#vitals .v-row{display:flex;align-items:baseline;gap:8px}
+#vitals .v-num{font:700 2.2rem/1 var(--hf);letter-spacing:0}
+#vitals .v-unit{font:700 .7rem var(--hf);letter-spacing:.2em;color:var(--hd)}
+#vitals .v-keys{margin-left:auto;display:flex;gap:12px}
+#vitals .v-key{display:flex;align-items:center;gap:6px;font:700 .68rem var(--hf);letter-spacing:.14em;color:var(--hd);white-space:nowrap}
+#vitals kbd{padding:1px 5px;background:transparent;border:1px solid var(--hl2);color:var(--ht);font:700 .66rem var(--hf);letter-spacing:.06em}
+#vitals .v-sl.ready{color:var(--ha)}
+#vitals .v-sl.ready kbd{border-color:var(--ha);color:var(--ha)}
+#vitals .v-cd{height:3px;background:#060706;border:1px solid var(--hl)}
+#vitals .v-cd i{display:block;height:100%;background:var(--hl2);transition:width .1s linear}
+#vitals:not(.cooling) .v-cd i{background:var(--ha)}
+
+/* ---- armas (canto inferior direito): a da mão em destaque, a outra fica nas costas ---- */
+#invBar{left:auto;right:20px;bottom:20px;transform:none;flex-direction:column;align-items:flex-end;gap:6px}
+.slot{width:268px;height:62px;display:grid;grid-template-columns:30px 1fr auto;grid-template-rows:1fr 1fr;grid-template-areas:"k img sa" "k sn sa";align-items:center;gap:0 10px;
+  padding:5px 12px 5px 8px;opacity:.55;filter:none;border-left:3px solid var(--hl2)!important;transform:none;transition:opacity .15s,background .15s,border-color .15s}
+.slot.active{opacity:1;filter:none;background:rgba(22,23,18,.94);border-left-color:var(--ha)!important;transform:none;box-shadow:0 2px 14px rgba(0,0,0,.55)}
+.slot.empty{opacity:.32}
+.slot .k{grid-area:k;position:static;justify-self:center;display:grid;place-items:center;width:24px;height:24px;border:1px solid var(--hl2);color:var(--hd);font:700 .8rem var(--hf);letter-spacing:0}
+.slot.active .k{background:var(--ha);border-color:var(--ha);color:#14120c}
+.slot img{grid-area:img;justify-self:start;align-self:end;max-width:150px;max-height:30px;filter:drop-shadow(0 1px 2px #000)}
+.slot .sn{grid-area:sn;align-self:start;font:700 .76rem var(--hf);letter-spacing:.14em;color:var(--hd)}
+.slot.active .sn{color:var(--ht)}
+.slot:not(.active):not(.empty) .sn::after{content:' · NAS COSTAS';font-weight:600;font-size:.64rem;letter-spacing:.1em}
+.slot .sa{grid-area:sa;font:700 1.55rem/1 var(--hf);letter-spacing:.02em;color:var(--ha);min-width:3.4ch;text-align:right}
+.slot .sa.low{color:var(--hr)}
+
+/* ---- placar, lista de jogadores, rede, espectador ---- */
+#scoreboard{font-family:var(--hf)}
+#scoreboard .side{border-top:2px solid currentColor;padding:5px 14px;gap:10px}
+#scoreboard .side b{font:700 1.9rem/1 var(--hf);letter-spacing:0}
+#scoreboard .side span{font:700 .78rem var(--hf);letter-spacing:.14em}
+#scoreboard .me{color:var(--hg)}
+#scoreboard .en{color:var(--hr)}
+#scoreboard .mid{color:var(--ha);border-top:2px solid var(--ha);border-bottom:1px solid var(--hl)}
+#scoreboard .mid span{font:700 .78rem var(--hf);letter-spacing:.16em}
+#scoreboard .mid small{font:600 .7rem var(--hf);letter-spacing:.14em;color:var(--hd)}
+#roster{padding:8px 10px;border-left:3px solid var(--ha);gap:2px}
+.rhead{font:700 .7rem var(--hf);letter-spacing:.18em;color:var(--ha);border-bottom:1px solid var(--hl);padding-bottom:4px;margin-bottom:3px}
+.rrow{font:700 .85rem var(--hf);letter-spacing:.08em}
+.rrow.me{background:rgba(147,170,92,.14)}
+.rrow i{border-radius:0;border:1px solid #000;width:10px;height:10px}
+.rrow small{color:var(--hd)}
+.rrow b{font:700 1rem var(--hf);color:var(--ha)}
+#netHud{padding:3px 8px;font:700 .72rem var(--hf);letter-spacing:.14em;color:var(--hd);text-shadow:none}
+#spectate{border-left:3px solid var(--ha);box-shadow:0 2px 14px rgba(0,0,0,.5);gap:12px}
+#spectate small{font:700 .7rem var(--hf);letter-spacing:.22em;color:var(--hd)}
+#spectate b{font:700 1.15rem var(--hf);letter-spacing:.12em}
+#spectate .sh{color:var(--hd);font:700 .75rem var(--hf);letter-spacing:.1em}
+
+/* ---- avisos grandes ---- */
+#banner h2{font:700 clamp(38px,7vw,84px)/1 var(--hf,var(--body));letter-spacing:.2em;text-transform:uppercase;color:#e8e6d8;text-shadow:0 2px 0 #000,0 0 28px rgba(0,0,0,.7);transform:none;animation:bnIn .3s ease both}
+#banner h2::after{content:'';display:block;height:3px;width:min(300px,56vw);margin:14px auto 0;background:#e2a93b}
+#banner p{font:700 1.1rem var(--body);letter-spacing:.2em;text-transform:uppercase;color:#e2a93b;text-shadow:0 1px 0 #000}
+#banner.win h2{color:#f0dc92;text-shadow:0 2px 0 #000,0 0 28px rgba(0,0,0,.7)}
+#banner.lose h2{color:#d9594c;text-shadow:0 2px 0 #000,0 0 28px rgba(0,0,0,.7)}
+#banner.lose h2::after{background:#c4372c}
+@keyframes bnIn{from{opacity:0;letter-spacing:.5em}to{opacity:1;letter-spacing:.2em}}
+
+@media (max-width:640px){
+  #vitals{left:8px;bottom:8px;width:218px;padding:8px 9px}
+  #vitals .v-num{font-size:1.7rem}
+  #vitals .v-key:first-child{display:none}
+  #vitals .v-name{max-width:120px}
+  #invBar{right:8px;bottom:8px;gap:4px}
+  .slot{width:170px;height:52px;padding:4px 8px 4px 6px;grid-template-columns:24px 1fr auto;gap:0 6px}
+  .slot img{max-width:80px;max-height:22px}
+  .slot .sa{font-size:1.15rem}
+  .slot:not(.active):not(.empty) .sn::after{content:''}
+}

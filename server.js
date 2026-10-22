@@ -93,8 +93,8 @@ function newCode() {
   }
 }
 // pub = sala pública (entra na "partida rápida"); privada só entra quem tem o código
-function createRoom(pub) {
-  const room = { code: newCode(), pub: !!pub, game: new S.Game(), clients: new Set() };
+function createRoom(pub, map) {
+  const room = { code: newCode(), pub: !!pub, game: new S.Game({ map }), clients: new Set() };
   rooms.set(room.code, room);
   console.log(`sala ${room.code} criada (${room.pub ? 'pública' : 'privada'}); salas: ${rooms.size}`);
   return room;
@@ -154,7 +154,7 @@ wss.on('connection', (ws) => {
       }
       if (!room) {
         if (rooms.size >= MAX_ROOMS) return send(ws, { type: 'busy' });
-        room = createRoom(mode === 'quick');
+        room = createRoom(mode === 'quick', mode === 'create' && S.MAPS[m.map] ? m.map : null);
       }
       if (room.game.count >= S.MAX_PLAYERS) return send(ws, { type: 'full' });
 
@@ -198,6 +198,7 @@ wss.on('connection', (ws) => {
         hl: m.hl ? 1 : 0,
         tc: m.tc ? 1 : 0,                                // segurando o botão de arremesso (carga da lança)
         sw: m.sw ? 1 : 0,                                // scroll: alterna de arma
+        sl: m.sl ? 1 : 0,                                // Shift: rasteira
         ss: Math.max(0, Math.min(2, Number(m.ss) | 0))   // teclas 1/2: escolhe o espaço
       }, Math.max(0, Math.min(0.05, dt)));
       return;
