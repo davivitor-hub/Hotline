@@ -47,6 +47,7 @@
       <h2>Pausado</h2>
       <button id="btnResume" class="btn primary">Voltar ao jogo</button>
       <button id="btnOptsPause" class="btn" type="button">Opções</button>
+      <button id="btnTouchPause" class="btn touchonly" type="button">Ajustar controles</button>
       <button id="btnLeave" class="btn danger">Sair da partida</button>
     </div>
   </div>
@@ -121,6 +122,11 @@
       </div>
 
       <div id="optGeneral">
+        <div class="osec" id="optTouchSec">
+          <h3>Controles de toque</h3>
+          <div class="orow"><label class="chk"><input type="checkbox" id="optTouchFixed"> Travar analógicos no lugar</label></div>
+          <button id="btnTouchEdit" class="btn" type="button">Ajustar controles</button>
+        </div>
         <div class="osec">
           <h3>Tela</h3>
           <div class="orow"><label class="chk"><input type="checkbox" id="optShake"> Tremor de tela</label></div>

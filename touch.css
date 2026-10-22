@@ -21,13 +21,14 @@ body.touch #btnOptions small::after{content:'tremor, tela e som';font-size:.8rem
 #tcR{right:0;width:54%}
 
 /* sticks: "fantasma" parado + base que aparece onde o dedo toca */
-.tc-ghost,.tc-base{position:absolute;left:0;top:0;width:116px;height:116px;margin:-58px 0 0 -58px;border-radius:50%;pointer-events:none;
+/* posição (translate) e tamanho (--k) vêm do touch.js: tela "Ajustar controles" */
+#tc{--op:1}
+.tc-ghost,.tc-base{position:absolute;left:0;top:0;width:calc(116px*var(--k,1));height:calc(116px*var(--k,1));margin:calc(-58px*var(--k,1)) 0 0 calc(-58px*var(--k,1));border-radius:50%;pointer-events:none;
   border:2px solid rgba(228,226,211,.5);background:rgba(11,12,10,.38)}
-.tc-ghost{opacity:.55}
-.tc-ghost i,.tc-base i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
+.tc-ghost{opacity:calc(.55*var(--op))}
+.tc-base{opacity:var(--op)}
+.tc-ghost i,.tc-base i{position:absolute;left:50%;top:50%;width:calc(46px*var(--k,1));height:calc(46px*var(--k,1));margin:calc(-23px*var(--k,1)) 0 0 calc(-23px*var(--k,1));border-radius:50%;
   background:rgba(228,226,211,.28);border:2px solid rgba(228,226,211,.7)}
-#tcGL{left:calc(112px + var(--sl));top:auto;bottom:calc(88px + var(--sb));transform:none}
-#tcGR{left:auto;right:calc(168px + var(--sr));top:auto;bottom:calc(88px + var(--sb));transform:none}
 .tc-ghost.aim,.tc-base.aim{border-color:rgba(196,55,44,.65)}
 .tc-ghost.aim i,.tc-base.aim i{background:rgba(196,55,44,.3);border-color:rgba(196,55,44,.85)}
 .tc-base{display:none}
@@ -35,16 +36,14 @@ body.touch #btnOptions small::after{content:'tremor, tela e som';font-size:.8rem
 .tc-base.aim.fire{border-color:#e2a93b;background:rgba(226,169,59,.14)}
 .tc-base.aim.fire i{background:rgba(226,169,59,.55);border-color:#e2a93b}
 
-/* botões de ação (canto inferior direito) */
-.tc-btns{position:absolute;right:calc(10px + var(--sr));bottom:calc(10px + var(--sb));display:grid;grid-template-columns:repeat(2,56px);grid-auto-rows:56px;gap:8px;touch-action:none}
-.tc-btn{position:relative;display:grid;place-items:center;padding:0;color:#e4e2d3;background:rgba(11,12,10,.62);border:1px solid #6a6e60;border-radius:0;
-  font:700 .62rem/1 var(--body);letter-spacing:.1em;text-transform:uppercase;touch-action:none;-webkit-appearance:none;appearance:none}
+/* botões de ação: posição, tamanho e fonte vêm do touch.js (cada um é livre na tela) */
+.tc-btns{position:absolute;inset:0;pointer-events:none;touch-action:none}
+.tc-btn{position:absolute;left:0;top:0;transform:translate(-50%,-50%);pointer-events:auto;display:grid;place-items:center;padding:0;color:#e4e2d3;background:rgba(11,12,10,.62);border:1px solid #6a6e60;border-radius:0;
+  opacity:var(--op);font:700 .62rem/1 var(--body);letter-spacing:.1em;text-transform:uppercase;touch-action:none;-webkit-appearance:none;appearance:none}
 .tc-btn::before{content:'';position:absolute;left:-1px;top:-1px;width:8px;height:8px;border-left:2px solid #e2a93b;border-top:2px solid #e2a93b}
-.tc-btn.big{grid-column:1 / span 2;height:56px;font-size:.78rem}
-.tc-btn.on{background:#e2a93b;border-color:#e2a93b;color:#14120c}
-.tc-btn.lock{grid-column:1 / span 2;height:44px;border-color:#e2a93b;color:#e2a93b}
+.tc-btn.on{opacity:1;background:#e2a93b;border-color:#e2a93b;color:#14120c}
+.tc-btn.lock{border-color:#e2a93b;color:#e2a93b}
 .tc-btn.lock.on{color:#14120c}
-.tc-btns{grid-auto-flow:row;direction:ltr}
 
 /* pausa / tela cheia (topo direito) */
 .tc-top{position:absolute;top:calc(8px + var(--st));right:calc(10px + var(--sr));display:flex;gap:8px}
@@ -104,7 +103,56 @@ body.touch #pause .btn,body.touch #lobby .btn{min-height:46px}
 @media (max-height:380px){
   body.touch #vitals{width:190px}
   body.touch #roster{top:calc(74px + var(--st))}
-  body.touch .tc-btns{grid-template-columns:repeat(2,50px);grid-auto-rows:50px;gap:6px}
-  body.touch .tc-btn.big{height:50px}
-  #tcGR{right:calc(150px + var(--sr))}
+}
+
+/* ------------------------------------------------------------ botões só de toque (Opções / Pausa) */
+.touchonly,#optTouchSec{display:none}
+body.touch .touchonly{display:block}
+body.touch #optTouchSec{display:grid;gap:8px}
+
+/* ------------------------------------------------------------ TELA "AJUSTAR CONTROLES" */
+#tcEdit{position:fixed;inset:0;z-index:55;background:rgba(10,0,20,.92);touch-action:none;user-select:none;-webkit-user-select:none;cursor:default}
+.te-grid{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(rgba(228,226,211,.07) 1px,transparent 1px) 0 0/40px 40px,linear-gradient(90deg,rgba(228,226,211,.07) 1px,transparent 1px) 0 0/40px 40px}
+.te-stage{position:absolute;inset:0}
+.te-node{position:absolute;transform:translate(-50%,-50%);display:grid;place-items:center;color:#e4e2d3;background:rgba(11,12,10,.78);
+  border:2px dashed #6a6e60;font:700 .62rem/1.1 var(--body);letter-spacing:.1em;text-align:center;text-transform:uppercase;touch-action:none;cursor:grab}
+.te-node span{pointer-events:none;padding:0 4px}
+.te-node.stick{border-radius:50%;border-color:rgba(228,226,211,.65)}
+.te-node.stick.aim{border-color:rgba(196,55,44,.9)}
+.te-node.stick i{position:absolute;left:50%;top:50%;width:40%;height:40%;margin:-20% 0 0 -20%;border-radius:50%;pointer-events:none;
+  background:rgba(228,226,211,.22);border:2px solid rgba(228,226,211,.6)}
+.te-node.stick.aim i{background:rgba(196,55,44,.3);border-color:rgba(196,55,44,.85)}
+.te-node.stick span{position:absolute;left:0;right:0;bottom:9%;padding:0}
+.te-node.sel{border-style:solid;border-color:#e2a93b;background:rgba(226,169,59,.2);box-shadow:0 0 0 3px rgba(226,169,59,.35)}
+.te-bar{position:absolute;top:calc(8px + var(--st));left:50%;transform:translateX(-50%);display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 14px;
+  max-width:calc(100% - 20px);padding:6px 12px;background:rgba(11,12,10,.95);border:1px solid #6a6e60;border-left:3px solid #e2a93b;
+  color:#e4e2d3;font:700 .7rem var(--body);letter-spacing:.12em;text-transform:uppercase}
+.te-row{display:flex;align-items:center;gap:8px}
+.te-row b{display:inline-block;min-width:8.5em;color:#e2a93b;font-weight:700}
+.te-row input[type=range]{width:110px;accent-color:#e2a93b}
+.te-row output{min-width:3.6ch;color:#e2a93b;text-align:right}
+.te-chk{display:flex;align-items:center;gap:6px;cursor:pointer}
+.te-chk input{width:18px;height:18px;accent-color:#e2a93b}
+.te-acts{display:flex;gap:6px}
+.te-acts button,.te-rot button{min-height:36px;padding:6px 12px;font:700 .72rem var(--body);letter-spacing:.12em;text-transform:uppercase;color:#e4e2d3;background:transparent;border:1px solid #6a6e60;border-radius:0;cursor:pointer}
+.te-acts button.pri{background:#e2a93b;border-color:#e2a93b;color:#14120c}
+.te-acts button:active,.te-rot button:active{background:#e2a93b;border-color:#e2a93b;color:#14120c}
+.te-hint{position:absolute;left:50%;bottom:calc(6px + var(--sb));transform:translateX(-50%);white-space:nowrap;pointer-events:none;
+  font:700 .58rem var(--body);letter-spacing:.14em;text-transform:uppercase;color:#8f9281}
+.te-rot{position:absolute;inset:0;display:none;place-items:center;text-align:center;background:var(--ink);color:#e4e2d3}
+.te-rot b{display:block;font:400 1.6rem var(--display);color:var(--yellow);letter-spacing:.04em;margin-bottom:10px}
+.te-rot small{display:block;margin-bottom:16px;font:700 .9rem var(--body);letter-spacing:.18em;text-transform:uppercase;color:#c9b3e0}
+@media (orientation:portrait){
+  .te-stage,.te-bar,.te-hint,.te-grid{display:none}
+  .te-rot{display:grid}
+}
+
+/* telas baixas (celular deitado pequeno): barra do editor mais compacta */
+@media (max-height:400px){
+  .te-bar{gap:4px 10px;padding:4px 10px;font-size:.6rem}
+  .te-row b{min-width:6em}
+  .te-row input[type=range]{width:84px}
+  .te-acts button{min-height:30px;padding:4px 9px;font-size:.62rem}
+  .te-hint{display:none}
 }
