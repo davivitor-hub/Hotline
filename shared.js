@@ -259,18 +259,18 @@
     m.spawn(3, 3); m.spawn(12, 3); m.spawn(4, 16); m.spawn(11, 10);
   });
 
-  // ---- CIDADE GRANDE (48x30): ruas com carros, calçadas, praça com fonte no centro e 10 construções ENTRÁVEIS.
-  // Os tetos cobrem as casas por fora e somem quando você entra (como no Goose Goose Duck). Só a metade esquerda é desenhada; o resto é o espelho de 180°.
-  buildMap('CITY', 'CIDADE GRANDE', { base: 'sidewalk', wall: '#e2d6c2', wallTop: '#f6eddc', edge: '#4a3f33', out: '#12141a', W: 48, H: 30 }, m => {
-    m.rect(0, 0, 47, 0); m.rect(0, 0, 0, 29);                       // muro da cidade
-    // ruas: vertical (x 11-13) e horizontais (y 9-11 e 18-20), faixa tracejada no meio, cruzamentos lisos e faixas de pedestre
-    m.floor(11, 1, 13, 28, 'road'); m.floor(1, 9, 23, 11, 'road'); m.floor(1, 18, 23, 20, 'road');
-    m.floor(12, 1, 12, 28, 'lanev'); m.floor(1, 10, 23, 10, 'laneh'); m.floor(1, 19, 23, 19, 'laneh');
-    m.floor(11, 9, 13, 11, 'road'); m.floor(11, 18, 13, 20, 'road');
-    m.floor(11, 8, 13, 8, 'zebrav'); m.floor(11, 12, 13, 12, 'zebrav');
-    m.floor(10, 9, 10, 11, 'zebrah'); m.floor(14, 9, 14, 11, 'zebrah'); m.floor(10, 18, 10, 20, 'zebrah'); m.floor(14, 18, 14, 20, 'zebrah');
+  // ---- CIDADE GRANDE (60x38): ruas com carros, calçadas, praça com fonte no centro e 10 construções ENTRÁVEIS (casas grandes, com espaço pra andar).
+  // Os tetos cobrem as casas por fora e somem quando você entra (como no Goose Goose Duck). O que se define aqui é espelhado em 180°, então ruas que vão dos dois lados são definidas nas duas faixas.
+  buildMap('CITY', 'CIDADE GRANDE', { base: 'sidewalk', wall: '#e2d6c2', wallTop: '#f6eddc', edge: '#4a3f33', out: '#12141a', W: 60, H: 38 }, m => {
+    m.rect(0, 0, 59, 0); m.rect(0, 0, 0, 37);                       // muro da cidade
+    // ruas: vertical (x 14-16) e horizontais (y 11-13 e 24-26), faixa tracejada no meio, cruzamentos lisos e faixas de pedestre
+    m.floor(14, 1, 16, 36, 'road'); m.floor(1, 11, 29, 13, 'road'); m.floor(1, 24, 29, 26, 'road');
+    m.floor(15, 1, 15, 36, 'lanev'); m.floor(1, 12, 29, 12, 'laneh'); m.floor(1, 25, 29, 25, 'laneh');
+    m.floor(14, 11, 16, 13, 'road'); m.floor(14, 24, 16, 26, 'road');
+    m.floor(14, 10, 16, 10, 'zebrav'); m.floor(14, 14, 16, 14, 'zebrav'); m.floor(14, 23, 16, 23, 'zebrav'); m.floor(14, 27, 16, 27, 'zebrav');
+    m.floor(13, 11, 13, 13, 'zebrah'); m.floor(17, 11, 17, 13, 'zebrah'); m.floor(13, 24, 13, 26, 'zebrah'); m.floor(17, 24, 17, 26, 'zebrah');
     // parque central
-    m.floor(14, 12, 23, 17, 'grass'); m.floor(14, 14, 23, 15, 'path');
+    m.floor(17, 14, 29, 23, 'grass'); m.floor(17, 18, 29, 19, 'path');
     // construção: paredes + interior livre + portas + piso + teto
     const house = (x1, y1, x2, y2, doors, floor, roofCol) => {
       m.rect(x1, y1, x2, y2, 1); m.rect(x1 + 1, y1 + 1, x2 - 1, y2 - 1, 0);
@@ -278,46 +278,51 @@
       m.floor(x1 + 1, y1 + 1, x2 - 1, y2 - 1, floor);
       m.roof(x1, y1, x2, y2, roofCol);
     };
-    // 1) CASA (canto superior esquerdo)
-    house(2, 2, 8, 7, [[5, 7]], 'wood', '#a8473a');
-    m.rug(4, 4, 3, 2, '#b8574a');
-    m.furn(3, 3, 2, 2, 'bed'); m.furn(5, 3, 1, 1, 'nightstand'); m.furn(6, 3, 2, 1, 'wardrobe');
-    m.furn(3, 6, 2, 1, 'sofa'); m.furn(7, 6, 1, 1, 'plant');
-    // 2) LOJA
-    house(15, 2, 22, 7, [[18, 7]], 'ktile', '#2f6f9f');
-    m.furn(16, 3, 3, 1, 'counter'); m.furn(19, 3, 1, 1, 'fridge'); m.furn(20, 3, 2, 1, 'shelf');
-    m.furn(16, 5, 2, 1, 'shelf'); m.furn(19, 5, 2, 1, 'shelf'); m.furn(21, 6, 1, 1, 'plant');
-    // 3) APARTAMENTO (2 cômodos, 2 portas externas + porta interna)
-    house(2, 12, 9, 17, [[5, 12], [9, 15]], 'wood', '#6b7b8f');
-    m.rect(6, 13, 6, 16, 1); m.rect(6, 14, 6, 14, 2);
-    m.floor(3, 13, 5, 16, 'carpet'); m.floor(7, 13, 8, 16, 'tile');
-    m.furn(3, 15, 2, 2, 'bed'); m.furn(5, 16, 1, 1, 'nightstand'); m.furn(3, 13, 2, 1, 'desk');
-    m.furn(7, 13, 2, 1, 'tub'); m.furn(8, 16, 1, 1, 'toilet'); m.furn(7, 16, 1, 1, 'sink');
-    // 4) RESTAURANTE
-    house(2, 22, 8, 27, [[5, 22], [8, 26]], 'ktile', '#3f6b4a');
-    m.rug(4, 23, 3, 1, '#c9905a');
-    m.furn(3, 24, 2, 2, 'dining'); m.furn(6, 24, 2, 2, 'dining'); m.furn(3, 26, 3, 1, 'counter');
-    // 5) ARMAZÉM
-    house(15, 22, 22, 27, [[18, 22], [15, 25]], 'deck', '#8a6a3a');
-    m.furn(20, 23, 1, 1, 'crate'); m.furn(21, 23, 1, 1, 'crate'); m.furn(21, 24, 1, 1, 'crate');
-    m.furn(17, 26, 1, 1, 'crate'); m.furn(18, 26, 1, 1, 'crate'); m.furn(20, 26, 1, 1, 'barrel');
+    // 1) CASA (topo esquerdo): quarto + sala, 3 portas (uma interna)
+    house(2, 2, 12, 9, [[9, 9], [12, 6]], 'wood', '#a8473a');
+    m.rect(7, 3, 7, 8, 1); m.rect(7, 6, 7, 6, 2); m.floor(3, 3, 6, 8, 'carpet');
+    m.rug(5, 5, 2, 2, '#b8574a');
+    m.furn(3, 3, 2, 3, 'bed'); m.furn(5, 3, 1, 1, 'nightstand'); m.furn(6, 3, 1, 1, 'plant'); m.furn(3, 8, 2, 1, 'desk');
+    m.furn(8, 3, 3, 1, 'sofa'); m.furn(11, 3, 1, 2, 'bookshelf'); m.furn(9, 5, 2, 2, 'coffee'); m.furn(11, 8, 1, 1, 'plant');
+    // 2) LOJA (topo, ao lado da avenida)
+    house(18, 2, 29, 9, [[23, 9], [18, 6]], 'ktile', '#2f6f9f');
+    m.furn(19, 3, 4, 1, 'counter'); m.furn(23, 3, 1, 1, 'fridge'); m.furn(25, 3, 3, 1, 'shelf');
+    m.furn(20, 5, 3, 1, 'shelf'); m.furn(25, 5, 3, 1, 'shelf'); m.furn(28, 8, 1, 1, 'plant'); m.furn(19, 8, 1, 1, 'plant');
+    // 3) APARTAMENTO (meio esquerdo): quarto + banheiro (a porta do banheiro é interna: o teto esconde ela por fora)
+    house(2, 15, 12, 22, [[6, 15], [10, 22], [12, 18]], 'wood', '#6b7b8f');
+    m.rect(7, 16, 7, 21, 1); m.rect(7, 18, 7, 18, 2);
+    m.floor(3, 16, 6, 21, 'carpet'); m.floor(8, 16, 11, 21, 'tile');
+    m.furn(3, 16, 2, 3, 'bed'); m.furn(5, 16, 1, 1, 'nightstand'); m.furn(3, 21, 2, 1, 'desk'); m.furn(5, 21, 2, 1, 'wardrobe');
+    m.furn(8, 16, 3, 1, 'tub'); m.furn(11, 16, 1, 1, 'toilet'); m.furn(11, 17, 1, 1, 'sink');
+    m.furn(8, 21, 1, 1, 'washer'); m.furn(9, 21, 1, 1, 'washer'); m.furn(11, 21, 1, 1, 'plant'); m.furn(9, 19, 2, 1, 'bench');
+    // 4) RESTAURANTE (baixo esquerdo)
+    house(2, 28, 12, 35, [[7, 28], [12, 31]], 'ktile', '#3f6b4a');
+    m.rug(4, 30, 5, 1, '#c9905a');
+    m.furn(3, 29, 4, 1, 'counter'); m.furn(8, 29, 1, 1, 'fridge');
+    m.furn(4, 32, 2, 2, 'dining'); m.furn(7, 32, 2, 2, 'dining'); m.furn(10, 32, 2, 2, 'dining');
+    m.furn(3, 34, 1, 1, 'plant'); m.furn(11, 34, 1, 1, 'plant');
+    // 5) ARMAZÉM (baixo, ao lado da avenida)
+    house(18, 28, 29, 35, [[23, 28], [18, 31]], 'deck', '#8a6a3a');
+    m.furn(20, 30, 1, 1, 'crate'); m.furn(21, 30, 1, 1, 'crate'); m.furn(20, 31, 1, 1, 'crate');
+    m.furn(26, 29, 1, 1, 'crate'); m.furn(27, 29, 1, 1, 'crate'); m.furn(27, 30, 1, 1, 'crate');
+    m.furn(25, 33, 1, 1, 'barrel'); m.furn(26, 33, 1, 1, 'barrel'); m.furn(19, 34, 1, 1, 'crate'); m.furn(20, 34, 1, 1, 'crate'); m.furn(22, 34, 3, 1, 'pipes');
     // praça
-    m.furn(22, 13, 4, 4, 'fountain');
-    m.furn(15, 12, 2, 2, 'tree'); m.furn(15, 16, 2, 2, 'tree');
-    m.furn(19, 12, 2, 1, 'bench'); m.furn(19, 17, 2, 1, 'bench');
-    m.furn(14, 13, 1, 1, 'lamp'); m.furn(14, 16, 1, 1, 'lamp');
+    m.furn(28, 17, 4, 4, 'fountain');
+    m.furn(18, 15, 2, 2, 'tree'); m.furn(18, 21, 2, 2, 'tree');
+    m.furn(22, 15, 2, 1, 'bench'); m.furn(22, 22, 2, 1, 'bench');
+    m.furn(17, 17, 1, 1, 'lamp'); m.furn(17, 20, 1, 1, 'lamp');
     // calçadas
-    m.furn(9, 2, 2, 2, 'tree'); m.furn(10, 5, 1, 1, 'lamp'); m.furn(10, 12, 1, 1, 'lamp'); m.furn(10, 17, 1, 1, 'lamp');
-    m.furn(14, 2, 1, 1, 'lamp'); m.furn(23, 2, 1, 1, 'lamp'); m.furn(23, 24, 1, 1, 'lamp'); m.furn(14, 22, 1, 1, 'lamp');
-    m.furn(9, 22, 2, 2, 'tree'); m.furn(10, 26, 1, 1, 'lamp'); m.furn(1, 28, 2, 1, 'dumpster'); m.furn(1, 8, 2, 1, 'dumpster');
-    // carros e ônibus (cobertura nas ruas)
-    m.furn(11, 3, 1, 2, 'car', { col: '#d0463c' }); m.furn(13, 6, 1, 2, 'car', { col: '#e8c14a' });
-    m.furn(11, 24, 1, 2, 'car', { col: '#3a7bd5' }); m.furn(13, 26, 1, 2, 'car', { col: '#f2f2f2' });
-    m.furn(4, 9, 2, 1, 'car', { col: '#2fa36b' }); m.furn(7, 11, 2, 1, 'car', { col: '#b46cd8' });
-    m.furn(16, 9, 2, 1, 'car', { col: '#ff8a3a' }); m.furn(19, 11, 2, 1, 'car', { col: '#5ad4ee' });
-    m.furn(14, 20, 4, 1, 'bus', { col: '#e8a02a' }); m.furn(8, 20, 2, 1, 'car', { col: '#3a7bd5' });
-    m.furn(21, 18, 2, 1, 'car', { col: '#e8c14a' }); m.furn(3, 18, 2, 1, 'car', { col: '#d0463c' });
-    m.spawn(9, 8); m.spawn(12, 14); m.spawn(3, 10); m.spawn(18, 19);
+    m.furn(13, 9, 1, 1, 'lamp'); m.furn(17, 9, 1, 1, 'lamp'); m.furn(13, 22, 1, 1, 'lamp'); m.furn(17, 28, 1, 1, 'lamp'); m.furn(13, 28, 1, 1, 'lamp');
+    m.furn(1, 10, 2, 1, 'dumpster'); m.furn(1, 36, 2, 1, 'dumpster');
+    // carros e ônibus (cobertura nas ruas; o cruzamento fica livre)
+    m.furn(14, 4, 1, 2, 'car', { col: '#d0463c' }); m.furn(16, 7, 1, 2, 'car', { col: '#e8c14a' });
+    m.furn(14, 17, 1, 2, 'car', { col: '#3a7bd5' }); m.furn(16, 20, 1, 2, 'car', { col: '#f2f2f2' });
+    m.furn(14, 30, 1, 2, 'car', { col: '#2fa36b' }); m.furn(16, 33, 1, 2, 'car', { col: '#b46cd8' });
+    m.furn(4, 11, 2, 1, 'car', { col: '#ff8a3a' }); m.furn(9, 13, 2, 1, 'car', { col: '#5ad4ee' });
+    m.furn(20, 13, 2, 1, 'car', { col: '#d0463c' }); m.furn(25, 11, 2, 1, 'car', { col: '#e8c14a' });
+    m.furn(4, 26, 4, 1, 'bus', { col: '#e8a02a' }); m.furn(10, 24, 2, 1, 'car', { col: '#3a7bd5' });
+    m.furn(21, 26, 2, 1, 'car', { col: '#2fa36b' }); m.furn(24, 24, 4, 1, 'bus', { col: '#e8a02a' });
+    m.spawn(13, 10); m.spawn(21, 10); m.spawn(8, 14); m.spawn(24, 21);
   });
 
   // menor distância de um ponto (cx,cy) ao segmento (ax,ay)-(bx,by)
@@ -458,7 +463,7 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0) return null;
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
-        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, slide: { t: 0, a: 0, cd: 0 } };
+        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, slide: { t: 0, a: 0, cd: 0 } };
       // inventário de 2 espaços: `weapon` continua sendo a arma NA MÃO (o espaço selecionado), então todo o resto do código funciona igual
       Object.defineProperty(p, 'weapon', { get() { return this.inv[this.sel]; }, set(v) { this.inv[this.sel] = v; }, enumerable: false, configurable: true });
       this.players[slot] = p;
@@ -480,7 +485,7 @@
       this.players[p.slot] = null;
       if (this.count < MIN_PLAYERS) {
         // sem adversários: volta para a sala de espera
-        for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
+        for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
         this.phase = this.autoStart ? 'waiting' : 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
       }
     }
@@ -492,7 +497,7 @@
       this.startMatch(); return true;
     }
     toLobby() {
-      for (const q of this.players) if (q) { q.score = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
+      for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
       this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
@@ -503,7 +508,7 @@
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
       p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.slide = { t: 0, a: 0, cd: 0 };
     }
-    startMatch() { for (const p of this.players) if (p) p.score = 0; this.round = 0; this.startRound(); }
+    startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
       this.round++;
       this.mapIdx = this.mapPref ? MAP_IDS.indexOf(this.mapPref) : Math.floor(Math.random() * MAP_IDS.length);   // fase escolhida, ou sorteada a cada rodada
@@ -670,6 +675,7 @@
     kill(v, by, how, a) {
       if (!v.alive || this.phase !== 'live') return;
       v.alive = false; v.down = false; v.fire = false; v.charging = false; v.slide.t = 0;
+      if (by && by !== v) by.kills = (by.kills | 0) + 1;
       this.dropAll(v, Math.cos(a) * 120, Math.sin(a) * 120);
       this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin });
     }
@@ -946,7 +952,7 @@
         type: 's', ph: this.phase, tm: Math.max(0, +this.timer.toFixed(2)), rd: this.round,
         map: this.level ? this.level.id : null, win: this.winner, host: this.hostId(),
         pl: this.players.filter(Boolean).map(p => ({
-          id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
+          id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1,
           sd: +p.slide.t.toFixed(2), sa: p.slide.a, sq: +p.slide.cd.toFixed(2)

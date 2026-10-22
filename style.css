@@ -397,3 +397,17 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
   .slot .sa{font-size:1.15rem}
   .slot:not(.active):not(.empty) .sn::after{content:''}
 }
+
+/* música tocando: sai de cima das armas e vai para o topo direito, abaixo do ping */
+#nowPlaying{top:44px;bottom:auto;right:16px}
+@media (min-width:1280px){#nowPlaying{top:52px;bottom:auto;right:22px}}
+@media (max-width:640px){#nowPlaying{top:36px;bottom:auto;right:8px}}
+
+/* resultado da partida: abates por jogador */
+#bResults:empty{display:none}
+#bResults{display:grid;gap:3px;width:min(340px,86vw);margin:18px auto 0;padding:10px 14px;background:rgba(11,12,10,.88);border:1px solid #3a3d35;border-left:3px solid #e2a93b;text-align:left}
+#bResults .rr{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font:700 1.05rem var(--body);letter-spacing:.1em;text-transform:uppercase;color:#e4e2d3}
+#bResults .rr span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#bResults .rr b{font:700 1.2rem var(--body);color:#e2a93b}
+#bResults .rr.rh{font-size:.7rem;color:#8f9281;letter-spacing:.2em;border-bottom:1px solid #3a3d35;padding-bottom:4px;margin-bottom:2px}
+#bResults .rr.w span::before{content:'★ ';color:#e2a93b}
