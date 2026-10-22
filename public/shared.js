@@ -11,6 +11,23 @@
   const TILE = 72, PR = 18, CS = 1.35, SPEED = 290, WIN_SCORE = 5, DOWN_TIME = 1.7;
   const MAX_PLAYERS = 7;   // máximo de jogadores na sala
   const MIN_PLAYERS = 2;   // a partida começa com 2 ou mais
+  /* ===== CONFIGURAÇÕES DA SALA (escolhidas por quem cria a sala) ===== */
+  const ROOM_DEFAULTS = { map: '', winScore: 5, roundTime: 0, maxPlayers: MAX_PLAYERS, weapons: 1, heal: true };   // roundTime 0 = sem limite
+  const ROOM_WINS = [1, 2, 3, 5, 7, 10], ROOM_TIMES = [0, 30, 60, 90, 120, 180, 300], ROOM_WEAPONS = [0.5, 1, 2];
+  // valida/normaliza o que veio do cliente (nunca confiar): devolve sempre uma config completa e válida
+  function sanitizeRoomCfg(o) {
+    o = o && typeof o === 'object' ? o : {};
+    const pickNum = (v, list, d) => { v = Number(v); return list.includes(v) ? v : d; };
+    const mp = Number(o.maxPlayers) | 0;
+    return {
+      map: typeof o.map === 'string' && MAPS[o.map] ? o.map : '',
+      winScore: pickNum(o.winScore, ROOM_WINS, ROOM_DEFAULTS.winScore),
+      roundTime: pickNum(o.roundTime, ROOM_TIMES, ROOM_DEFAULTS.roundTime),
+      maxPlayers: mp >= MIN_PLAYERS && mp <= MAX_PLAYERS ? mp : MAX_PLAYERS,
+      weapons: pickNum(o.weapons, ROOM_WEAPONS, 1),
+      heal: !(o.heal === false || o.heal === 0)
+    };
+  }
   /* ===== RASTEIRA (Shift): desliza para frente em alta velocidade; quem for tocado cai no chão (a arma da mão cai junto) ===== */
   const SLIDE_TIME = 0.32, SLIDE_SPEED = 900, SLIDE_CD = 1.2, SLIDE_TRIP = 1.1;
 
@@ -326,6 +343,135 @@
     m.spawn(13, 10); m.spawn(21, 10); m.spawn(8, 14); m.spawn(24, 21);
   });
 
+  /* ======================= MAPAS NOVOS (32x20, só a METADE ESQUERDA é desenhada; o resto é o espelho de 180°) =======================
+     rows: 20 linhas x 16 colunas. '#' = parede, 'D' = porta, '.' = livre. Móveis (furn) também são espelhados sozinhos. */
+  const wallsFromRows = (m, rows) => rows.forEach((r, y) => { for (let x = 0; x < r.length; x++) { if (r[x] === '#') m.rect(x, y, x, y, 1); else if (r[x] === 'D') m.rect(x, y, x, y, 2); } });
+
+  // ---- ARMAZÉM ABANDONADO: galpão de tijolos com escritório, copa, doca de carga, depósito e uma jaula. Salão central cheio de caixas.
+  buildMap('WAREHOUSE', 'ARMAZÉM ABANDONADO', { base: 'stone', wall: '#a9553f', wallTop: '#cf7a5f', edge: '#3a1e16', out: '#0e1014', brick: true }, m => {
+    wallsFromRows(m, [
+      '################',
+      '#...#....#......',
+      '#...#....#......',
+      '#...D....D......',
+      '#...#....#......',
+      '#...#....#......',
+      '##D####D##......',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#####.#####D####',
+      '#.........#....#',
+      '#.........#....#',
+      '#.........D....#',
+      '#.........#....#',
+      '#.........#....#',
+      '################'
+    ]);
+    m.floor(1, 1, 3, 5, 'carpet'); m.floor(5, 1, 8, 5, 'ktile'); m.floor(1, 14, 9, 18, 'wood'); m.floor(11, 14, 14, 18, 'tile');
+    // escritório
+    m.furn(1, 1, 2, 1, 'desk'); m.furn(3, 1, 1, 1, 'plant'); m.furn(1, 3, 1, 2, 'bookshelf');
+    // copa
+    m.furn(5, 1, 3, 1, 'counter'); m.furn(8, 1, 1, 1, 'fridge'); m.furn(5, 4, 2, 2, 'dining');
+    // doca de carga
+    m.furn(11, 1, 1, 1, 'crate'); m.furn(12, 1, 1, 1, 'crate'); m.furn(11, 2, 1, 1, 'crate'); m.furn(14, 4, 1, 1, 'barrel'); m.furn(14, 1, 1, 2, 'pipes');
+    // salão central
+    m.furn(3, 8, 1, 1, 'crate'); m.furn(3, 9, 1, 1, 'crate'); m.furn(4, 8, 1, 1, 'crate');
+    m.furn(6, 10, 3, 1, 'pipes'); m.furn(9, 8, 1, 1, 'barrel'); m.furn(10, 8, 1, 1, 'barrel');
+    m.furn(12, 10, 2, 1, 'sandbags'); m.furn(13, 12, 1, 1, 'crate'); m.furn(1, 12, 2, 1, 'sandbags');
+    m.furn(15, 9, 2, 2, 'crate');
+    // depósito
+    m.furn(1, 15, 3, 1, 'shelf'); m.furn(7, 15, 3, 1, 'shelf'); m.furn(1, 17, 3, 1, 'shelf'); m.furn(7, 17, 3, 1, 'shelf');
+    m.furn(4, 15, 1, 1, 'crate'); m.furn(6, 15, 1, 1, 'crate');
+    // jaula
+    m.furn(13, 14, 2, 1, 'crate'); m.furn(14, 18, 1, 1, 'barrel'); m.furn(13, 17, 1, 1, 'crate');
+    m.spawn(2, 3); m.spawn(12, 3); m.spawn(3, 16); m.spawn(13, 16);
+  });
+
+  // ---- SUPERMERCADO: corredores de prateleiras, geladeiras, caixas e um estoque nos fundos com portas.
+  buildMap('MARKET', 'SUPERMERCADO', { base: 'ktile', wall: '#e6e0d2', wallTop: '#fbf6ea', edge: '#4a4a52', out: '#15171c' }, m => {
+    wallsFromRows(m, [
+      '################',
+      '#.........#.....',
+      '#.........#.....',
+      '#.........D.....',
+      '#.........#.....',
+      '####D#####......',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '################'
+    ]);
+    m.floor(1, 1, 9, 4, 'stone'); m.floor(1, 15, 14, 18, 'wood');
+    // estoque
+    m.furn(1, 1, 3, 1, 'shelf'); m.furn(5, 1, 3, 1, 'shelf'); m.furn(1, 3, 1, 1, 'crate'); m.furn(2, 3, 1, 1, 'crate'); m.furn(8, 4, 1, 1, 'barrel'); m.furn(7, 3, 1, 1, 'crate');
+    m.furn(11, 1, 1, 1, 'plant'); m.furn(13, 2, 2, 1, 'bench');
+    // geladeiras na parede
+    m.furn(1, 7, 1, 1, 'fridge'); m.furn(1, 8, 1, 1, 'fridge'); m.furn(1, 9, 1, 1, 'fridge');
+    // corredores
+    m.furn(3, 7, 3, 1, 'shelf'); m.furn(7, 7, 3, 1, 'shelf'); m.furn(11, 7, 3, 1, 'shelf');
+    m.furn(3, 9, 3, 1, 'shelf'); m.furn(7, 9, 3, 1, 'shelf'); m.furn(11, 9, 3, 1, 'shelf');
+    m.furn(3, 12, 3, 1, 'shelf'); m.furn(7, 12, 3, 1, 'shelf'); m.furn(11, 12, 3, 1, 'shelf');
+    m.furn(3, 14, 3, 1, 'shelf'); m.furn(7, 14, 3, 1, 'shelf');
+    // mesa central e frente de loja
+    m.furn(15, 9, 2, 2, 'dining');
+    m.furn(2, 17, 4, 1, 'counter'); m.furn(8, 17, 4, 1, 'counter'); m.furn(14, 17, 1, 1, 'plant'); m.furn(1, 15, 1, 1, 'plant');
+    m.spawn(3, 3); m.spawn(13, 4); m.spawn(3, 16); m.spawn(13, 13);
+  });
+
+  // ---- PRAIA: lagoa no centro, cabanas de palha, bares na areia, palmeiras e barracas.
+  buildMap('BEACH', 'PRAIA', { base: 'sand', wall: '#b98a52', wallTop: '#e0b878', edge: '#5a3a1c', out: '#0a2230' }, m => {
+    wallsFromRows(m, [
+      '################',
+      '#...............',
+      '#.######........',
+      '#.#....#........',
+      '#.#....D........',
+      '#.#....#........',
+      '#.##D###........',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#...............',
+      '#.###D###.......',
+      '#.#.....#.......',
+      '#.#.....D.......',
+      '#.#.....#.......',
+      '#.#######.......',
+      '#...............',
+      '################'
+    ]);
+    m.floor(3, 3, 6, 5, 'wood'); m.floor(3, 14, 7, 16, 'deck'); m.floor(1, 18, 9, 18, 'deck'); m.floor(9, 13, 9, 17, 'deck');
+    m.roof(2, 2, 7, 6, '#c8a24c'); m.roof(2, 13, 8, 17, '#b5623a');
+    // lagoa (água: dá pra atravessar, mais devagar)
+    m.furn(13, 8, 6, 4, 'oasis');
+    // cabana
+    m.furn(3, 3, 1, 1, 'crate'); m.furn(6, 3, 1, 1, 'barrel'); m.furn(3, 5, 1, 1, 'plant');
+    // bar
+    m.furn(3, 16, 5, 1, 'counter'); m.furn(3, 14, 2, 1, 'bench'); m.furn(7, 14, 1, 1, 'barrel');
+    // areia
+    m.furn(10, 3, 2, 2, 'palm'); m.furn(14, 3, 2, 2, 'palm'); m.furn(9, 9, 2, 2, 'palm'); m.furn(1, 9, 2, 2, 'palm');
+    m.furn(10, 16, 2, 2, 'palm'); m.furn(14, 15, 2, 2, 'palm'); m.furn(14, 5, 2, 2, 'tree');
+    m.furn(10, 6, 3, 1, 'stall'); m.furn(5, 9, 2, 1, 'sandbags'); m.furn(6, 11, 2, 1, 'bench');
+    m.furn(9, 12, 1, 1, 'bbq'); m.furn(4, 10, 1, 1, 'barrel'); m.furn(12, 14, 1, 1, 'crate');
+    m.spawn(5, 4); m.spawn(12, 15); m.spawn(4, 9); m.spawn(12, 3);
+  });
+
   // menor distância de um ponto (cx,cy) ao segmento (ax,ay)-(bx,by)
   function segDist(cx, cy, ax, ay, bx, by) {
     const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
@@ -454,7 +600,10 @@
     // autoStart: true => começa sozinho com 2+ jogadores (treino); false => sala com botão Iniciar (online)
     constructor(opts = {}) {
       this.autoStart = !!opts.autoStart;
-      this.mapPref = MAPS[opts.map] ? opts.map : null;   // fase escolhida (null = aleatória a cada rodada)
+      const rc = sanitizeRoomCfg(opts);
+      this.mapPref = rc.map || null;   // fase escolhida (null = aleatória a cada rodada)
+      this.winScore = rc.winScore; this.roundTime = rc.roundTime; this.maxPlayers = rc.maxPlayers; this.weaponMul = rc.weapons; this.healOn = rc.heal;
+      this.rt = 0; this.tu = false;   // rt = segundos que faltam na rodada; tu = a rodada acabou por tempo
       this.players = new Array(MAX_PLAYERS).fill(null); this.phase = this.autoStart ? 'waiting' : 'lobby'; this.timer = 0; this.round = 0;
       this.mapIdx = -1; this.level = null; this.bullets = []; this.items = []; this.events = []; this.nid = 1; this.winner = -1;
     }
@@ -463,8 +612,8 @@
 
     addPlayer(id, name, skin) {
       const slot = this.players.findIndex(q => !q);
-      if (slot < 0) return null;
-      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'ROOSTER', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
+      if (slot < 0 || slot >= this.maxPlayers) return null;   // sala cheia (limite escolhido na criação)
+      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'HERO', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
         inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, slide: { t: 0, a: 0, cd: 0 } };
       // inventário de 2 espaços: `weapon` continua sendo a arma NA MÃO (o espaço selecionado), então todo o resto do código funciona igual
       Object.defineProperty(p, 'weapon', { get() { return this.inv[this.sel]; }, set(v) { this.inv[this.sel] = v; }, enumerable: false, configurable: true });
@@ -500,7 +649,7 @@
     }
     toLobby() {
       for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
-      this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1;
+      this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1; this.tu = false; this.rt = 0;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
     spawnPlayer(p, idx) {
@@ -515,7 +664,7 @@
       this.round++;
       this.mapIdx = this.mapPref ? MAP_IDS.indexOf(this.mapPref) : Math.floor(Math.random() * MAP_IDS.length);   // fase escolhida, ou sorteada a cada rodada
       this.level = new Level(MAP_IDS[this.mapIdx]);
-      this.bullets = []; this.items = []; this.winner = -1;
+      this.bullets = []; this.items = []; this.winner = -1; this.tu = false; this.rt = this.roundTime;
       let idx = 0;
       for (const p of this.players) if (p) this.spawnPlayer(p, idx++);
       // armas totalmente aleatórias a cada rodada: posições sorteadas em qualquer chão livre (sempre em PARES espelhados = justo),
@@ -526,7 +675,7 @@
         if (sp.some(s => Math.hypot(s[0] - x, s[1] - y) < 1.8)) continue;   // não nasce em cima de quem acabou de nascer
         cand.push([x, y]);
       }
-      const want = Math.round((4 + Math.floor(Math.random() * 6)) * (L.W * L.H > 700 ? 1.8 : 1)), placed = [];   // mapa grande = mais armas
+      const want = Math.max(1, Math.round((4 + Math.floor(Math.random() * 6)) * (L.W * L.H > 700 ? 1.8 : 1) * this.weaponMul)), placed = [];   // mapa grande = mais armas
       const roofs = L.m.roofs || [], indoor = roofs.length ? cand.filter(([x, y]) => roofs.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)) : [];   // com tetos: metade das armas nasce DENTRO das casas
       for (let tries = 0; tries < 600 && placed.length < want && cand.length; tries++) {
         const [x, y] = pick(indoor.length && placed.length % 2 === 0 ? indoor : cand), mx = L.W - 1 - x, my = L.H - 1 - y;
@@ -550,6 +699,7 @@
     /* entrada de um jogador (cliente ou bot) */
     applyInput(p, inp, dt) {
       if (!p || !inp || !this.level) return;
+      if (inp.su && this.suicide(p)) return;   // botão de suicídio
       if (Number.isFinite(inp.a)) p.angle = inp.a;
       p.fire = !!inp.f; p.tc = !!inp.tc;
       if (inp.fp) p.buf = 0.16;
@@ -611,7 +761,10 @@
         for (const p of this.players) this.tryFire(p);
       }
       this.updateBullets(dt); this.updateItems(dt);
-      if (this.phase === 'live') this.evalRound();
+      if (this.phase === 'live') {
+        this.evalRound();
+        if (this.phase === 'live' && this.roundTime > 0) { this.rt -= dt; if (this.rt <= 0) this.timeUp(); }   // relógio da rodada
+      }
       else if (this.phase === 'over' || this.phase === 'matchover') {
         this.timer -= dt;
         if (this.timer <= 0) { if (this.phase === 'matchover') { if (this.autoStart) this.startMatch(); else this.toLobby(); } else this.startRound(); }
@@ -621,17 +774,38 @@
     evalRound() {
       const a = this.players.filter(p => p && p.alive);
       if (a.length >= 2) return;
-      if (a.length === 0) { this.winner = -1; this.phase = 'over'; this.timer = 2.4; this.events.push({ t: 'end', w: -1 }); return; }
-      const w = a[0]; w.score++; this.winner = w.slot;
-      if (w.score >= WIN_SCORE) { this.phase = 'matchover'; this.timer = 5; } else { this.phase = 'over'; this.timer = 2.6; }
+      this.endRound(a.length ? a[0] : null);
+    }
+    // encerra a rodada: w = vencedor (ou null = empate, ninguém pontua)
+    endRound(w) {
+      if (!w) { this.winner = -1; this.phase = 'over'; this.timer = 2.4; this.events.push({ t: 'end', w: -1 }); return; }
+      w.score++; this.winner = w.slot;
+      if (w.score >= this.winScore) { this.phase = 'matchover'; this.timer = 5; } else { this.phase = 'over'; this.timer = 2.6; }
       this.events.push({ t: 'end', w: w.slot });
     }
+    // tempo máximo da rodada acabou: vence quem tem MAIS VIDA; se houver empate na vida, ninguém pontua
+    timeUp() {
+      this.tu = true;
+      let best = null, tie = false;
+      for (const p of this.players) {
+        if (!p || !p.alive) continue;
+        if (!best || p.hp > best.hp) { best = p; tie = false; } else if (p.hp === best.hp) tie = true;
+      }
+      this.endRound(best && !tie ? best : null);
+    }
+    // suicídio: o jogador se mata (sem dar abate a ninguém). Só vale com a rodada valendo e o jogador vivo.
+    suicide(p) {
+      if (!p || !p.alive || this.phase !== 'live') return false;
+      p.healT = 0;
+      this.kill(p, null, 'suicide', Math.random() * 6.2832);
+      return true;
+    }
 
-    // dispara se der (cooldown pronto + clique guardado ou arma automática segurada). Chamado a cada tick E logo quando a entrada chega (menos atraso).
+    // dispara se der (cooldown pronto + clique guardado ou botão segurado; todas as armas são automáticas). Chamado a cada tick E logo quando a entrada chega (menos atraso).
     tryFire(p) {
       if (!p || !p.alive || p.down || p.healT > 0 || p.charging || p.slide.t > 0 || this.phase !== 'live') return;
       const w = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
-      if (p.cd <= 0 && (p.buf > 0 || (p.fire && w.auto))) { p.buf = 0; this.attack(p); }
+      if (p.cd <= 0 && (p.buf > 0 || p.fire)) { p.buf = 0; this.attack(p); }   // segurar o botão repete o ataque em TODAS as armas (inclusive corpo a corpo e mãos)
     }
     attack(p) {
       const wd = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
@@ -731,7 +905,7 @@
       return true;
     }
     heal(p) {
-      if (!p.alive || p.down || p.healT > 0 || p.hp >= MAX_HP) return false;
+      if (!this.healOn || !p.alive || p.down || p.healT > 0 || p.hp >= MAX_HP) return false;
       p.healT = HEAL_TIME; p.fire = false; p.buf = 0; p.charging = false; p.chg = 0;
       this.events.push({ t: 'hstart', id: p.id, x: p.x, y: p.y });
       return true;
@@ -953,6 +1127,8 @@
       for (const p of this.players) if (p) slotOf[p.id] = p.slot;
       return {
         type: 's', ph: this.phase, tm: Math.max(0, +this.timer.toFixed(2)), rd: this.round,
+        rt: this.phase === 'live' && this.roundTime > 0 ? +Math.max(0, this.rt).toFixed(1) : -1, tu: this.tu ? 1 : 0,   // rt = tempo que falta na rodada (-1 = sem limite)
+        cf: [this.winScore, this.roundTime, this.maxPlayers, this.healOn ? 1 : 0, this.weaponMul, this.mapPref || ''],   // config da sala
         map: this.level ? this.level.id : null, win: this.winner, host: this.hostId(),
         pl: this.players.filter(Boolean).map(p => ({
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
@@ -1094,5 +1270,5 @@
     }
   }
 
-  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_SPEED, SLIDE_CD, SLIDE_TRIP, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_SPEED, SLIDE_CD, SLIDE_TRIP, ITEM_EXT, canMove, angDiff };
 });

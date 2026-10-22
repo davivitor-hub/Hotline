@@ -6,13 +6,14 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#14041f">
+  <meta name="theme-color" content="#0a1a4a">
   <title>7 SHADOWS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="touch.css">
+  <link rel="stylesheet" href="menu-dc.css">
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -25,6 +26,8 @@
     <div id="nowPlaying" class="hidden"></div>
     <div id="spectate" class="hidden"><small>ESPECTANDO</small><b id="specName"></b><span class="sh"><kbd>A</kbd><kbd>D</kbd> trocar</span></div>
     <div id="netHud"><span id="pingTxt"></span></div>
+    <div id="roundTimer" class="hidden"></div>
+    <div id="suiBar" class="hidden"><small>SUICÍDIO</small><i><b></b></i></div>
     <div id="roster"></div>
   </div>
 
@@ -35,6 +38,7 @@
       <h2>Sala online</h2>
       <p id="lobbyCode" class="lcode" title="Toque para copiar o link da sala"></p>
       <p id="lobbyCount" class="lcount"></p>
+      <p id="lobbyCfg" class="lcfg"></p>
       <div id="lobbyList"></div>
       <p id="lobbyHint" class="lhint"></p>
       <button id="btnStart" class="btn primary" disabled>Iniciar partida</button>
@@ -48,6 +52,7 @@
       <button id="btnResume" class="btn primary">Voltar ao jogo</button>
       <button id="btnOptsPause" class="btn" type="button">Opções</button>
       <button id="btnTouchPause" class="btn touchonly" type="button">Ajustar controles</button>
+      <button id="btnSuicide" class="btn danger" type="button">Suicídio</button>
       <button id="btnLeave" class="btn danger">Sair da partida</button>
     </div>
   </div>
@@ -58,15 +63,16 @@
     <button id="introSkip" type="button">Aperte <kbd>ESPAÇO</kbd> para pular</button>
   </div>
 
-  <!-- menu principal (começa escondido; aparece quando a abertura termina ou é pulada) -->
+  <!-- menu principal (estilo Dreamcast: painel de vidro azul, botões chanfrados) -->
   <div id="menu" class="hidden">
-    <div class="sun"></div>
-    <div class="grid-floor"></div>
+    <div class="dc-bg" aria-hidden="true"></div>
     <canvas id="menuFx"></canvas>
     <section class="panel">
       <div class="seq" id="seqDots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-      <h1><span class="t1">7</span><span class="t2">SHADOWS</span></h1>
-      <p class="tag">Cada arma tira a sua parte da vida. Entre pela porta e faça a sua jogada.</p>
+      <header class="dc-head">
+        <h1><span class="t1">7</span><span class="t2">SHADOWS</span></h1>
+        <p class="tag">Cada arma tira a sua parte da vida. Entre pela porta e faça a sua jogada.</p>
+      </header>
 
       <div class="tabs hidden" role="tablist">
         <button id="tabBtnPlay" class="tab" role="tab" aria-selected="true" aria-controls="tabPlay" type="button">Jogar</button>
@@ -74,43 +80,82 @@
       </div>
 
       <div id="tabPlay" role="tabpanel">
-        <label class="field">Seu nome
-          <input id="nameInput" maxlength="14" placeholder="Jacket" autocomplete="off" spellcheck="false">
-        </label>
-
-        <div class="field">Máscara
-          <div id="skins"></div>
-        </div>
-
-        <div class="mainbtns">
-          <div class="bot-row">
-            <button id="btnJoinRoom" class="btn big" type="button"><b>Entrar</b><small>com código da sala</small></button>
-            <input id="roomInput" maxlength="4" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Código da sala">
+        <h2 class="dc-title">Selecione uma opção.</h2>
+        <div class="dc-list">
+          <div class="dc-row">
+            <label class="dc-btn dc-static" for="nameInput">Nome</label>
+            <div class="dc-bar"><input id="nameInput" maxlength="14" placeholder="Shadow 4" autocomplete="off" spellcheck="false"></div>
           </div>
-          <button id="btnCreateRoom" class="btn primary big" type="button"><b>Criar sala</b><small>privada: convide amigos pelo código</small></button>
-          <div class="bot-row">
-            <button id="btnBot" class="btn big" type="button"><b>Vs Bot</b><small>treino offline</small></button>
-            <select id="diffSel" aria-label="Dificuldade do bot">
-              <option value="EASY">Fácil</option>
-              <option value="NORMAL" selected>Normal</option>
-              <option value="HARD">Difícil</option>
-            </select>
+          <div class="dc-row dc-skinrow">
+            <span class="dc-btn dc-static">Máscara</span>
+            <div class="dc-bar dc-skinbar"><div id="skins"></div></div>
           </div>
-          <button id="btnMusic" class="btn big" type="button"><b>Músicas</b><small>escolha a trilha da partida</small></button>
-          <button id="btnOptions" class="btn big" type="button"><b>Opções</b><small>tremor, tela, som e teclas</small></button>
+          <div class="dc-sep"></div>
+          <div class="dc-row">
+            <button id="btnJoinRoom" class="dc-btn" type="button"><b>Entrar</b></button>
+            <div class="dc-bar"><input id="roomInput" maxlength="4" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Código da sala"></div>
+          </div>
+          <div class="dc-row">
+            <button id="btnCreateRoom" class="dc-btn dc-main" type="button"><b>Criar sala</b></button>
+            <div class="dc-bar dc-desc">privada · convide por código</div>
+          </div>
+          <div class="dc-row">
+            <button id="btnBot" class="dc-btn" type="button"><b>Vs Bot</b></button>
+            <div class="dc-bar">
+              <select id="diffSel" aria-label="Dificuldade do bot">
+                <option value="EASY">Fácil</option>
+                <option value="NORMAL" selected>Normal</option>
+                <option value="HARD">Difícil</option>
+              </select>
+            </div>
+          </div>
+          <div class="dc-sep"></div>
+          <div class="dc-row">
+            <button id="btnMusic" class="dc-btn" type="button"><b>Músicas</b></button>
+            <div class="dc-bar dc-desc">escolha a trilha</div>
+          </div>
+          <div class="dc-row">
+            <button id="btnOptions" class="dc-btn" type="button"><b>Opções</b></button>
+            <div class="dc-bar dc-desc" id="optDesc">tremor, tela, som e teclas</div>
+          </div>
         </div>
         <div id="status" role="status"></div>
-
       </div>
 
       <div id="tabMusic" role="tabpanel" class="hidden">
-        <p class="mtip">Escolha a trilha da partida. Toque numa faixa para ouvir.</p>
+        <h2 class="dc-title">Escolha a trilha.</h2>
         <div id="trackList"></div>
         <label class="vol">Volume <input type="range" id="volRange" min="0" max="100" step="1"></label>
         <p class="mtip small" id="hintMusicKeys">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>
-        <button id="btnMusicBack" class="btn back" type="button">Voltar</button>
+        <button id="btnMusicBack" class="dc-btn dc-back" type="button"><b>Voltar</b></button>
       </div>
+
+      <footer class="dc-foot" aria-hidden="true">
+        <span class="kb"><b>Enter</b> - Confirmar</span><i></i><span class="kb"><b>Esc</b> - Voltar</span><span class="tc">Toque para escolher</span>
+      </footer>
     </section>
+  </div>
+
+  <!-- configurações da sala (aparece ao tocar em "Criar sala") -->
+  <div id="roomCfg" class="hidden" role="dialog" aria-modal="true" aria-label="Configurar sala">
+    <div class="box">
+      <h2>Configurar sala</h2>
+      <div class="osec">
+        <h3>Partida</h3>
+        <div class="orow"><span>Fase</span><select id="rcMap"></select></div>
+        <div class="orow"><span>Rodadas para vencer</span><select id="rcWin"></select></div>
+        <div class="orow"><span>Tempo máx. da rodada</span><select id="rcTime"></select></div>
+        <div class="orow"><span>Máx. de jogadores</span><select id="rcMax"></select></div>
+      </div>
+      <div class="osec">
+        <h3>Regras</h3>
+        <div class="orow"><span>Armas no mapa</span><select id="rcWeap"></select></div>
+        <div class="orow"><label class="chk"><input type="checkbox" id="rcHeal"> Cura liberada (tecla Q)</label></div>
+      </div>
+      <p class="rcnote">Se o tempo da rodada acabar, vence quem estiver com mais vida. Empate na vida = ninguém pontua.</p>
+      <button id="btnRcCreate" class="btn primary" type="button">Criar sala</button>
+      <button id="btnRcBack" class="btn" type="button">Voltar</button>
+    </div>
   </div>
 
   <div id="opts" class="hidden" role="dialog" aria-modal="true" aria-label="Opções">
@@ -164,5 +209,6 @@
   <script src="shared.js"></script>
   <script src="game.js"></script>
   <script src="touch.js"></script>
+  <script src="menu-dc.js"></script>
 </body>
 </html>
