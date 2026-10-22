@@ -306,7 +306,11 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #hud.inlobby #vitals{display:none}
 
 /* ---- vitais (canto inferior esquerdo) ---- */
-#vitals{position:absolute;left:20px;bottom:20px;width:318px;padding:10px 12px 9px;display:grid;gap:6px}
+#vitals{position:absolute;left:20px;bottom:20px;width:384px;padding:10px 12px 9px;display:grid;grid-template-columns:62px 1fr;gap:12px;align-items:stretch}
+#vitals .v-main{display:grid;gap:6px;min-width:0}
+#vitals .v-face{width:62px;height:100%;min-height:62px;align-self:stretch;border:1px solid var(--hl2);background:#060706;object-fit:cover;image-rendering:auto}
+#vitals.mid .v-face{border-color:var(--ha)}
+#vitals.low .v-face{border-color:var(--hr);animation:blink .7s steps(2) infinite}
 #vitals .v-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 #vitals .v-name{font:700 1rem var(--hf);letter-spacing:.14em;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #vitals .v-tag{font:700 .68rem var(--hf);letter-spacing:.22em;color:var(--hg)}
@@ -382,7 +386,8 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 @keyframes bnIn{from{opacity:0;letter-spacing:.5em}to{opacity:1;letter-spacing:.2em}}
 
 @media (max-width:640px){
-  #vitals{left:8px;bottom:8px;width:218px;padding:8px 9px}
+  #vitals{left:8px;bottom:8px;width:262px;padding:8px 9px;grid-template-columns:44px 1fr;gap:8px}
+  #vitals .v-face{width:44px;min-height:44px}
   #vitals .v-num{font-size:1.7rem}
   #vitals .v-key:first-child{display:none}
   #vitals .v-name{max-width:120px}
