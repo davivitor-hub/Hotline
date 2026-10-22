@@ -43,6 +43,7 @@
   /* ===== PORTAS (física) ===== */
   const DOOR_HT = 5;     // meia espessura da folha da porta
   const WATER_SLOW = 0.5;  // multiplicador da velocidade dentro da piscina
+  const FISH_WATER_FAST = 1.7;  // PEIXE: multiplicador da velocidade dentro da piscina (nada mais rápido do que anda)
   const DOOR_LIM = 1.52;   // abertura máxima (rad, ~87°) para cada lado
   const DOOR_DAMP = 3.6;   // atrito da dobradiça (1/s)
 
@@ -422,7 +423,7 @@
     let dx = ((k & 8) ? 1 : 0) - ((k & 2) ? 1 : 0), dy = ((k & 4) ? 1 : 0) - ((k & 1) ? 1 : 0);
     if (!dx && !dy) return null;
     const l = Math.hypot(dx, dy); dx /= l; dy /= l;
-    if (level.waterAt(p.x, p.y)) sm *= WATER_SLOW;   // piscina: anda mais devagar
+    if (level.waterAt(p.x, p.y)) sm *= (p.skin === 'FISH' ? FISH_WATER_FAST : WATER_SLOW);   // piscina: anda mais devagar (o PEIXE nada mais rápido)
     const mx = dx * SPEED * sm * dt, my = dy * SPEED * sm * dt;
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my)) / 6));
     for (let i = 0; i < n; i++) { p.x += mx / n; p.y += my / n; level.push(p, PR); }
@@ -1093,5 +1094,5 @@
     }
   }
 
-  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, WATER_SLOW, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_SPEED, SLIDE_CD, SLIDE_TRIP, ITEM_EXT, canMove, angDiff };
+  return { TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_SPEED, SLIDE_CD, SLIDE_TRIP, ITEM_EXT, canMove, angDiff };
 });
