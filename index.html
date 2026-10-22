@@ -2,13 +2,17 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#14041f">
   <title>7 SHADOWS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="touch.css">
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -42,6 +46,7 @@
     <div class="box">
       <h2>Pausado</h2>
       <button id="btnResume" class="btn primary">Voltar ao jogo</button>
+      <button id="btnOptsPause" class="btn" type="button">Opções</button>
       <button id="btnLeave" class="btn danger">Sair da partida</button>
     </div>
   </div>
@@ -91,28 +96,57 @@
             </select>
           </div>
           <button id="btnMusic" class="btn big" type="button"><b>Músicas</b><small>escolha a trilha da partida</small></button>
+          <button id="btnOptions" class="btn big" type="button"><b>Opções</b><small>tremor, tela, som e teclas</small></button>
         </div>
         <div id="status" role="status"></div>
 
-        <details class="more">
-          <summary>Opções</summary>
-          <div class="toggles">
-            <label><input type="checkbox" id="optMusic" checked> Música</label>
-            <label><input type="checkbox" id="optSfx" checked> Efeitos</label>
-            <label><input type="checkbox" id="optShake" checked> Tremor de tela</label>
-            <label><input type="checkbox" id="optCrt" checked> Filtro CRT</label>
-          </div>
-        </details>
       </div>
 
       <div id="tabMusic" role="tabpanel" class="hidden">
         <p class="mtip">Escolha a trilha da partida. Toque numa faixa para ouvir.</p>
         <div id="trackList"></div>
         <label class="vol">Volume <input type="range" id="volRange" min="0" max="100" step="1"></label>
-        <p class="mtip small">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>
+        <p class="mtip small" id="hintMusicKeys">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>
         <button id="btnMusicBack" class="btn back" type="button">Voltar</button>
       </div>
     </section>
+  </div>
+
+  <div id="opts" class="hidden" role="dialog" aria-modal="true" aria-label="Opções">
+    <div class="box">
+      <h2>Opções</h2>
+      <div class="otabs" role="tablist">
+        <button id="otabGeneral" class="otab" role="tab" aria-selected="true" type="button">Geral</button>
+        <button id="otabKeys" class="otab" role="tab" aria-selected="false" type="button">Teclas</button>
+      </div>
+
+      <div id="optGeneral">
+        <div class="osec">
+          <h3>Tela</h3>
+          <div class="orow"><label class="chk"><input type="checkbox" id="optShake"> Tremor de tela</label></div>
+          <div class="orow"><span>Intensidade do tremor</span><input type="range" id="optShakeAmt" min="10" max="150" step="5"><output id="optShakeAmtV"></output></div>
+          <div class="orow"><label class="chk"><input type="checkbox" id="optKick"> Impacto ao acertar (piscada, zoom e pausa)</label></div>
+          <div class="orow"><span>Zoom da câmera</span><input type="range" id="optZoom" min="70" max="140" step="5"><output id="optZoomV"></output></div>
+          <div class="orow"><label class="chk"><input type="checkbox" id="optCrt"> Filtro CRT</label></div>
+          <div class="orow"><label class="chk"><input type="checkbox" id="optPing"> Mostrar ping</label></div>
+        </div>
+        <div class="osec">
+          <h3>Som</h3>
+          <div class="orow"><label class="chk"><input type="checkbox" id="optMusic"> Música</label></div>
+          <div class="orow"><span>Volume da música</span><input type="range" id="optVol" min="0" max="100" step="1"><output id="optVolV"></output></div>
+          <div class="orow"><label class="chk"><input type="checkbox" id="optSfx"> Efeitos sonoros</label></div>
+          <div class="orow"><span>Volume dos efeitos</span><input type="range" id="optSfxVol" min="0" max="100" step="1"><output id="optSfxVolV"></output></div>
+        </div>
+      </div>
+
+      <div id="optKeysPane" class="hidden">
+        <p class="mtip small">Clique numa tecla e aperte a nova. Se ela já estiver em uso, as duas trocam de lugar. Mouse (atirar e arremessar) e <kbd>ESC</kbd> (pausar) são fixos.</p>
+        <div id="keyList"></div>
+        <button id="btnKeysReset" class="btn" type="button">Restaurar teclas padrão</button>
+      </div>
+
+      <button id="btnOptsClose" class="btn primary" type="button">Fechar</button>
+    </div>
   </div>
 
   <div id="unlock" aria-live="polite" role="status">
@@ -123,5 +157,6 @@
   <div id="crt"></div>
   <script src="shared.js"></script>
   <script src="game.js"></script>
+  <script src="touch.js"></script>
 </body>
 </html>

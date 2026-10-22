@@ -6,6 +6,8 @@
    ========================================================================== */
 const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_CD, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT } = Shared;
 const $ = id => document.getElementById(id);
+// celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
+const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
 
 // Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
 const RENDER_HOST = 'hotline-m6gx.onrender.com';
@@ -17,14 +19,17 @@ if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'n
 const STEP = 1 / 60, TAU = Math.PI * 2;
 const SKINS = {
   ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
-  MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' },
+  MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }, HIPPO: { c: '#a99bb8', n: 'Hipopótamo' }, FISH: { c: '#3fc8ff', n: 'Peixe' },
   DRAGON: { c: '#ffcf3a', n: 'Dragão Dourado', secret: true }
 };
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('7shadows') || localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'hidrogenio', vol: 0.6, sfx: true, shake: true, crt: false }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'hidrogenio', vol: 0.6, sfx: true, shake: true, crt: false, shakeAmt: 1, kick: true, zoom: 1, ping: true, sfxVol: 1, binds: {} }, loadCfg());
 function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg)); } catch { } }
+const clampN = (v, a, b, d) => (Number.isFinite(+v) ? Math.max(a, Math.min(b, +v)) : d);
+cfg.shakeAmt = clampN(cfg.shakeAmt, 0.1, 1.5, 1); cfg.zoom = clampN(cfg.zoom, 0.7, 1.4, 1); cfg.sfxVol = clampN(cfg.sfxVol, 0, 1, 1);
+cfg.kick = cfg.kick !== false; cfg.ping = cfg.ping !== false;
 if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
 
 /* ---------------------------------------------------------------- ESTADO */
@@ -44,7 +49,7 @@ const INTERP = () => (mode === 'local' ? 34 : 50);   // online: snapshots a 60 H
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
   cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
-  S = Math.max(0.7, Math.min(1.6, H / 780));
+  S = Math.max(IS_TOUCH ? 0.4 : 0.7, Math.min(1.6, H / 780)) * cfg.zoom;
 }
 addEventListener('resize', resize); resize();
 
@@ -56,7 +61,7 @@ function initAudio() {
     ac = new (window.AudioContext || window.webkitAudioContext)();
     master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
     musG = ac.createGain(); musG.gain.value = 0; musG.connect(master);
-    sfxG = ac.createGain(); sfxG.gain.value = 0.55; sfxG.connect(master);
+    sfxG = ac.createGain(); sfxG.gain.value = 0.55 * cfg.sfxVol; sfxG.connect(master);
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     nextT = ac.currentTime + 0.1; setInterval(schedule, 50); applyMusic();
@@ -303,6 +308,93 @@ for (const t of TRACKS) {
 }
 $('volRange').value = Math.round(cfg.vol * 100);
 $('volRange').oninput = e => { cfg.vol = e.target.value / 100; saveCfg(); applyMusic(); };
+
+/* --------------------------------------------------- OPÇÕES + TECLAS */
+// o id de cada ação é a sua tecla padrão; cfg.binds guarda só o que o jogador trocou
+const ACTIONS = [
+  { id: 'w', label: 'Andar para cima' }, { id: 's', label: 'Andar para baixo' }, { id: 'a', label: 'Andar para a esquerda' }, { id: 'd', label: 'Andar para a direita' },
+  { id: ' ', label: 'Rasteira' }, { id: 'e', label: 'Pegar arma' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' },
+  { id: '1', label: 'Arma do espaço 1' }, { id: '2', label: 'Arma do espaço 2' },
+  { id: 'shift', label: 'Soltar / estender a câmera' }, { id: 'c', label: 'Travar mira (Dragão Dourado)' },
+  { id: 'm', label: 'Mutar música' }, { id: 'n', label: 'Trocar de música' }
+];
+const KEYNAMES = { ' ': 'ESPAÇO', shift: 'SHIFT', control: 'CTRL', alt: 'ALT', tab: 'TAB', enter: 'ENTER', capslock: 'CAPS LOCK', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', backspace: 'BACKSPACE' };
+const keyName = k => KEYNAMES[k] || k.toUpperCase();
+const NOBIND = k => k === 'escape' || /^f\d{1,2}$/.test(k) || ['meta', 'os', 'contextmenu', 'dead', 'unidentified', 'process'].includes(k);
+const bindOf = id => cfg.binds[id] || id;
+let rev = {};
+function rebuildRev() {
+  rev = {};
+  for (const a of ACTIONS) rev[bindOf(a.id)] = a.id;
+  for (const [ak, id] of [['arrowup', 'w'], ['arrowleft', 'a'], ['arrowdown', 's'], ['arrowright', 'd']]) if (!(ak in rev)) rev[ak] = id;   // setas continuam andando
+}
+(function sanitizeBinds() {   // config antiga/corrompida: só aceita teclas válidas e sem repetição
+  const b = (cfg.binds && typeof cfg.binds === 'object') ? cfg.binds : {}, out = {}, used = new Set();
+  for (const a of ACTIONS) { const k = typeof b[a.id] === 'string' && b[a.id] ? b[a.id].toLowerCase() : a.id; if (NOBIND(k) || used.has(k)) { cfg.binds = {}; rebuildRev(); return; } used.add(k); if (k !== a.id) out[a.id] = k; }
+  cfg.binds = out; rebuildRev();
+})();
+let capId = null;
+function refreshKeys() {
+  const list = $('keyList'); if (list) {
+    list.textContent = '';
+    for (const a of ACTIONS) {
+      const row = document.createElement('div'); row.className = 'krow';
+      const lb = document.createElement('span'); lb.textContent = a.label;
+      const bt = document.createElement('button'); bt.type = 'button'; bt.className = 'kbtn' + (capId === a.id ? ' cap' : '');
+      bt.textContent = capId === a.id ? 'APERTE UMA TECLA…' : keyName(bindOf(a.id));
+      bt.onclick = () => { capId = capId === a.id ? null : a.id; refreshKeys(); };
+      row.append(lb, bt); list.appendChild(row);
+    }
+  }
+  const k1 = $('slot0') && $('slot0').querySelector('.k'), k2 = $('slot1') && $('slot1').querySelector('.k');
+  if (k1) k1.textContent = keyName(bindOf('1')); if (k2) k2.textContent = keyName(bindOf('2'));
+  const hint = $('hintMusicKeys');
+  if (hint) hint.innerHTML = 'Durante a partida, aperte <kbd>' + keyName(bindOf('n')) + '</kbd> para trocar de faixa e <kbd>' + keyName(bindOf('m')) + '</kbd> para mutar.';
+}
+function assignKey(id, k) {
+  const old = bindOf(id), other = ACTIONS.find(a => a.id !== id && bindOf(a.id) === k);
+  if (other) cfg.binds[other.id] = old;   // tecla já usada: as duas trocam de lugar
+  cfg.binds[id] = k;
+  for (const a of ACTIONS) if (cfg.binds[a.id] === a.id) delete cfg.binds[a.id];
+  keys = {}; rebuildRev(); saveCfg();
+}
+// captura de tecla e Esc dentro das Opções (fase de captura: roda antes do resto do jogo)
+addEventListener('keydown', e => {
+  if ($('opts').classList.contains('hidden')) return;
+  const k = e.key.toLowerCase();
+  if (capId !== null) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (k === 'escape') capId = null; else if (!NOBIND(k)) { assignKey(capId, k); capId = null; } else return;
+    refreshKeys(); return;
+  }
+  if (k === 'escape') { e.preventDefault(); e.stopImmediatePropagation(); closeOpts(); }
+}, true);
+function showOptTab(keysTab) {
+  capId = null; $('optGeneral').classList.toggle('hidden', keysTab); $('optKeysPane').classList.toggle('hidden', !keysTab);
+  $('otabGeneral').setAttribute('aria-selected', keysTab ? 'false' : 'true'); $('otabKeys').setAttribute('aria-selected', keysTab ? 'true' : 'false');
+  if (keysTab) refreshKeys();
+}
+function openOpts() { initAudio(); showOptTab(false); $('opts').classList.remove('hidden'); }
+function closeOpts() { capId = null; $('opts').classList.add('hidden'); }
+$('btnOptions').onclick = openOpts; $('btnOptsPause').onclick = openOpts; $('btnOptsClose').onclick = closeOpts;
+$('otabGeneral').onclick = () => showOptTab(false); $('otabKeys').onclick = () => showOptTab(true);
+$('btnKeysReset').onclick = () => { cfg.binds = {}; keys = {}; capId = null; rebuildRev(); saveCfg(); refreshKeys(); };
+function bindRange(id, get, set, fmt) {
+  const el = $(id), out = $(id + 'V'); el.value = get();
+  const show = () => { out.textContent = fmt(+el.value); }; show();
+  el.oninput = () => { set(+el.value); show(); saveCfg(); };
+}
+const syncShake = () => { $('optShakeAmt').disabled = !cfg.shake; };
+$('optShake').onchange = e => { cfg.shake = e.target.checked; if (!cfg.shake) shake = 0; syncShake(); saveCfg(); };
+$('optKick').checked = cfg.kick; $('optKick').onchange = e => { cfg.kick = e.target.checked; saveCfg(); };
+$('optPing').checked = cfg.ping; $('netHud').classList.toggle('hidden', !cfg.ping);
+$('optPing').onchange = e => { cfg.ping = e.target.checked; $('netHud').classList.toggle('hidden', !cfg.ping); saveCfg(); };
+bindRange('optShakeAmt', () => Math.round(cfg.shakeAmt * 100), v => { cfg.shakeAmt = v / 100; }, v => v + '%'); syncShake();
+bindRange('optZoom', () => Math.round(cfg.zoom * 100), v => { cfg.zoom = v / 100; resize(); }, v => v + '%');
+bindRange('optSfxVol', () => Math.round(cfg.sfxVol * 100), v => { cfg.sfxVol = v / 100; if (sfxG) sfxG.gain.value = 0.55 * cfg.sfxVol; }, v => v + '%');
+bindRange('optVol', () => Math.round(cfg.vol * 100), v => { cfg.vol = v / 100; $('volRange').value = v; applyMusic(); }, v => v + '%');
+$('volRange').oninput = e => { cfg.vol = e.target.value / 100; $('optVol').value = e.target.value; $('optVolV').textContent = e.target.value + '%'; saveCfg(); applyMusic(); };
+refreshKeys();
 refreshTracks();
 const playerName = () => (cfg.name || '').trim() || 'Jogador';
 
@@ -754,7 +846,7 @@ function onSnapshot(s) {
   const me = s.pl.find(p => p.id === myId);
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
-    const t = { x: me.x, y: me.y }, S = { t: me.sd || 0, a: me.sa || 0, cd: me.sq || 0 };
+    const t = { x: me.x, y: me.y, skin: me.sk }, S = { t: me.sd || 0, a: me.sa || 0, cd: me.sq || 0 };
     if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMotion(level, t, S, p.k, p.a, p.sl, p.dt, p.sm, p.can);
     pslide = S;
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
@@ -776,7 +868,7 @@ function interpEnemy(id) {
 
 /* ---------------------------------------------------------------- EVENTOS */
 const animOf = id => anim[id] || (anim[id] = { walk: 0, lx: 0, ly: 0, sw0: -1e9, sw: 'FISTS', recoil: 0, punch: 1 });
-function addShake(v) { if (cfg.shake) shake = Math.min(18, shake + v); }
+function addShake(v) { if (cfg.shake) { const a = cfg.shakeAmt; shake = Math.min(18 * a, shake + v * a); } }
 function handleEvent(e, now) {
   switch (e.t) {
     case 'shot': {
@@ -814,7 +906,7 @@ function handleEvent(e, now) {
       addBlood(e.x, e.y, e.a, big ? 80 : 50, big ? 420 : 330);
       bloodPool(e.x, e.y, e.a, big);
       fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId, col: jacketOf(e.id, e.id === myId) });
-      addShake(big ? 13 : 9); fx.flash = 0.35; hitstop = 0.09; zoomKick = 0.06;
+      addShake(big ? 13 : 9); if (cfg.kick) { fx.flash = 0.35; hitstop = 0.09; zoomKick = 0.06; }
       if (e.id === myId) fx.red = 0.6;
       break;
     }
@@ -877,21 +969,22 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'escape') return;
   if (!mode || paused) return;
-  if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+  const id = rev[k];   // tecla apertada -> ação (mapeamento configurável em Opções > Teclas)
+  if (!id) return;
+  e.preventDefault();
   if (e.repeat) return;
-    if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
-  const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
-  keys[map[k] || k] = true;
-  if (k === 'e') edge.pk = true;
-  if (k === ' ') edge.sl = true;   // ESPAÇO = rasteira
-  if (k === 'f') edge.th = true;   // F = arremessar
-  if (k === 'q') edge.hl = true;
-  if (k === '1') edge.ss = 1;
-  if (k === '2') edge.ss = 2;
-  if (k === 'm') { cfg.music = !cfg.music; applyMusic(); $('optMusic').checked = cfg.music; refreshTracks(); saveCfg(); }
-  if (k === 'n') nextTrack();
+  if (canSpec()) { if (id === 'a') specStep(-1); else if (id === 'd') specStep(1); }
+  keys[id] = true;
+  if (id === 'e') edge.pk = true;
+  if (id === ' ') edge.sl = true;   // rasteira
+  if (id === 'f') edge.th = true;   // arremessar
+  if (id === 'q') edge.hl = true;
+  if (id === '1') edge.ss = 1;
+  if (id === '2') edge.ss = 2;
+  if (id === 'm') { cfg.music = !cfg.music; applyMusic(); $('optMusic').checked = cfg.music; refreshTracks(); saveCfg(); }
+  if (id === 'n') nextTrack();
 });
-addEventListener('keyup', e => { const k = e.key.toLowerCase(); const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' }; keys[map[k] || k] = false; });
+addEventListener('keyup', e => { const id = rev[e.key.toLowerCase()]; if (id) keys[id] = false; });
 addEventListener('blur', () => { keys = {}; mouse.down = false; mouse.right = false; });
 addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 cv.addEventListener('mousedown', e => {
@@ -969,6 +1062,7 @@ function stepInput() {
   edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   const can = !!me && snap.ph === 'live' && me.al && !me.dn && !(me.hz > 0) && !(me.ch >= 0);   // mesmas regras do servidor para iniciar a rasteira
+  if (me) pred.skin = me.sk;
   if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMotion(level, pred, pslide, k, inp.a, inp.sl, STEP, sm, can);
   pending.push({ seq: inp.seq, dt: STEP, k, sm, a: inp.a, sl: inp.sl, can }); if (pending.length > 120) pending.shift();
   predictShots(inp);
@@ -1126,6 +1220,8 @@ function drawHead(skin) {
   }
   if (skin === 'TIGER') for (const s of [-1, 1]) { shape([-1.5, s * 5.5, -6, s * 13, 3, s * 9], c); shape([-2, s * 7.5, -4.6, s * 11.2, 1, s * 9], '#2a1200', 0.01); }
   if (skin === 'DRAGON') for (const s of [-1, 1]) { shape([0, s * 6, -8, s * 9, -16, s * 16, -9, s * 5.4], '#fff2b8', 1.6); shape([-1, s * 7, -7, s * 9.4, -12, s * 13.4, -7, s * 7], '#e8a82a', 0.01); }
+  if (skin === 'FISH') for (const s of [-1, 1]) { shape([-1, s * 6, -9, s * 14, -4, s * 5.5], '#ff9a3c', 1.4); shape([-2, s * 7, -7, s * 11.5, -4, s * 6.5], '#ffd08a', 0.01); }   // barbatanas
+  if (skin === 'HIPPO') for (const s of [-1, 1]) { blob(-2.5, s * 9.6, 3.6, 3.2, c); blob(-2.3, s * 9.6, 1.8, 1.5, '#e8a3b8', 0); }
   if (skin === 'WOLF') for (const s of [-1, 1]) { shape([0, s * 5, -4, s * 14, 5, s * 8.5], c); shape([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', 0.01); }
   // máscara
   blob(0, 0, 9.6, 9.8, c, 2.1);
@@ -1155,6 +1251,20 @@ function drawHead(skin) {
     ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(14, 0); ctx.stroke();
     for (const s of [-1, 1]) shape([-2, s * 9, -7, s * 11.2, -4, s * 7.4], '#dfe8f2', 1);   // tufos de pelo
   }
+  if (skin === 'FISH') {
+    shape([-9, 0, -14.5, -5.5, -12, 0, -14.5, 5.5], '#ff9a3c', 1.4);   // cauda
+    blob(-1, 0, 3.8, 6.4, '#9fe6ff', 0);                                // barriga clara
+    ctx.strokeStyle = 'rgba(0,70,110,.55)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 0; i < 3; i++) ctx.arc(-6 + i * 3.4, 0, 3.6, -1.1, 1.1);
+    ctx.stroke();                                                       // escamas
+    blob(8.6, 0, 3.2, 3.6, shade(c, 1.1), 1.2); blob(11, 0, 1.5, 1.8, '#ff6f9a', 1);   // boca de peixe
+  }
+  if (skin === 'HIPPO') {
+    blob(7.4, 0, 5.6, 8.2, shade(c, 1.12), 1.6);                                  // focinho largo e achatado
+    blob(10.6, -3.3, 1.2, 1.1, '#2a1830', 0); blob(10.6, 3.3, 1.2, 1.1, '#2a1830', 0);   // narinas
+    ctx.strokeStyle = 'rgba(40,20,50,.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(6, -6); ctx.quadraticCurveTo(11.5, 0, 6, 6); ctx.stroke();   // boca
+    blob(2.4, -6.2, 1.5, 1.5, '#e8a3b8', 0); blob(2.4, 6.2, 1.5, 1.5, '#e8a3b8', 0);   // bochechas rosadas
+  }
   if (skin === 'DRAGON') {
     for (let i = 0; i < 4; i++) shape([-8 + i * 3.2, 0, -6.2 + i * 3.2, -2.2, -4.4 + i * 3.2, 0, -6.2 + i * 3.2, 2.2], i & 1 ? '#ff9a1f' : '#ff6a1a', 1);   // crista de escamas
     blob(7.2, 0, 4.4, 4.8, shade(c, 0.92), 1.4); blob(10.4, -1.6, 1, 1, '#2a1200', 0); blob(10.4, 1.6, 1, 1, '#2a1200', 0);                     // focinho
@@ -1167,6 +1277,10 @@ function drawHead(skin) {
 }
 // tronco visto de cima: ombros largos, jaqueta com gola, costura e listra nas costas
 function drawBody(skin, jacket, flat) {
+  if (skin === 'HIPPO') { ctx.save(); ctx.scale(1.18, 1.32); drawBodyBase(skin, jacket, flat); ctx.restore(); }   // hipopótamo: bem mais gordo
+  else drawBodyBase(skin, jacket, flat);
+}
+function drawBodyBase(skin, jacket, flat) {
   if (flat) {
     for (const s of [-1, 1]) { blob(-12, s * 5.2, 7, 3.8, JEANS, 1.6); blob(-18.5, s * 5.2, 3.6, 3, '#f4f1ea', 1.4); }   // pernas e tênis de quem caiu
     blob(0, 0, 11.5, 15.5, jacket, 2); blob(-1, 0, 6, 11, shade(jacket, 0.8), 0);
@@ -1320,7 +1434,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
   drawBody(p.sk, jacket, false);
   drawBackWeapon(p);   // a outra arma do inventário fica nas costas
-  ctx.save(); ctx.translate(2.5, 0); ctx.scale(0.8, 0.8); drawHead(p.sk); ctx.restore();
+  ctx.save(); ctx.translate(2.5, 0); ctx.scale(p.sk === 'HIPPO' ? 0.92 : 0.8, p.sk === 'HIPPO' ? 0.92 : 0.8); drawHead(p.sk); ctx.restore();
   ctx.restore();
   ctx.restore();
 }
@@ -1502,7 +1616,7 @@ function render(now, dt) {
     if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
     drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, f.id);   // barras de cura e de carga da lança só aparecem para o próprio jogador
   }
-  if (me && me.al) { drawPlayer(me, pred.x, pred.y, aimAngle(), true, now); drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true); drawName(pred.x, pred.y, me.nm, me.id); drawHealBar(pred.x, pred.y, me.hz, now); drawChargeBar(pred.x, pred.y, me.ch); }
+  if (me && me.al) drawPlayer(me, pred.x, pred.y, aimAngle(), true, now);   // nome/vida do próprio jogador são desenhados depois dos tetos (camada final), para nada cobrir
 
   // efeitos
   for (const p of fx.parts) {
@@ -1543,6 +1657,16 @@ function render(now, dt) {
       ctx.globalAlpha = roofA[i]; ctx.drawImage(roofCv, sx, sy, sw, sh, sx, sy, sw, sh);
     }
     ctx.globalAlpha = 1;
+  }
+  // nome, vida, cura e carga do PRÓPRIO jogador: por cima de tetos/efeitos, com o estado do canvas zerado
+  if (me && me.al) {
+    ctx.save();
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+    drawHpBar(pred.x, pred.y, me.hp ?? MAX_HP, true);
+    drawName(pred.x, pred.y, me.nm || playerName(), me.id);
+    drawHealBar(pred.x, pred.y, me.hz, now);
+    drawChargeBar(pred.x, pred.y, me.ch);
+    ctx.restore();
   }
   for (const q of fx.pops) {
     const k = 1 - q.t / 0.9; ctx.save(); ctx.globalAlpha = Math.min(1, q.t * 3);
@@ -2064,5 +2188,5 @@ addEventListener('keyup', e => { if (swallowSpace && e.key === ' ') { e.preventD
 
 // Esc: só pausa quando o menu inicial NÃO está aberto
 addEventListener('keydown', e => {
-  if (e.key === 'Escape' && mode && $('menu').classList.contains('hidden')) { e.preventDefault(); setPaused(!paused); }
+  if (e.key === 'Escape' && mode && $('menu').classList.contains('hidden') && $('opts').classList.contains('hidden')) { e.preventDefault(); setPaused(!paused); }
 }, true);

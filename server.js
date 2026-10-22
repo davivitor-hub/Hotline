@@ -33,7 +33,7 @@ const MIME = {
 const rooms = new Map();
 const MAX_ROOMS = Math.max(1, Number(process.env.MAX_ROOMS) || 40);
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sem 0/O/1/I para não confundir
-const SKINS = ['ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'DRAGON'];
+const SKINS = ['ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'HIPPO', 'FISH', 'DRAGON'];
 
 if (!S || typeof S.Game !== 'function') {
   throw new Error('public/shared.js não exporta Game corretamente. Verifique o arquivo compartilhado.');
