@@ -678,7 +678,7 @@ function drawRoof(c, r, T, g) {
   c.fillStyle = 'rgba(0,0,0,.28)'; if (w >= h) c.fillRect(x, y + h / 2 - 4, w, 8); else c.fillRect(x + w / 2 - 4, y, 8, h);   // cumeeira
   c.fillStyle = 'rgba(255,255,255,.22)'; if (w >= h) c.fillRect(x, y + h / 2 - 4, w, 2); else c.fillRect(x + w / 2 - 4, y, 2, h);
   c.restore();
-  for (let ty = r.y; ty < r.y + r.h; ty++) for (let tx = r.x; tx < r.x + r.w; tx++) if (g[ty][tx] === 2) c.clearRect(tx * T - 1, ty * T - 1, T + 2, T + 2);   // a porta fica visível por fora
+  for (let ty = r.y; ty < r.y + r.h; ty++) for (let tx = r.x; tx < r.x + r.w; tx++) if (g[ty][tx] === 2 && (tx === r.x || ty === r.y || tx === r.x + r.w - 1 || ty === r.y + r.h - 1)) c.clearRect(tx * T - 1, ty * T - 1, T + 2, T + 2);   // só as portas da FACHADA ficam visíveis por fora; portas internas (banheiro etc.) continuam sob o teto
   c.restore();
 }
 
@@ -879,12 +879,12 @@ addEventListener('keydown', e => {
   if (!mode || paused) return;
   if (['w', 'a', 's', 'd', 'e', 'f', 'q', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
   if (e.repeat) return;
-  if (k === 'shift') { lockStep(); if (!(isDragon() && keys[' '])) edge.sl = true; }   // Shift = rasteira (com o Dragão + ESPAÇO continua trocando o alvo da mira)
+  if (k === 'shift') lockStep();   // Shift (com o Dragão + ESPAÇO) troca o alvo da mira
   if (canSpec()) { if (k === 'a' || k === 'arrowleft') specStep(-1); else if (k === 'd' || k === 'arrowright') specStep(1); }
   const map = { arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
   keys[map[k] || k] = true;
   if (k === 'e') edge.pk = true;
-  if (k === 'f') edge.th = true;
+  if (k === 'f') edge.sl = true;   // F = rasteira
   if (k === 'q') edge.hl = true;
   if (k === '1') edge.ss = 1;
   if (k === '2') edge.ss = 2;
@@ -974,7 +974,7 @@ function doStep() {
 }
 function stepInput() {
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ss: edge.ss, tc: mouse.right ? 1 : 0 };
   edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   const can = !!me && snap.ph === 'live' && me.al && !me.dn && !(me.hz > 0) && !(me.ch >= 0);   // mesmas regras do servidor para iniciar a rasteira
@@ -1563,7 +1563,7 @@ function render(now, dt) {
 }
 // nome do jogador acima do boneco (só no online)
 function drawName(x, y, name, id) {
-  if (mode !== 'online' || !name) return;
+  if (!name) return;
   ctx.save(); ctx.font = '700 14px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
   ctx.strokeStyle = 'rgba(10,0,20,.95)'; ctx.fillStyle = jacketOf(id);   // nome na cor do personagem
   ctx.strokeText(name, x, y - 51); ctx.fillText(name, x, y - 51); ctx.restore();
@@ -1579,10 +1579,10 @@ function drawHealBar(x, y, hz, now) {
   if (!(hz > 0)) return;
   const k = Math.max(0, Math.min(1, 1 - hz / HEAL_TIME)), w = 56;
   ctx.save();
-  ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 70, w + 4, 11);
-  ctx.fillStyle = '#7dff8a'; ctx.fillRect(x - w / 2, y - 68, w * k, 7);
+  ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 84, w + 4, 11);
+  ctx.fillStyle = '#7dff8a'; ctx.fillRect(x - w / 2, y - 82, w * k, 7);
   ctx.font = '700 12px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#7dff8a';
-  ctx.strokeText('CURANDO', x, y - 75); ctx.fillText('CURANDO', x, y - 75);
+  ctx.strokeText('CURANDO', x, y - 89); ctx.fillText('CURANDO', x, y - 89);
   ctx.restore();
 }
 // barra de força do arremesso da lança: quanto mais segura, mais dano (mostra o % que vai tirar)
@@ -1590,10 +1590,10 @@ function drawChargeBar(x, y, ch) {
   if (!(ch >= 0)) return;
   const w = 56, pct = Math.round(SPEAR_THROW_MIN + (SPEAR_THROW_MAX - SPEAR_THROW_MIN) * ch);
   ctx.save();
-  ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 70, w + 4, 11);
-  ctx.fillStyle = `hsl(${Math.round(55 - 55 * ch)},100%,55%)`; ctx.fillRect(x - w / 2, y - 68, w * ch, 7);
+  ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 84, w + 4, 11);
+  ctx.fillStyle = `hsl(${Math.round(55 - 55 * ch)},100%,55%)`; ctx.fillRect(x - w / 2, y - 82, w * ch, 7);
   ctx.font = '700 12px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#fff';
-  const t = ch >= 1 ? 'LANÇA MÁXIMA' : 'LANÇA ' + pct + '%'; ctx.strokeText(t, x, y - 75); ctx.fillText(t, x, y - 75);
+  const t = ch >= 1 ? 'LANÇA MÁXIMA' : 'LANÇA ' + pct + '%'; ctx.strokeText(t, x, y - 89); ctx.fillText(t, x, y - 89);
   ctx.restore();
 }
 function drawCrosshair(me) {
@@ -1708,11 +1708,11 @@ function ensureVitals() {
     '<div class="v-hp"><i class="v-ghost"></i><i class="v-fill"></i></div>' +
     '<div class="v-heal"><i></i></div>' +
     '<div class="v-row"><b class="v-num">100</b><span class="v-unit">% VIDA</span>' +
-    '<span class="v-keys"><span class="v-key"><kbd>Q</kbd>CURAR</span><span class="v-key v-sl"><kbd>SHIFT</kbd>RASTEIRA</span></span></div>' +
+    '</div>' +
     '<div class="v-cd"><i></i></div></div>';
   hud.appendChild(el);
   vit = { el, face: el.querySelector('.v-face'), name: el.querySelector('.v-name'), tag: el.querySelector('.v-tag'), fill: el.querySelector('.v-fill'), ghost: el.querySelector('.v-ghost'),
-    heal: el.querySelector('.v-heal'), healI: el.querySelector('.v-heal i'), num: el.querySelector('.v-num'), sl: el.querySelector('.v-sl'), cdI: el.querySelector('.v-cd i'), c: {} };
+    heal: el.querySelector('.v-heal'), healI: el.querySelector('.v-heal i'), num: el.querySelector('.v-num'), cdI: el.querySelector('.v-cd i'), c: {} };
   return vit;
 }
 // rosto da máscara no painel de vida: reaproveita drawHead() num canvas próprio (mesma troca de ctx dos ícones de arma)
@@ -1742,7 +1742,7 @@ function updateVitals(me) {
   if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
   const ready = pslide.cd <= 0, cd = ready ? 100 : Math.round((1 - pslide.cd / SLIDE_CD) * 100);
   if (V.c.cd !== cd) { V.c.cd = cd; V.cdI.style.width = cd + '%'; }
-  if (V.c.rd !== ready) { V.c.rd = ready; V.sl.classList.toggle('ready', ready); V.el.classList.toggle('cooling', !ready); }
+  if (V.c.rd !== ready) { V.c.rd = ready; V.el.classList.toggle('cooling', !ready); }
 }
 function updateHud(now) {
   if (!snap) return;
@@ -1772,7 +1772,8 @@ function updateHud(now) {
       if (snap.win === mySlot) { t = 'Vitória!'; cls = 'win'; } else { t = 'Derrota'; cls = 'lose'; }
       { const w = snap.pl.find(p => p.sl === snap.win); s = `${w ? w.nm + ' venceu a partida · ' : ''}${mode === 'online' ? 'voltando para a sala…' : 'nova partida em instantes'}`; } break;
   }
-  const key = t + '|' + s + '|' + cls;
+  const res = snap.ph === 'matchover' ? [...snap.pl].sort((a, b) => b.sc - a.sc || (b.kl | 0) - (a.kl | 0) || a.sl - b.sl).map(p => p.id + ':' + p.nm + ':' + p.sc + ':' + (p.kl | 0)).join('|') : '';
+  const key = t + '|' + s + '|' + cls + '|' + res;
   const b = $('banner');
   if (key !== bannerKey) {
     bannerKey = key;
@@ -1780,6 +1781,16 @@ function updateHud(now) {
     else {
       b.classList.remove('hidden', 'win', 'lose'); if (cls) b.classList.add(cls);
       $('bTitle').textContent = t; $('bSub').textContent = s;
+      const rl = $('bResults'); rl.textContent = '';
+      if (snap.ph === 'matchover') {   // fim da partida: abates de cada jogador
+        const hd = document.createElement('div'); hd.className = 'rr rh'; hd.innerHTML = '<span>JOGADOR</span><span>ABATES</span>'; rl.appendChild(hd);
+        for (const p of [...snap.pl].sort((a, b) => b.sc - a.sc || (b.kl | 0) - (a.kl | 0) || a.sl - b.sl)) {
+          const row = document.createElement('div'); row.className = 'rr' + (p.sl === snap.win ? ' w' : '');
+          const nm = document.createElement('span'); nm.textContent = p.nm; nm.style.color = jacketOf(p.id);
+          const kl = document.createElement('b'); kl.textContent = String(p.kl | 0);
+          row.append(nm, kl); rl.appendChild(row);
+        }
+      }
       const h = $('bTitle'); h.style.animation = 'none'; void h.offsetWidth; h.style.animation = '';
       if (snap.ph === 'countdown') sfx('tick');
     }
