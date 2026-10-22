@@ -2185,6 +2185,20 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { if (swallowSpace && e.key === ' ') { e.preventDefault(); swallowSpace = false; } });
 
+// Celular (sem teclado): toque 7 vezes seguidas no "7" do título para liberar o Dragão Dourado
+{
+  const t1 = document.querySelector('#menu h1 .t1');
+  let taps = 0, tapAt = 0;
+  if (t1) t1.addEventListener('pointerdown', () => {
+    if (mode || introOn) return;
+    const now = performance.now();
+    if (now - tapAt > 1200) taps = 0;
+    tapAt = now; taps++;
+    secIdx = Math.min(SECRET.length - 1, taps - 1); secDots();   // acende os pontinhos conforme toca
+    if (taps >= 7) { taps = 0; secIdx = 0; setTimeout(secDots, 700); unlockSecret(); }
+  });
+}
+
 // Esc: só pausa quando o menu inicial NÃO está aberto
 addEventListener('keydown', e => {
   if (e.key === 'Escape' && mode && $('menu').classList.contains('hidden') && $('opts').classList.contains('hidden')) { e.preventDefault(); setPaused(!paused); }
