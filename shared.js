@@ -344,6 +344,7 @@
         this.doors.push({ i: this.doors.length, x, y, o: h ? 'h' : 'v', latched: true, phi: 0, w: 0, by: null,
           hx: h ? x * TILE : (x + 0.5) * TILE, hy: h ? (y + 0.5) * TILE : y * TILE });
       }
+      this.doorMap = new Map(this.doors.map(d => [d.y * this.W + d.x, d]));   // busca de porta por tile sem varrer a lista
     }
     // tiles: 0 livre, 1 parede, 2 porta, 3 móvel sólido, 4 água (livre, mais lenta). Móvel redondo: o tile só vale como sólido dentro do círculo.
     solid(tx, ty) {
@@ -870,7 +871,7 @@
           b.x += b.vx * dt / n; b.y += b.vy * dt / n;
           {   // porta fechada (parada) levando tiro: destrava e abre um pouco para o lado oposto ao de quem atirou
             const tx = Math.floor(b.x / TILE), ty = Math.floor(b.y / TILE);
-            const ld = this.level.doors.find(d => d.latched && d.x === tx && d.y === ty);
+            const ld0 = this.level.doorMap.get(ty * this.level.W + tx), ld = ld0 && ld0.latched ? ld0 : null;
             if (ld) {
               const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
               const dir = ld.o === 'h' ? (py < cy ? 1 : -1) : (px < cx ? 1 : -1);
@@ -901,7 +902,7 @@
             const nx = it.x + sx, ny = it.y + sy;
             {   // arma arremessada bate na porta: porta fechada destrava e abre; porta solta leva um empurrão (mais pesada = empurra mais)
               const wgt = WEIGHT[it.type] || 1, tx = Math.floor(nx / TILE), ty = Math.floor(ny / TILE);
-              const ld = this.level.doors.find(d => d.latched && d.x === tx && d.y === ty);
+              const ld0 = this.level.doorMap.get(ty * this.level.W + tx), ld = ld0 && ld0.latched ? ld0 : null;
               if (ld) {
                 const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE, dir = ld.o === 'h' ? (it.y < cy ? 1 : -1) : (it.x < cx ? 1 : -1);
                 this.level.kickDoor(ld, dir, Math.min(8, 3.5 + wgt * 0.7)); ld.nl = 0.8; ld.by = it.owner;
@@ -947,7 +948,8 @@
     }
 
     snapshot() {
-      const r1 = v => Math.round(v * 10) / 10;
+      const r1 = v => Math.round(v * 10) / 10, slotOf = {};
+      for (const p of this.players) if (p) slotOf[p.id] = p.slot;
       return {
         type: 's', ph: this.phase, tm: Math.max(0, +this.timer.toFixed(2)), rd: this.round,
         map: this.level ? this.level.id : null, win: this.winner, host: this.hostId(),
@@ -957,7 +959,7 @@
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1,
           sd: +p.slide.t.toFixed(2), sa: p.slide.a, sq: +p.slide.cd.toFixed(2)
         })),
-        b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (this.byId(b.owner) || { slot: -1 }).slot]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
+        b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
         dr: this.level ? this.level.doors.filter(d => !d.latched).map(d => [d.i, Math.round(d.phi * 1000) / 1000, Math.round(d.w * 100) / 100]) : [],
         ev: this.events
