@@ -159,3 +159,7 @@ body.touch #optTouchSec{display:grid;gap:8px}
 
 /* "7" do título: alvo de toque do segredo (7 toques seguidos) */
 body.touch #menu h1 .t1{padding:4px 10px;margin:-4px -10px;touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+
+/* relógio da rodada no celular: respeita o entalhe da tela */
+body.touch #roundTimer{top:calc(8px + var(--st));font-size:1rem;padding:3px 12px}
+body.touch #suiBar{display:none}

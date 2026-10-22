@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_CD, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_CD, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -18,19 +18,20 @@ if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'n
 
 const STEP = 1 / 60, TAU = Math.PI * 2;
 const SKINS = {
-  ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
+  HERO: { c: '#d2ab33', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
   MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }, HIPPO: { c: '#a99bb8', n: 'Hipopótamo' }, FISH: { c: '#3fc8ff', n: 'Peixe' },
   DRAGON: { c: '#ffcf3a', n: 'Dragão Dourado', secret: true }
 };
 
 /* --------------------------------------------------------------- CONFIG */
 function loadCfg() { try { return JSON.parse(localStorage.getItem('7shadows') || localStorage.getItem('neonduel') || '{}'); } catch { return {}; } }
-const cfg = Object.assign({ name: '', skin: 'ROOSTER', secret: false, diff: 'NORMAL', music: true, track: 'hidrogenio', vol: 0.6, sfx: true, shake: true, crt: false, shakeAmt: 1, kick: true, zoom: 1, ping: true, sfxVol: 1, binds: {} }, loadCfg());
+const cfg = Object.assign({ name: '', skin: 'HERO', secret: false, diff: 'NORMAL', music: true, track: 'hidrogenio', vol: 0.6, sfx: true, shake: true, crt: false, shakeAmt: 1, kick: true, zoom: 1, ping: true, sfxVol: 1, binds: {}, room: null }, loadCfg());
+cfg.room = sanitizeRoomCfg(cfg.room);   // últimas configurações de sala usadas (validadas)
 function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg)); } catch { } }
 const clampN = (v, a, b, d) => (Number.isFinite(+v) ? Math.max(a, Math.min(b, +v)) : d);
 cfg.shakeAmt = clampN(cfg.shakeAmt, 0.1, 1.5, 1); cfg.zoom = clampN(cfg.zoom, 0.7, 1.4, 1); cfg.sfxVol = clampN(cfg.sfxVol, 0, 1, 1);
 cfg.kick = cfg.kick !== false; cfg.ping = cfg.ping !== false;
-if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'ROOSTER';
+if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'HERO';
 
 /* ---------------------------------------------------------------- ESTADO */
 const cv = $('game'); let ctx = cv.getContext('2d', { alpha: false });   // let: os ícones do inventário desenham as armas num canvas temporário
@@ -38,7 +39,12 @@ let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
 let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false, pslide = { t: 0, a: 0, cd: 0 };   // pslide = estado previsto da rasteira (Shift)
-let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0, sl: false };
+let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0, sl: false, su: false };
+let suiHold = 0, suiArm = 0;   // suicídio: tempo segurando a tecla / confirmação do botão do menu de pausa
+const SUI_HOLD = 1.0;          // segundos segurando a tecla para se matar
+const roomMax = () => (snap && snap.cf ? snap.cf[2] : MAX_PLAYERS);   // vagas da sala (escolhidas na criação)
+const roomWin = () => (snap && snap.cf ? snap.cf[0] : 5);            // rodadas para vencer
+const fmtDur = s => (s % 60 === 0 ? (s / 60) + ' min' : s + ' s');
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
 // predição dos MEUS tiros (online): o tiro aparece na hora do clique; quando o do servidor chega, ele é escondido para não duplicar
@@ -241,7 +247,29 @@ $('optShake').onchange = e => { cfg.shake = e.target.checked; saveCfg(); };
 $('optCrt').onchange = e => { cfg.crt = e.target.checked; document.body.classList.toggle('nocrt', !cfg.crt); saveCfg(); };
 $('nameInput').oninput = e => { cfg.name = e.target.value; saveCfg(); };
 $('diffSel').onchange = e => { cfg.diff = e.target.value; saveCfg(); };
-$('btnCreateRoom').onclick = () => { initAudio(); startOnline({ mode: 'create' }); };
+/* ---------------------------------------------------- CONFIG DA SALA */
+const rc = { map: $('rcMap'), win: $('rcWin'), time: $('rcTime'), max: $('rcMax'), weap: $('rcWeap'), heal: $('rcHeal') };
+(function buildRoomCfg() {
+  const add = (sel, v, t) => { const o = document.createElement('option'); o.value = String(v); o.textContent = t; sel.appendChild(o); };
+  add(rc.map, '', 'Aleatória');
+  for (const id of Shared.MAP_IDS) add(rc.map, id, MAPS[id].name);
+  for (const n of [1, 2, 3, 5, 7, 10]) add(rc.win, n, n === 1 ? '1 rodada' : n + ' rodadas');
+  add(rc.time, 0, 'Sem limite');
+  for (const s of [30, 60, 90, 120, 180, 300]) add(rc.time, s, fmtDur(s));
+  for (let n = MIN_PLAYERS; n <= MAX_PLAYERS; n++) add(rc.max, n, n + ' jogadores');
+  add(rc.weap, 0.5, 'Poucas'); add(rc.weap, 1, 'Normais'); add(rc.weap, 2, 'Muitas');
+})();
+function loadRoomCfg() {
+  const r = cfg.room;
+  rc.map.value = r.map; rc.win.value = String(r.winScore); rc.time.value = String(r.roundTime);
+  rc.max.value = String(r.maxPlayers); rc.weap.value = String(r.weapons); rc.heal.checked = r.heal;
+}
+const readRoomCfg = () => sanitizeRoomCfg({ map: rc.map.value, winScore: rc.win.value, roundTime: rc.time.value, maxPlayers: rc.max.value, weapons: rc.weap.value, heal: rc.heal.checked });
+function closeRoomCfg() { $('roomCfg').classList.add('hidden'); }
+$('btnCreateRoom').onclick = () => { initAudio(); loadRoomCfg(); $('roomCfg').classList.remove('hidden'); };
+$('btnRcBack').onclick = closeRoomCfg;
+$('btnRcCreate').onclick = () => { cfg.room = readRoomCfg(); saveCfg(); closeRoomCfg(); startOnline({ mode: 'create', cfg: cfg.room }); };
+addEventListener('keydown', e => { if (e.key === 'Escape' && !$('roomCfg').classList.contains('hidden')) closeRoomCfg(); });
 const roomCodeOf = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
 $('roomInput').oninput = e => { e.target.value = roomCodeOf(e.target.value); };
 $('roomInput').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') $('btnJoinRoom').click(); };
@@ -268,8 +296,16 @@ function showMenu(msg) { stopTrack(); $('menu').classList.remove('hidden'); $('p
 function hideMenu() { playTrack(); $('menu').classList.add('hidden'); $('hud').classList.remove('hidden'); }
 function setPaused(p) {
   if (!mode) return; paused = p; $('pause').classList.toggle('hidden', !p);
-  if (p) { keys = {}; mouse.down = false; mouse.right = false; }
+  suiReset();
+  if (p) { keys = {}; mouse.down = false; mouse.right = false; const me = myState(); $('btnSuicide').disabled = !(snap && snap.ph === 'live' && me && me.al); }
 }
+// botão de suicídio do menu de pausa: 1º toque pede confirmação, 2º toque executa
+function suiReset() { clearTimeout(suiArm); suiArm = 0; const b = $('btnSuicide'); b.textContent = 'Suicídio'; b.classList.remove('armed'); }
+$('btnSuicide').onclick = () => {
+  if (!suiArm) { const b = $('btnSuicide'); b.textContent = 'Confirmar suicídio?'; b.classList.add('armed'); suiArm = setTimeout(suiReset, 3000); return; }
+  suiReset(); edge.su = true; setPaused(false);
+};
+function setSuiBar(f) { const el = $('suiBar'); if (f <= 0) { el.classList.add('hidden'); return; } el.classList.remove('hidden'); el.querySelector('b').style.width = Math.min(100, f * 100) + '%'; }
 
 /* remove o texto "ngc" do menu (partida rápida) — varre textos e atributos do menu/sala */
 (function stripNgc() {
@@ -316,6 +352,7 @@ const ACTIONS = [
   { id: ' ', label: 'Rasteira' }, { id: 'e', label: 'Pegar arma' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' },
   { id: '1', label: 'Arma do espaço 1' }, { id: '2', label: 'Arma do espaço 2' },
   { id: 'shift', label: 'Soltar / estender a câmera' }, { id: 'c', label: 'Travar mira (Dragão Dourado)' },
+  { id: 'k', label: 'Suicídio (segurar)' },
   { id: 'm', label: 'Mutar música' }, { id: 'n', label: 'Trocar de música' }
 ];
 const KEYNAMES = { ' ': 'ESPAÇO', shift: 'SHIFT', control: 'CTRL', alt: 'ALT', tab: 'TAB', enter: 'ENTER', capslock: 'CAPS LOCK', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', backspace: 'BACKSPACE' };
@@ -396,13 +433,14 @@ bindRange('optVol', () => Math.round(cfg.vol * 100), v => { cfg.vol = v / 100; $
 $('volRange').oninput = e => { cfg.vol = e.target.value / 100; $('optVol').value = e.target.value; $('optVolV').textContent = e.target.value + '%'; saveCfg(); applyMusic(); };
 refreshKeys();
 refreshTracks();
-const playerName = () => (cfg.name || '').trim() || 'Jogador';
+const playerName = () => (cfg.name || '').trim() || 'Shadow 4';
 
 /* ------------------------------------------------------------ CONEXÃO */
 function closeAll() {
   if (ws) { ws.onclose = null; ws.onmessage = null; try { ws.close(); } catch { } ws = null; }
   clearInterval(pingTimer); local = null; mode = null; snap = null; level = null; mapId = undefined; round = -1; buf = []; pending = [];
   paused = false; camInit = false; resetFx(); $('pause').classList.add('hidden');
+  suiHold = 0; suiReset(); $('suiBar').classList.add('hidden'); $('roundTimer').classList.add('hidden');
 }
 let roomCode = '';
 function startOnline(opt = { mode: 'quick' }) {
@@ -410,14 +448,14 @@ function startOnline(opt = { mode: 'quick' }) {
   try { ws = new WebSocket(SERVER_URL); } catch { mode = null; return status('Endereço do servidor inválido.'); }
   const sock = ws;
   sock.onopen = () => {
-    sock.send(JSON.stringify({ type: 'join', name: playerName(), skin: cfg.skin, mode: opt.mode, room: opt.room || '' }));
+    sock.send(JSON.stringify({ type: 'join', name: playerName(), skin: cfg.skin, mode: opt.mode, room: opt.room || '', cfg: opt.cfg || null }));
     pingTimer = setInterval(() => { if (sock.readyState === 1) sock.send(JSON.stringify({ type: 'ping', t: performance.now() })); }, 2000);
   };
   sock.onmessage = e => {
     let m; try { m = JSON.parse(e.data); } catch { return; }
     if (m.type === 'welcome') myId = m.id;
     else if (m.type === 'joined') { roomCode = m.room || ''; hideMenu(); }
-    else if (m.type === 'full') { closeAll(); showMenu('A sala está cheia (' + MAX_PLAYERS + ' jogadores).'); }
+    else if (m.type === 'full') { closeAll(); showMenu('A sala está cheia.'); }
     else if (m.type === 'noroom') { closeAll(); showMenu('Sala não encontrada. Confira o código.'); }
     else if (m.type === 'busy') { closeAll(); showMenu('O servidor está com o máximo de salas abertas. Tente de novo em instantes.'); }
     else if (m.type === 's') onSnapshot(m);
@@ -902,6 +940,7 @@ function handleEvent(e, now) {
     }
     case 'kill': {
       sfx('kill', e.x, e.y);
+      if (e.how === 'suicide') addPop(e.x, e.y - 22, 'SUICÍDIO', '#ff2e4d');
       const big = e.how === 'exec' || e.how === 'blade';
       addBlood(e.x, e.y, e.a, big ? 80 : 50, big ? 420 : 330);
       bloodPool(e.x, e.y, e.a, big);
@@ -1057,9 +1096,14 @@ function doStep() {
   if (snap && level) stepInput();
 }
 function stepInput() {
+  {   // suicídio: segurar a tecla por SUI_HOLD segundos
+    const m0 = myState();
+    if (keys.k && m0 && m0.al && snap.ph === 'live') { suiHold += STEP; if (suiHold >= SUI_HOLD) { suiHold = 0; keys.k = false; edge.su = true; } } else suiHold = 0;
+    setSuiBar(suiHold / SUI_HOLD);
+  }
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
-  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = false; edge.ss = 0;
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = edge.su = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   const can = !!me && snap.ph === 'live' && me.al && !me.dn && !(me.hz > 0) && !(me.ch >= 0);   // mesmas regras do servidor para iniciar a rasteira
   if (me) pred.skin = me.sk;
@@ -1080,7 +1124,7 @@ function predictShots(inp) {
   if (inp.fp) pbuf = 0.16;
   const wd = me.w ? WEAPONS[me.w] : null;
   if (!wd || wd.melee || me.am - pshots.length <= 0) return;
-  if (!(pcd <= 0 && (pbuf > 0 || (inp.f && wd.auto)))) return;
+  if (!(pcd <= 0 && (pbuf > 0 || inp.f))) return;
   pbuf = 0; pcd = wd.cd;
   const a = inp.a; let mz = wd.muz || 12;
   if (!level.los(pred.x, pred.y, pred.x + Math.cos(a) * mz, pred.y + Math.sin(a) * mz)) mz = 8;
@@ -1204,14 +1248,41 @@ function blob(x, y, rx, ry, fill, lw = 1.8) {
 function limb(x1, y1, x2, y2, jacket) {
   ctx.lineCap = 'round';
   ctx.strokeStyle = OL; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-  ctx.strokeStyle = jacket; ctx.lineWidth = 5.4; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = curHero ? '#d8ab87' : jacket; ctx.lineWidth = 5.4; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();   // Shadow 4: braço de pele
   const cx = x1 + (x2 - x1) * 0.62, cy = y1 + (y2 - y1) * 0.62;
-  ctx.strokeStyle = '#efe6d0'; ctx.lineWidth = 5.6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x1 + (x2 - x1) * 0.78, y1 + (y2 - y1) * 0.78); ctx.stroke();   // punho
+  ctx.strokeStyle = curHero ? '#44211b' : '#efe6d0'; ctx.lineWidth = 5.6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x1 + (x2 - x1) * 0.78, y1 + (y2 - y1) * 0.78); ctx.stroke();   // punho
 }
 const hand = (x, y) => blob(x, y, 3.6, 3.4, SKIN_TONE, 1.6);
 
+/* ---------- Shadow 4: pixel art do personagem (cores tiradas da arte original) ---------- */
+const HERO_PAL = {"O": "#000000", "a": "#030303", "b": "#c7a02a", "c": "#b69120", "d": "#d2ab33", "e": "#e1b373", "f": "#ffd89d", "g": "#634d2e", "h": "#a27c4a", "R": "#e0152f", "r": "#ff3b57", "Y": "#ffd23f", "y": "#e8a82a", "B": "#ff9a2b", "W": "#ffffff", "E": "#0b0710"};
+const HERO_FRONT = [".OOOO.", "aObcaO", "Odceca", "OcefeO", "OgffgO", "OffffO", "OffffO", "OehhfO"];   // rosto de frente (retrato do HUD) — igual à sua arte
+const HERO_HEAD = ["............", "...OOOOOO...", "..ObbbdbeO..", ".OcbcdbbffO.", ".OcbdbbbgfO.", "OccdbcbdffhO", "OcccbbdbffhO", ".OcbbdbbgfO.", ".OcbcbbbffO.", "..OdbbbdeO..", "...OOOOOO...", "............"];   // cabeça vista de cima, olhando para a direita
+const ROOSTER_HEAD = ["............", "...OOOOOO...", "..OyYYYYyO..", ".OyYYYYyEWO.", ".OYRRRRYYYO.", "OcrRrRrRrBBO", "OcrRrRrRrBBO", ".OYRRRRYyYO.", ".OyYYYYyEWO.", "..OYYYyYYO..", "...OOOOOO...", "............"];   // máscara de galo vista de cima
+const HERO_SIDE = ["...OOOOOO...", "..ObbdbbbOO.", ".ObbbbbbbbfO", "ObcbbbbbbffO", "OcbbbbbbbffO", "OcbbbbbbbfgO", "ObbbbbbbffeO", ".ObbbbbfffhO", ".ObbbbbffheO", "...ObbbhhO..", "....OOOOO..."];   // cabeça de perfil (abertura)
+const isHeroSk = k => k === 'HERO' || k === 'ROOSTER';
+const pixCache = {};
+function pix(key, rows) {   // grade de letras -> canvas pixel art (cacheado)
+  if (pixCache[key]) return pixCache[key];
+  const c = document.createElement('canvas'); c.width = rows[0].length; c.height = rows.length; const q = c.getContext('2d');
+  rows.forEach((row, y) => { for (let x = 0; x < row.length; x++) { const ch = row[x]; if (ch !== '.' && HERO_PAL[ch]) { q.fillStyle = HERO_PAL[ch]; q.fillRect(x, y, 1, 1); } } });
+  return (pixCache[key] = c);
+}
+function drawPixelHead(key, rows, s = 1.8) {   // desenha sem suavização, mesmo girando
+  const c = pix(key, rows), sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(c, -c.width * s / 2 + 1.2, -c.height * s / 2, c.width * s, c.height * s);
+  ctx.imageSmoothingEnabled = sm;
+}
+function heroJacket(col) {   // jaqueta marrom da arte, puxada um pouco para a cor do jogador (para distinguir quem é quem)
+  if (!/^#[0-9a-f]{6}$/i.test(col || '')) return '#44211b';
+  const n = parseInt(col.slice(1), 16), k = (v, t) => Math.round(v * 0.3 + t * 0.7);
+  return `rgb(${k(n >> 16, 0x44)},${k((n >> 8) & 255, 0x21)},${k(n & 255, 0x1b)})`;
+}
+let curHero = false;   // o personagem que está sendo desenhado é o Shadow 4 (braços de pele, jeans escuro)
 function drawHead(skin) {
-  const c = (SKINS[skin] || SKINS.ROOSTER).c, dk = shade(c, 0.62), lt = shade(c, 1.22);
+  if (skin === 'HERO') { drawPixelHead('hero', HERO_HEAD); return; }
+  if (skin === 'ROOSTER') { drawPixelHead('roost', ROOSTER_HEAD); return; }
+  const c = (SKINS[skin] || SKINS.HERO).c, dk = shade(c, 0.62), lt = shade(c, 1.22);
   blob(-2.4, 0, 9.6, 10.4, HAIR, 1.8);                          // cabelo aparecendo atrás da máscara
   // orelhas (atrás da máscara)
   if (skin === 'BEAR' || skin === 'MONKEY') {
@@ -1229,11 +1300,6 @@ function drawHead(skin) {
   ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(-8, 0, 8, 12, 0, 0, TAU); ctx.fill();        // sombra atrás
   ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(1, -6, 6, 3, -0.3, 0, TAU); ctx.fill(); // brilho
   ctx.restore();
-  if (skin === 'ROOSTER') {
-    blob(-3.2, 0, 3.8, 3.5, '#ff2e4d'); blob(1.2, 0, 3.4, 3.1, '#ff3b57'); blob(5, 0, 2.7, 2.4, '#ff5a70');        // crista
-    shape([8, -3.6, 16, 0, 8, 3.6, 9.4, 0], '#ff9a2b', 1.6); ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(9.4, 0); ctx.lineTo(15, 0); ctx.stroke();
-    blob(9.5, 0, 1.8, 2.4, '#e0152f', 1);
-  }
   if (skin === 'TIGER') {
     ctx.strokeStyle = '#2a1200'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath();
     ctx.moveTo(-7, -4.6); ctx.lineTo(-2, -2.8); ctx.moveTo(-7.4, -0.8); ctx.lineTo(-2, 0); ctx.moveTo(-7, 4.6); ctx.lineTo(-2, 2.8);
@@ -1277,12 +1343,13 @@ function drawHead(skin) {
 }
 // tronco visto de cima: ombros largos, jaqueta com gola, costura e listra nas costas
 function drawBody(skin, jacket, flat) {
+  if (isHeroSk(skin)) jacket = heroJacket(jacket);
   if (skin === 'HIPPO') { ctx.save(); ctx.scale(1.18, 1.32); drawBodyBase(skin, jacket, flat); ctx.restore(); }   // hipopótamo: bem mais gordo
   else drawBodyBase(skin, jacket, flat);
 }
 function drawBodyBase(skin, jacket, flat) {
   if (flat) {
-    for (const s of [-1, 1]) { blob(-12, s * 5.2, 7, 3.8, JEANS, 1.6); blob(-18.5, s * 5.2, 3.6, 3, '#f4f1ea', 1.4); }   // pernas e tênis de quem caiu
+    for (const s of [-1, 1]) { blob(-12, s * 5.2, 7, 3.8, isHeroSk(skin) ? '#202d38' : JEANS, 1.6); blob(-18.5, s * 5.2, 3.6, 3, '#f4f1ea', 1.4); }   // pernas e tênis de quem caiu
     blob(0, 0, 11.5, 15.5, jacket, 2); blob(-1, 0, 6, 11, shade(jacket, 0.8), 0);
     ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(-8, 0, 11, -0.9, 0.9); ctx.stroke(); return;
   }
@@ -1291,10 +1358,10 @@ function drawBodyBase(skin, jacket, flat) {
   ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, 8.6, 14.8, 0, 0, TAU); ctx.clip();
   ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fillRect(-10, -16, 7, 32);                                  // sombra das costas
   ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(1, -7, 6, 3, -0.2, 0, TAU); ctx.fill();
-  ctx.strokeStyle = '#efe6d0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-5.2, -14); ctx.lineTo(-5.2, 14); ctx.stroke();   // listra da jaqueta nas costas
+  ctx.strokeStyle = isHeroSk(skin) ? '#d89643' : '#efe6d0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-5.2, -14); ctx.lineTo(-5.2, 14); ctx.stroke();   // listra da jaqueta nas costas
   ctx.restore();
   ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(2, 0); ctx.stroke();      // costura central
-  blob(3.4, 0, 3, 6, '#efe6d0', 1.4);                                                                                              // gola
+  blob(3.4, 0, 3, 6, isHeroSk(skin) ? '#2d826b' : '#efe6d0', 1.4);                                                                                              // gola
 }
 
 /* ---------- animação do golpe corpo a corpo (estilo Hotline Miami) ----------
@@ -1329,7 +1396,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   const sliding = isMe ? (pslide.t > 0 && p.al !== 0) : p.sd > 0, sAng = isMe ? pslide.a : p.sa;
   if (sliding) { st.la = sAng; st.mv = 1; if (!paused && Math.random() < 0.7) fx.parts.push({ k: 's', x: x - Math.cos(sAng) * 14, y: y - Math.sin(sAng) * 14, vx: -Math.cos(sAng) * 60 + (Math.random() - .5) * 90, vy: -Math.sin(sAng) * 60 + (Math.random() - .5) * 90, life: 0.22, sz: 3, col: '#cfc6a8' }); }
   st.recoil = Math.max(0, st.recoil - 0.12);
-  const jacket = jacketOf(p.id, isMe);
+  const jacket = jacketOf(p.id, isMe); curHero = isHeroSk(p.sk);
   ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
   if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); }
   if (level && level.waterAt(x, y)) {   // dentro da piscina: sem sombra, ondas se abrindo em volta dos pés
@@ -1380,7 +1447,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   for (const [s, o] of [[-1, stp], [1, -stp]]) {
     const fxp = 1.5 + o * 1.5, lift = 1 + Math.max(0, o) / 10 * 0.2;
     ctx.strokeStyle = OL; ctx.lineWidth = 8.4; ctx.beginPath(); ctx.moveTo(-1, s * 3.6); ctx.lineTo(fxp - 2, s * 5.2); ctx.stroke();
-    ctx.strokeStyle = JEANS; ctx.lineWidth = 5.8; ctx.beginPath(); ctx.moveTo(-1, s * 3.6); ctx.lineTo(fxp - 2, s * 5.2); ctx.stroke();
+    ctx.strokeStyle = curHero ? '#202d38' : JEANS; ctx.lineWidth = 5.8; ctx.beginPath(); ctx.moveTo(-1, s * 3.6); ctx.lineTo(fxp - 2, s * 5.2); ctx.stroke();
     blob(fxp + 2.5, s * 5.2, 5.6 * lift, 4 * lift, '#f4f1ea', 1.6); ctx.fillStyle = '#d62a45'; ctx.fillRect(fxp + 0, s * 5.2 - 0.7, 4.8, 1.4);   // tênis + faixa
   }
   ctx.restore();
@@ -1747,24 +1814,31 @@ function setHp(id, hp) {
 function setText(id, v) { if (hudCache[id] !== v) { hudCache[id] = v; $(id).textContent = v; } }
 let bannerKey = '', rosterKey = '', lobbyKey = '';
 // sala de espera online: lista de conectados e botão Iniciar (só o anfitrião)
+function cfgSummary(cf) {
+  if (!cf) return '';
+  const [win, time, , heal, weap, map] = cf;
+  return [map && MAPS[map] ? 'Fase: ' + MAPS[map].name : 'Fase aleatória', 'Primeiro a ' + win, time ? 'Tempo: ' + fmtDur(time) + ' por rodada' : 'Sem limite de tempo',
+    'Armas: ' + ({ 0.5: 'poucas', 1: 'normais', 2: 'muitas' }[weap] || 'normais'), 'Cura ' + (heal ? 'ligada' : 'desligada')].join(' · ');
+}
 function updateLobby() {
   const show = mode === 'online' && snap.ph === 'lobby';
   $('lobby').classList.toggle('hidden', !show || paused);
   $('hud').classList.toggle('inlobby', show);
   if (!show) { lobbyKey = ''; return; }
   const isHost = snap.host === myId, n = snap.pl.length, can = isHost && n >= MIN_PLAYERS;
-  const key = [snap.host, myId, ...snap.pl.map(p => p.id + ':' + p.nm + ':' + p.sk + ':' + p.cl)].join('|');
+  const key = [snap.host, myId, snap.cf ? snap.cf.join(',') : '', ...snap.pl.map(p => p.id + ':' + p.nm + ':' + p.sk + ':' + p.cl)].join('|');
   if (key !== lobbyKey) {
     lobbyKey = key;
-    $('lobbyCount').textContent = `${n}/${MAX_PLAYERS} conectados`;
+    $('lobbyCount').textContent = `${n}/${roomMax()} conectados`;
+    $('lobbyCfg').textContent = cfgSummary(snap.cf);
     { const lc = $('lobbyCode'); lc.textContent = roomCode; const sm = document.createElement('small'); sm.textContent = 'CÓDIGO DA SALA · toque para copiar o link'; lc.appendChild(sm); }
     const el = $('lobbyList'); el.textContent = '';
     const list = [...snap.pl].sort((a, b) => a.sl - b.sl);
-    for (let i = 0; i < MAX_PLAYERS; i++) {
+    for (let i = 0; i < roomMax(); i++) {
       const p = list[i], row = document.createElement('div');
       if (!p) { row.className = 'lrow empty'; const d0 = document.createElement('i'), n0 = document.createElement('span'); n0.textContent = 'Vaga aberta…'; row.append(d0, n0); el.appendChild(row); continue; }
       row.className = 'lrow' + (p.id === myId ? ' me' : '');
-      const dot = document.createElement('i'); dot.style.background = p.cl || (SKINS[p.sk] || SKINS.ROOSTER).c;
+      const dot = document.createElement('i'); dot.style.background = p.cl || (SKINS[p.sk] || SKINS.HERO).c;
       const nm = document.createElement('span'); nm.textContent = p.nm + (p.id === myId ? ' (você)' : ''); nm.style.color = p.cl || '';
       row.append(dot, nm);
       if (p.id === snap.host) { const tag = document.createElement('em'); tag.textContent = 'anfitrião'; row.appendChild(tag); }
@@ -1776,10 +1850,10 @@ function updateLobby() {
 }
 // lista de todos os jogadores com pontuação (vivo / caído)
 function updateRoster() {
-  const key = snap.rd + '#' + snap.pl.map(p => [p.id, p.nm, p.sc, p.al, p.sl, Math.round(p.hp / MAX_HP * 100)].join(':')).join('|');
+  const key = snap.rd + '/' + roomWin() + '#' + snap.pl.map(p => [p.id, p.nm, p.sc, p.al, p.sl, Math.round(p.hp / MAX_HP * 100)].join(':')).join('|');
   if (key === rosterKey) return; rosterKey = key;
   const el = $('roster'); el.textContent = '';
-  const head = document.createElement('div'); head.className = 'rhead'; head.textContent = snap.rd ? `Rodada ${snap.rd} · primeiro a 5` : 'Sala'; el.appendChild(head);
+  const head = document.createElement('div'); head.className = 'rhead'; head.textContent = snap.rd ? `Rodada ${snap.rd} · primeiro a ${roomWin()}` : 'Sala'; el.appendChild(head);
   for (const p of [...snap.pl].sort((a, b) => b.sc - a.sc || a.sl - b.sl)) {
     const row = document.createElement('div'); row.className = 'rrow' + (p.al ? '' : ' dead') + (p.id === myId ? ' me' : '');
     const dot = document.createElement('i'); dot.style.background = jacketOf(p.id, p.id === myId);
@@ -1847,9 +1921,14 @@ function drawFace(cvs, skin, jacket) {
   try {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cvs.width, cvs.height);
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, cvs.width, cvs.height);
-    ctx.setTransform(3.9, 0, 0, 3.9, cvs.width / 2, cvs.height / 2 + 4); ctx.rotate(-Math.PI / 2);
-    ctx.translate(-5, 0);
-    drawHead(SKINS[skin] ? skin : 'ROOSTER');
+    if (skin === 'HERO') {   // Shadow 4: o rosto de frente, direto da sua arte
+      const c = pix('front', HERO_FRONT), s = Math.max(1, Math.floor(Math.min((cvs.width - 6) / c.width, (cvs.height - 10) / c.height)));
+      ctx.imageSmoothingEnabled = false; ctx.drawImage(c, Math.round((cvs.width - c.width * s) / 2), 3, c.width * s, c.height * s);
+    } else {
+      ctx.setTransform(3.9, 0, 0, 3.9, cvs.width / 2, cvs.height / 2 + 4); ctx.rotate(-Math.PI / 2);
+      ctx.translate(-5, 0);
+      drawHead(SKINS[skin] ? skin : 'HERO');
+    }
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = jacket || '#e2a93b'; ctx.fillRect(0, cvs.height - 6, cvs.width, 6);   // faixa na cor da jaqueta
   } finally { ctx = old; }
 }
@@ -1862,7 +1941,7 @@ function updateVitals(me) {
   if (V.c.pct !== pct) { V.c.pct = pct; V.fill.style.width = pct + '%'; V.ghost.style.width = pct + '%'; V.num.textContent = pct; }
   if (V.c.st !== st) { V.c.st = st; V.el.classList.remove('ok', 'mid', 'low'); V.el.classList.add(st); V.tag.textContent = st === 'low' ? 'CRÍTICO' : st === 'mid' ? 'FERIDO' : 'EM PÉ'; }
   const nm = me.nm || ''; if (V.c.nm !== nm) { V.c.nm = nm; V.name.textContent = nm; }
-  const fk = (me.sk || 'ROOSTER') + '|' + jacketOf(me.id);   // retrato da máscara: redesenha só quando muda
+  const fk = (me.sk || 'HERO') + '|' + jacketOf(me.id);   // retrato da máscara: redesenha só quando muda
   if (V.c.fk !== fk) { V.c.fk = fk; drawFace(V.face, me.sk, jacketOf(me.id)); }
   const hz = me.hz > 0 ? Math.round((1 - me.hz / HEAL_TIME) * 100) : -1;
   if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
@@ -1874,8 +1953,13 @@ function updateHud(now) {
   if (!snap) return;
   const me = myState();
   updateLobby();
-  setText('pingTxt', mode === 'online' ? `${pingMs} ms · ${snap.pl.length}/${MAX_PLAYERS} jogadores` : 'treino · offline');
+  setText('pingTxt', mode === 'online' ? `${pingMs} ms · ${snap.pl.length}/${roomMax()} jogadores` : 'treino · offline');
   updateRoster();
+  {   // relógio da rodada (só com tempo máximo configurado)
+    const rt = snap.ph === 'live' ? snap.rt : -1, el = $('roundTimer');
+    if (rt >= 0) { const sec = Math.ceil(rt); setText('roundTimer', Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')); el.classList.remove('hidden'); el.classList.toggle('low', rt <= 10); }
+    else el.classList.add('hidden');
+  }
   if (me) {
     updateInv(me);
     updateVitals(me);
@@ -1886,13 +1970,13 @@ function updateHud(now) {
   let t = '', s = '', cls = '';
   const mySlot = me ? me.sl : 0;
   switch (snap.ph) {
-    case 'waiting': t = 'Aguardando'; s = `Esperando jogadores (${snap.pl.length}/${MAX_PLAYERS}). A partida começa com ${MIN_PLAYERS} ou mais.`; break;
+    case 'waiting': t = 'Aguardando'; s = `Esperando jogadores (${snap.pl.length}/${roomMax()}). A partida começa com ${MIN_PLAYERS} ou mais.`; break;
     case 'countdown': t = String(Math.max(1, Math.ceil(snap.tm))); s = `Rodada ${snap.rd} · ${MAPS[snap.map] ? MAPS[snap.map].name : ''}`; break;
     case 'live': if (now < goUntil) t = 'Vai!'; break;
     case 'over':
-      if (snap.win === -1) { t = 'Empate'; s = 'Todos caíram.'; }
-      else if (snap.win === mySlot) { t = 'Rodada sua'; cls = 'win'; s = 'Prepare-se para a próxima.'; }
-      else { const w = snap.pl.find(p => p.sl === snap.win); t = 'Você morreu'; cls = 'lose'; s = (w ? w.nm + ' venceu a rodada. ' : '') + 'Prepare-se para a próxima.'; }
+      if (snap.win === -1) { t = 'Empate'; s = snap.tu ? 'Tempo esgotado: vida igual, ninguém pontua.' : 'Todos caíram.'; }
+      else if (snap.win === mySlot) { t = 'Rodada sua'; cls = 'win'; s = (snap.tu ? 'Tempo esgotado: você tinha mais vida. ' : '') + 'Prepare-se para a próxima.'; }
+      else { const w = snap.pl.find(p => p.sl === snap.win); t = snap.tu ? 'Tempo esgotado' : 'Você morreu'; cls = 'lose'; s = (w ? w.nm + (snap.tu ? ' tinha mais vida. ' : ' venceu a rodada. ') : '') + 'Prepare-se para a próxima.'; }
       break;
     case 'matchover':
       if (snap.win === mySlot) { t = 'Vitória!'; cls = 'win'; } else { t = 'Derrota'; cls = 'lose'; }
@@ -1924,11 +2008,13 @@ function updateHud(now) {
 }
 
 /* ------------------------------------------------------------------- LOOP */
-let last = performance.now(), acc = 0;
+let last = performance.now(), acc = 0, idleN = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
-  if (mode && !paused) { acc += dt; let n = 0; while (acc >= STEP && n < 5) { doStep(); acc -= STEP; n++; } if (n >= 5) acc = 0; }
+  // menu/abertura cobrem o canvas por inteiro: não gasta GPU/CPU redesenhando o fundo a 60 fps
+  if (!mode) { if (idleN++ % 30 === 0) drawIdle(now); return; }
+  if (!paused) { acc += dt; let n = 0; while (acc >= STEP && n < 5) { doStep(); acc -= STEP; n++; } if (n >= 5) acc = 0; }
   render(now, paused ? 0 : dt);
 }
 requestAnimationFrame(frame);
@@ -2019,11 +2105,8 @@ function drawRider(c, g, t) {
   c.strokeStyle = '#ffd23f'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(62, -35); c.quadraticCurveTo(92, -26, 118, -40); c.stroke();
   // cachecol vermelho voando
   c.strokeStyle = '#ff2e4d'; c.lineWidth = 5; c.beginPath(); c.moveTo(10, -64); c.bezierCurveTo(-12, -62 + wob(15, 4), -30, -70 + wob(13, 6, 1), -52, -58 + wob(11, 8, 2)); c.stroke();
-  // cabeça com máscara de galo
-  c.fillStyle = '#ffd23f'; c.strokeStyle = 'rgba(8,2,18,.95)'; c.lineWidth = 2; c.beginPath(); c.arc(16, -74, 11, 0, TAU); c.fill(); c.stroke();
-  c.fillStyle = '#ff2e4d'; for (const [bx, by, br] of [[8, -84, 4.4], [14, -87, 4.8], [20, -85, 4]]) { c.beginPath(); c.arc(bx, by, br, 0, TAU); c.fill(); c.stroke(); }
-  c.fillStyle = '#ff9a2b'; c.beginPath(); c.moveTo(25, -78); c.lineTo(38, -73); c.lineTo(25, -69); c.closePath(); c.fill(); c.stroke();
-  c.fillStyle = '#0b0710'; c.beginPath(); c.ellipse(20, -77, 2.6, 3, 0, 0, TAU); c.fill(); c.fillStyle = '#fff'; c.beginPath(); c.arc(20.8, -77, 1.2, 0, TAU); c.fill();
+  // cabeça do personagem Loiro (pixel art de perfil)
+  c.save(); c.imageSmoothingEnabled = false; c.drawImage(pix('side', HERO_SIDE), 4, -85, 24, 22); c.restore();
   return hooves;
 }
 
@@ -2150,8 +2233,10 @@ function menuBurstLoop(now) {
   mctx.clearRect(0, 0, mfW, mfH); mctx.globalCompositeOperation = 'lighter';
   for (const b of bursts) {
     b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 220 * dt; b.vx *= Math.pow(0.35, dt);
-    const r = b.r * 4, g = mctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r); g.addColorStop(0, `rgba(${b.col},${Math.max(0, b.life / b.max) * 0.9})`); g.addColorStop(1, `rgba(${b.col},0)`);
-    mctx.fillStyle = g; mctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
+    // dois círculos (halo + núcleo) no lugar de um gradiente radial novo por partícula a cada quadro
+    const a = Math.max(0, b.life / b.max);
+    mctx.fillStyle = `rgba(${b.col},${a * 0.22})`; mctx.beginPath(); mctx.arc(b.x, b.y, b.r * 3.2, 0, TAU); mctx.fill();
+    mctx.fillStyle = `rgba(${b.col},${a * 0.9})`; mctx.beginPath(); mctx.arc(b.x, b.y, b.r * 1.1, 0, TAU); mctx.fill();
   }
   mctx.globalCompositeOperation = 'source-over';
   bursts = bursts.filter(b => b.life > 0);

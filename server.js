@@ -33,7 +33,7 @@ const MIME = {
 const rooms = new Map();
 const MAX_ROOMS = Math.max(1, Number(process.env.MAX_ROOMS) || 40);
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sem 0/O/1/I para não confundir
-const SKINS = ['ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'HIPPO', 'FISH', 'DRAGON'];
+const SKINS = ['HERO', 'ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'HIPPO', 'FISH', 'DRAGON'];
 
 if (!S || typeof S.Game !== 'function') {
   throw new Error('public/shared.js não exporta Game corretamente. Verifique o arquivo compartilhado.');
@@ -93,8 +93,8 @@ function newCode() {
   }
 }
 // pub = sala pública (entra na "partida rápida"); privada só entra quem tem o código
-function createRoom(pub, map) {
-  const room = { code: newCode(), pub: !!pub, game: new S.Game({ map }), clients: new Set() };
+function createRoom(pub, opts) {
+  const room = { code: newCode(), pub: !!pub, game: new S.Game(opts || {}), clients: new Set() };
   rooms.set(room.code, room);
   console.log(`sala ${room.code} criada (${room.pub ? 'pública' : 'privada'}); salas: ${rooms.size}`);
   return room;
@@ -149,16 +149,16 @@ wss.on('connection', (ws) => {
       } else if (mode === 'quick') {
         // prefere a sala pública mais cheia que ainda está na espera (junta o pessoal)
         room = [...rooms.values()]
-          .filter((r) => r.pub && r.game.phase === 'lobby' && r.game.count > 0 && r.game.count < S.MAX_PLAYERS)
+          .filter((r) => r.pub && r.game.phase === 'lobby' && r.game.count > 0 && r.game.count < r.game.maxPlayers)
           .sort((a, b) => b.game.count - a.game.count)[0] || null;
       }
       if (!room) {
         if (rooms.size >= MAX_ROOMS) return send(ws, { type: 'busy' });
-        room = createRoom(mode === 'quick', mode === 'create' && S.MAPS[m.map] ? m.map : null);
+        room = createRoom(mode === 'quick', mode === 'create' ? S.sanitizeRoomCfg(Object.assign({ map: m.map }, m.cfg)) : {});   // sala criada: usa as configurações escolhidas (validadas)
       }
-      if (room.game.count >= S.MAX_PLAYERS) return send(ws, { type: 'full' });
+      if (room.game.count >= room.game.maxPlayers) return send(ws, { type: 'full' });
 
-      const skin = SKINS.includes(m.skin) ? m.skin : 'ROOSTER';
+      const skin = SKINS.includes(m.skin) ? m.skin : 'HERO';
       const name = String(m.name || 'JOGADOR').replace(/[<>]/g, '').slice(0, 14);
       c.p = room.game.addPlayer(c.id, name, skin);
 
@@ -171,7 +171,7 @@ wss.on('connection', (ws) => {
       c.room = room;
       room.clients.add(ws);
       send(ws, { type: 'joined', id: c.id, slot: c.p.slot, room: room.code });
-      console.log(`${name} entrou (${c.id}) na sala ${room.code}; jogadores na sala: ${room.game.count}/${S.MAX_PLAYERS}`);
+      console.log(`${name} entrou (${c.id}) na sala ${room.code}; jogadores na sala: ${room.game.count}/${room.game.maxPlayers}`);
       return;
     }
 
@@ -199,6 +199,7 @@ wss.on('connection', (ws) => {
         tc: m.tc ? 1 : 0,                                // segurando o botão de arremesso (carga da lança)
         sw: m.sw ? 1 : 0,                                // scroll: alterna de arma
         sl: m.sl ? 1 : 0,                                // Shift: rasteira
+        su: m.su ? 1 : 0,                                // botão de suicídio
         ss: Math.max(0, Math.min(2, Number(m.ss) | 0))   // teclas 1/2: escolhe o espaço
       }, Math.max(0, Math.min(0.05, dt)));
       return;
@@ -218,7 +219,7 @@ wss.on('connection', (ws) => {
     if (c.p && room) {
       room.game.removePlayer(c.id);
       room.clients.delete(ws);
-      console.log(`${c.id} saiu da sala ${room.code}; jogadores na sala: ${room.game.count}/${S.MAX_PLAYERS}`);
+      console.log(`${c.id} saiu da sala ${room.code}; jogadores na sala: ${room.game.count}/${room.game.maxPlayers}`);
       dropIfEmpty(room);
     }
     clients.delete(ws);
