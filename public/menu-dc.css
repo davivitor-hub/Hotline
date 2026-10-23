@@ -86,18 +86,6 @@
 #menu #diffSel option{background:#1b3b8f;color:#fff}
 .dc-bar:focus-within{box-shadow:inset 0 0 0 1px rgba(255,255,255,.2),0 0 10px rgba(98,243,255,.55)}
 
-/* máscaras: chips chanfrados dentro de uma barra larga */
-.dc-skinrow .dc-static{align-self:center}
-.dc-skinbar{padding:5px 8px 5px 14px}
-#menu #skins{display:flex;flex-wrap:wrap;gap:5px;margin:0}
-#menu .skin{display:flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;font:700 .8rem var(--dc-font);letter-spacing:.03em;color:var(--dc-white);cursor:pointer;
-  background:linear-gradient(180deg,#4a6fb0,#2b4885);border:2px solid;border-color:#a9c0ea #1a2f6c #1a2f6c #a9c0ea;border-radius:6px;animation:none}
-#menu .skin i{width:16px;height:16px;border:2px solid #06143f;border-radius:50%}
-#menu .skin:hover{filter:brightness(1.15)}
-#menu .skin[aria-pressed="true"]{color:#fff;border-color:#e6fbff #3a6fbf #3a6fbf #e6fbff;background:linear-gradient(180deg,#86a9ea,#4a74c6);box-shadow:0 0 0 2px var(--dc-cy),0 0 10px rgba(98,243,255,.7)}
-#menu .skin.legend{color:#ffe27a;border-color:#ffe27a #8a6a10 #8a6a10 #ffe27a}
-#menu .skin.legend::after{display:none}
-
 #menu #status{min-height:22px;margin:8px 2px 2px;color:#ffe27a;font:700 .9rem var(--dc-font);text-shadow:1px 1px 0 #06143f}
 
 /* ------------------------------------------------------------ músicas */
