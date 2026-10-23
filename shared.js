@@ -60,6 +60,7 @@
   // (faca/machete/katana) que acerta a LÂMINA tira 100% de dano (no cabo não) e a ATIVA (Espaço) equipa um GANCHO: com ele na mão, o clique esquerdo lança e puxa até o adversário.
   const SKIN_STATS = {
     GORILLA: { hpMul: 2, healPct: 2, healTime: 0.3, active: true },
+    TIGER: { dual: true, active: true },   // Shadow 7: a ATIVA (Espaço) liga/desliga o modo DUPLA: com duas armas de fogo iguais no inventário, cada clique dispara as duas ao mesmo tempo
     HERO: { speedMul: 1.15, spearChargeMul: 0.5, dmgTaken: 0.75, meleeOnly: true, bladeKill: true, hook: true, active: true }
   };
   const speedMulOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].speedMul) || 1;               // multiplicador da velocidade de andar
@@ -71,6 +72,14 @@
   const canHold = (skin, type) => !(SKIN_STATS[skin] && SKIN_STATS[skin].meleeOnly) || !!(WEAPONS[type] && WEAPONS[type].melee);   // quem só usa corpo a corpo não pega arma de fogo
   const maxHpOf = skin => MAX_HP * ((SKIN_STATS[skin] && SKIN_STATS[skin].hpMul) || 1);          // vida máxima do personagem
   const healPctOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healPct) || HEAL_PCT;          // % da PRÓPRIA vida máxima que a cura devolve
+  const hasDual = skin => !!(SKIN_STATS[skin] && SKIN_STATS[skin].dual);                          // a ativa é o modo dupla (duas armas iguais ao mesmo tempo)
+  const dualPair = p => {   // [arma da mão, arma do outro espaço] se o modo dupla está ligado e são duas armas de fogo da mesma categoria; senão null
+    if (!p || !p.dualOn || !hasDual(p.skin)) return null;
+    const a = p.inv[p.sel], b = p.inv[1 - p.sel];
+    if (!a || !b || a.type !== b.type) return null;
+    const w = WEAPONS[a.type];
+    return w && !w.melee ? [a, b] : null;
+  };
   const hasActive = skin => !!(SKIN_STATS[skin] && SKIN_STATS[skin].active);                      // ativa (Espaço): gorila (explosão) e Shadow 4 (gancho)
   const healTimeOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healTime) || HEAL_TIME;       // segundos de cura
   const SWAP_TIME = 0.2;      // segundos para sacar a outra arma do inventário (2 espaços)
@@ -758,7 +767,7 @@
       this.players[p.slot] = null;
       if (this.count < MIN_PLAYERS) {
         // sem adversários: volta para a sala de espera
-        for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.healT = 0; q.actCd = 0; q.hook = null; q.hookOn = false; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
+        for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.healT = 0; q.actCd = 0; q.hook = null; q.hookOn = false; q.dualOn = false; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
         this.phase = this.autoStart ? 'waiting' : 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
       }
     }
@@ -770,7 +779,7 @@
       this.startMatch(); return true;
     }
     toLobby() {
-      for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.downT = 0; q.healT = 0; q.actCd = 0; q.hook = null; q.hookOn = false; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
+      for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.downT = 0; q.healT = 0; q.actCd = 0; q.hook = null; q.hookOn = false; q.dualOn = false; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
       this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1; this.tu = false; this.rt = 0;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
@@ -779,7 +788,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false; p.emT = 0; p.emCd = 0;
+      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false; p.dualOn = false; p.emT = 0; p.emCd = 0;
     }
     startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
@@ -994,18 +1003,26 @@
         }
         return;
       }
-      if (p.weapon.ammo <= 0) { p.cd = 0.3; this.events.push({ t: 'click', by: p.id, x: p.x, y: p.y }); return; }
-      p.weapon.ammo--; p.cd = wd.cd;
-      let mz = wd.muz || 12;
-      // se a ponta do cano atravessar uma parede (encostado nela), o tiro sai do corpo
-      if (!this.level.los(p.x, p.y, p.x + Math.cos(p.angle) * mz, p.y + Math.sin(p.angle) * mz)) mz = 8;
-      const sx = p.x + Math.cos(p.angle) * mz, sy = p.y + Math.sin(p.angle) * mz;
-      for (let i = 0; i < wd.pellets; i++) {
-        const a = p.angle + (Math.random() - 0.5) * 2 * wd.spread;
-        const sp = wd.speed * (wd.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
-        this.bullets.push({ id: this.nid++, x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: p.id, w: p.weapon.type, life: wd.range / sp });
-      }
-      this.events.push({ t: 'shot', by: p.id, w: p.weapon.type, x: p.x, y: p.y, a: p.angle });
+      const guns = dualPair(p) || [p.weapon], loaded = guns.filter(g => g.ammo > 0);   // modo dupla do Shadow 7: as duas armas iguais atiram juntas (uma de cada lado do corpo)
+      if (!loaded.length) { p.cd = 0.3; this.events.push({ t: 'click', by: p.id, x: p.x, y: p.y }); return; }
+      p.cd = wd.cd;
+      const cs = Math.cos(p.angle), sn = Math.sin(p.angle);
+      loaded.forEach((gun, gi) => {
+        gun.ammo--;
+        let off = loaded.length > 1 ? (gi ? -5.5 : 5.5) : 0;   // desvio lateral de cada cano
+        if (off && !this.level.los(p.x, p.y, p.x - sn * off, p.y + cs * off)) off = 0;   // encostado na parede: os dois saem do corpo
+        const ox = p.x - sn * off, oy = p.y + cs * off;
+        let mz = wd.muz || 12;
+        // se a ponta do cano atravessar uma parede (encostado nela), o tiro sai do corpo
+        if (!this.level.los(ox, oy, ox + cs * mz, oy + sn * mz)) mz = 8;
+        const sx = ox + cs * mz, sy = oy + sn * mz;
+        for (let i = 0; i < wd.pellets; i++) {
+          const a = p.angle + (Math.random() - 0.5) * 2 * wd.spread;
+          const sp = wd.speed * (wd.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
+          this.bullets.push({ id: this.nid++, x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: p.id, w: gun.type, life: wd.range / sp });
+        }
+        this.events.push({ t: 'shot', by: p.id, w: gun.type, x: ox, y: oy, a: p.angle });
+      });
     }
 
     // Garrafa quebra: a arma da mão do jogador `p` vira a versão quebrada (GARRAFA QUEBRADA) e sai um estilhaço de vidro/vinho no ponto do impacto.
@@ -1051,6 +1068,11 @@
     // (100% no centro, 60% na borda). Precisa de linha de visão (parede protege). Não derruba, só machuca.
     useActive(p) {
       if (!p || !hasActive(p.skin) || !p.alive || p.down || p.healT > 0 || p.charging || p.hook || this.phase !== 'live') return false;
+      if (hasDual(p.skin)) {   // Shadow 7: a ativa liga/desliga o modo dupla
+        p.dualOn = !p.dualOn; p.fire = false; p.buf = 0; p.cd = Math.max(p.cd, 0.12);
+        this.events.push({ t: 'dualeq', id: p.id, x: p.x, y: p.y, on: p.dualOn ? 1 : 0 });
+        return true;
+      }
       if (hasHook(p.skin)) {   // Shadow 4: a ativa saca/guarda o gancho (arma na mão); quem dispara é o clique
         p.hookOn = !p.hookOn; p.fire = false; p.buf = 0; p.cd = Math.max(p.cd, 0.12);
         this.events.push({ t: 'hookeq', id: p.id, x: p.x, y: p.y, on: p.hookOn ? 1 : 0 });
@@ -1421,7 +1443,7 @@
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / spearChargeOf(p.skin)).toFixed(2) : -1,
-          em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
+          em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, dm: p.dualOn ? (dualPair(p) ? 1 : 2) : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
@@ -1565,5 +1587,5 @@
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, hasDual, dualPair, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });

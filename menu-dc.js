@@ -1,4 +1,4 @@
-/* 7 SHADOWS — navegação do menu estilo console: ↑/↓ escolhem, Enter confirma, Esc volta, ←/→ trocam a máscara */
+/* 7 SHADOWS — navegação do menu estilo console: ↑/↓ escolhem, Enter confirma, Esc volta, ←/→ trocam o Shadow */
 (() => {
   const $ = id => document.getElementById(id), menu = $('menu');
   if (!menu) return;
@@ -20,8 +20,8 @@
       l[n].focus(); tick();
     } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
       const a = document.activeElement;
-      if (!a || !(a.classList.contains('skin') || a.classList.contains('shad'))) return;
-      const s = [...menu.querySelectorAll(a.classList.contains('shad') ? '#shadowList .shad' : '#skins .skin')], i = s.indexOf(a);
+      if (!a || !a.classList.contains('shad')) return;
+      const s = [...menu.querySelectorAll('#shadowList .shad')], i = s.indexOf(a);
       e.preventDefault(); s[(i + (k === 'ArrowRight' ? 1 : -1) + s.length) % s.length].focus(); tick();
     } else if (k === 'Escape' && !$('tabMusic').classList.contains('hidden')) {
       e.preventDefault(); $('btnMusicBack').click(); tick();

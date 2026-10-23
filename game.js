@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, DOOR_HT, sanitizeRoomCfg } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, hasDual, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -20,7 +20,7 @@ const STEP = 1 / 60, TAU = Math.PI * 2;
 const HOOK_FX_T = 260;   // ms que o gancho que errou leva para sumir
 const BLAST_T = 450;   // ms que a onda de choque da ativa leva para abrir e sumir
 const SKINS = {
-  HERO: { c: '#8b5e34', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
+  HERO: { c: '#8b5e34', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#c9a36b', n: 'Shadow 7' }, BEAR: { c: '#a9794f', n: 'Urso' },
   MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }, GORILLA: { c: '#3e4049', n: 'Shadow 2' }, FISH: { c: '#3fc8ff', n: 'Peixe' }
 };
 
@@ -226,20 +226,6 @@ function sfx(n, x, y) {
 }
 
 /* ---------------------------------------------------------------- MENU/UI */
-const skinsEl = $('skins');
-function buildSkins() {
-  skinsEl.textContent = '';
-  for (const k in SKINS) {
-    const b = document.createElement('button');
-    b.className = 'skin'; b.dataset.skin = k; b.type = 'button';
-    b.innerHTML = `<i style="background:${SKINS[k].c}"></i>${SKINS[k].n}`;
-    b.onclick = () => { cfg.skin = k; saveCfg(); refreshSkins(); };
-    skinsEl.appendChild(b);
-  }
-  refreshSkins();
-}
-function refreshSkins() { for (const b of skinsEl.children) b.setAttribute('aria-pressed', b.dataset.skin === cfg.skin ? 'true' : 'false'); }
-buildSkins();
 $('nameInput').value = cfg.name; $('diffSel').value = cfg.diff;
 $('optMusic').checked = cfg.music; $('optSfx').checked = cfg.sfx; $('optShake').checked = cfg.shake; $('optCrt').checked = cfg.crt;
 document.body.classList.toggle('nocrt', !cfg.crt);
@@ -959,6 +945,7 @@ function handleEvent(e, now) {
       break;
     }
     case 'swap': sfx('swap', e.x, e.y); break;
+    case 'dualeq': sfx('swap', e.x, e.y); if (e.id === myId) addPop(e.x, e.y - 30, e.on ? 'DUPLA LIGADA' : 'DUPLA DESLIGADA', e.on ? '#ffd27a' : '#c9b3e0'); break;   // ATIVA do Shadow 7: liga / desliga o modo dupla
     case 'hookeq': sfx('swap', e.x, e.y); if (e.on && e.id === myId) addPop(e.x, e.y - 30, 'GANCHO NA MÃO', '#9fe6ff'); break;   // ATIVA do Shadow 4: saca / guarda o gancho
     case 'hook': {   // clique do Shadow 4: lança o gancho (errou = corda curta que some)
       sfx('swing', e.x, e.y); sfx('swap', e.x, e.y);
@@ -1506,14 +1493,18 @@ function animalHead(skin) {
     S.e(-2.4, 0, 9.6, 10.4, { c: HAIR, d: shade(HAIR, 0.7), l: shade(HAIR, 1.3) });   // cabelo aparecendo atrás da máscara
     // orelhas (atrás da máscara)
     if (skin === 'BEAR' || skin === 'MONKEY') { const r = skin === 'BEAR' ? 4.4 : 5.2; for (const s of [-1, 1]) { S.e(-1.5, s * (skin === 'BEAR' ? 10.6 : 11), r + 0.4, r + 0.4, c); S.e(-1, s * (skin === 'BEAR' ? 10.6 : 11), r * 0.5, r * 0.5, skin === 'BEAR' ? '#d9b48c' : '#f3c6d6', null); } }
-    if (skin === 'TIGER') for (const s of [-1, 1]) { S.p([-1.5, s * 5.5, -6, s * 13, 3, s * 9], c); S.p([-2, s * 7.5, -4.6, s * 11.2, 1, s * 9], '#2a1200', null); }
+    if (skin === 'TIGER') for (const s of [-1, 1]) { S.e(-2, s * 9.2, 3.6, 3.9, c); S.e(-1.4, s * 9.4, 1.9, 2.2, '#4a3426', null); S.e(-0.6, s * 9.4, 1.0, 1.2, '#e8b9a8', null); }   // PUMA: orelhas pequenas e redondas
     if (skin === 'FISH') for (const s of [-1, 1]) { S.p([-1, s * 6, -9, s * 14, -4, s * 5.5], '#ff9a3c'); S.p([-2, s * 7, -7, s * 11.5, -4, s * 6.5], '#ffd08a', null); }
     if (skin === 'GORILLA') for (const s of [-1, 1]) { S.e(-2.2, s * 10.4, 2.8, 3.2, c); S.e(-2.1, s * 10.4, 1.3, 1.6, shade(c, 0.55), null); }   // orelhinhas escuras coladas na cabeça
     if (skin === 'WOLF') for (const s of [-1, 1]) { S.p([0, s * 5, -4, s * 14, 5, s * 8.5], c); S.p([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', null); }
     S.e(0, 0, 9.6, 9.8, body);   // máscara
-    if (skin === 'TIGER') {
-      for (const [a, b, c2, d] of [[-7, -4.6, -2, -2.8], [-7.4, -0.8, -2, 0], [-7, 4.6, -2, 2.8], [-3, -8.2, 0, -6.2], [-3, 8.2, 0, 6.2]]) S.l(a, b, c2, d, '#2a1200', 2);
-      S.e(6.6, 0, 3.8, 3.9, '#fff0d8'); S.p([9.2, -1.6, 11.6, 0, 9.2, 1.6], '#ff6f9a', null);
+    if (skin === 'TIGER') {   // PUMA: pelo liso, focinho claro, marcas escuras do olho ao focinho
+      S.e(-2.4, 0, 3.6, 4.8, shade(c, 0.86), null);                                  // testa levemente mais escura
+      for (const sd of [-1, 1]) S.l(4.6, sd * 4.1, 9, sd * 3, '#4a3320', 1.5);       // listras do olho ao focinho
+      S.e(6.8, 0, 4.0, 4.4, '#f1e3c8');                                              // focinho claro
+      S.e(8.2, -2.2, 1.6, 1.4, '#c9a36b', null); S.e(8.2, 2.2, 1.6, 1.4, '#c9a36b', null);   // bochechas
+      S.p([9.2, -1.7, 11.8, 0, 9.2, 1.7], '#7a3f3f', null);                          // nariz escuro
+      S.l(11.4, 0, 11.4, 0, '#3a2018', 1); S.l(9.6, 0, 8, 0, '#4a3320', 1);          // boca
     }
     if (skin === 'BEAR') { S.e(7.2, 0, 4.4, 3.6, '#d9b48c'); S.e(10.6, 0, 1.8, 1.5, '#120808', null); S.l(10.4, 1.4, 10.4, 3.4, '#3a2418', 1); }
     if (skin === 'MONKEY') {
@@ -1704,7 +1695,11 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     if (wt === 'PISTOL' || wt === 'REVOLVER') {
       // arma pequena: UMA mão só. O braço de tiro estica reto até o cabo; a outra mão fica recolhida junto ao corpo
       const K = 0.8, GY = 2.2, px = wt === 'PISTOL' ? 21 : 19, gx = px + (wt === 'PISTOL' ? 1.5 : -2) * K, gy = 5.7 * K + 0.3 + GY;   // arma menor (80%) e braço mais comprido; a mão fica no cabo
-      limb(1.5, -11.5, 9.5, -8.5, jacket); hand(11, -8.5);                   // mão livre recolhida, junto do ombro
+      if (p.dm === 1) {   // Shadow 7 no modo dupla: a segunda arma na outra mão, espelhada
+        limb(1.5, -11.5, gx - back, -gy, jacket);
+        ctx.save(); ctx.translate(px - back, -GY); ctx.scale(K, -K); drawWeaponSprite(wt); ctx.restore();
+        hand(gx - back, -gy);
+      } else { limb(1.5, -11.5, 9.5, -8.5, jacket); hand(11, -8.5); }          // mão livre recolhida, junto do ombro
       limb(1.5, 11.5, gx - back, gy, jacket);                                // braço de tiro: nasce no OMBRO e segue quase reto para frente
       ctx.save(); ctx.translate(px - back, GY); ctx.scale(K, K); drawWeaponSprite(wt); ctx.restore();
       hand(gx - back, gy);
@@ -1743,7 +1738,7 @@ function drawHookGun() {
 }
 // arma do outro espaço do inventário, pendurada nas costas (alça + arma na diagonal, reduzida se for comprida)
 function drawBackWeapon(p) {
-  const bw = p.iv && p.iv[1 - (p.se | 0)]; if (!bw) return;
+  const bw = p.iv && p.iv[1 - (p.se | 0)]; if (!bw || p.dm === 1) return;   // modo dupla: a outra arma está na mão, não nas costas
   const type = bw[0], e = ITEM_EXT[type] || [8, 30], len = (e[0] + e[1]) / CS, s = Math.max(0.42, Math.min(0.85, 36 / len)), cA = (e[1] - e[0]) / 2 / CS;
   ctx.save();
   ctx.strokeStyle = 'rgba(18,14,10,.8)'; ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-3, -8.5); ctx.lineTo(1, 8.5); ctx.stroke();   // alça
@@ -2037,6 +2032,11 @@ function render(now, dt) {
     // (nome e barra de vida do próprio jogador não são mais desenhados sobre o boneco: ficam só no painel de vitais)
     drawHealBar(pred.x, pred.y, me.hz, now, healTimeOf(me.sk));
     drawChargeBar(pred.x, pred.y, me.ch);
+    if (me.dm) {   // modo dupla do Shadow 7: mostra se as duas armas estão prontas ou se falta a arma igual
+      const t = me.dm === 1 ? 'DUPLA · 2 ARMAS' : 'DUPLA · PEGUE 2 ARMAS IGUAIS';
+      ctx.save(); ctx.font = '700 12px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = me.dm === 1 ? '#ffd27a' : '#c9b3e0';
+      ctx.strokeText(t, pred.x, pred.y - 89); ctx.fillText(t, pred.x, pred.y - 89); ctx.restore();
+    }
     if (me.hm) {   // gancho na mão: mostra se está pronto ou em recarga
       const cdl = me.sq || 0, t = cdl > 0 ? 'GANCHO ' + cdl.toFixed(1) + 's' : 'GANCHO · ' + (IS_TOUCH ? 'ATIRE' : 'CLIQUE');
       ctx.save(); ctx.font = '700 12px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = cdl > 0 ? '#c9b3e0' : '#9fe6ff';
@@ -2554,7 +2554,7 @@ function shadowInfo(k) {
   if (st.healTime || st.healPct) L.push('Cura ' + Shared.healPctOf(k) + '% da vida em ' + String(healTimeOf(k)).replace('.', ',') + ' s');
   if (st.meleeOnly) L.push('Só empunha armas corpo a corpo');
   if (st.bladeKill) L.push('Lâmina arremessada que acerta a lâmina tira 100%');
-  if (hasActive(k)) L.push('Ativa (Espaço): ' + (hasHook(k) ? 'gancho' : 'explosão'));
+  if (hasActive(k)) L.push('Ativa (Espaço): ' + (hasHook(k) ? 'gancho' : hasDual(k) ? 'usa 2 armas iguais ao mesmo tempo (ex.: pistola + pistola)' : 'explosão'));
   return L;
 }
 function buildShadows() {
@@ -2573,7 +2573,7 @@ function buildShadows() {
     for (const t of lines) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
     const tag = document.createElement('em'); tag.className = 'shad-tag'; tag.textContent = 'EM USO';
     info.append(nm, ul); b.append(cv, info, tag);
-    b.onclick = () => { cfg.skin = k; saveCfg(); refreshSkins(); refreshShadows(); try { if (ac) sfx('tick'); } catch { } };
+    b.onclick = () => { cfg.skin = k; saveCfg(); refreshShadows(); try { if (ac) sfx('tick'); } catch { } };
     box.appendChild(b);
   }
   refreshShadows();
