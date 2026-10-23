@@ -49,7 +49,7 @@
 
   /* ===== VIDA E DANO (tudo em % da vida máxima) ===== */
   const MAX_HP = 5000;     // vida máxima = 100%
-  const EXEC_MULT = 3;     // multiplicador do golpe corpo a corpo em quem está caído no chão
+  const EXEC_MULT = 1;     // multiplicador do golpe corpo a corpo em quem está caído no chão (1 = dano normal, sem bônus)
   const THROW_DMG = 10;    // % tirado por arma arremessada que acerta
   const DOOR_DMG = 0;      // % tirado por porta na cara (como no Hotline Miami: só derruba/atordoa)
   const HEAL_PCT = 20;     // % da vida máxima que a cura devolve
@@ -106,22 +106,22 @@
   const WEAPONS = {
     FISTS:   { name: 'MÃOS',    dmg: 5,  melee: true, range: 52, arc: 2.0, cd: 0.40, col: '#ffd7b0' },
     KNIFE:   { name: 'FACA',    dmg: 40, melee: true, blade: true, range: 70, arc: 1.7, cd: 0.26, col: '#e6f1ff' },
-    MACHETE: { name: 'MACHETE', dmg: 55, melee: true, blade: true, range: 90, arc: 2.2, cd: 0.34, col: '#b9ff79' },
-    AXE:     { name: 'MACHADO', dmg: 45, melee: true, blade: true, range: 80, arc: 2.1, cd: 0.42, col: '#ff9d4a' },
+    MACHETE: { name: 'MACHETE', dmg: 55, melee: true, blade: true, range: 90, arc: 2.2, cd: 0.38, col: '#b9ff79' },
+    AXE:     { name: 'MACHADO', dmg: 52, melee: true, blade: true, range: 80, arc: 2.1, cd: 0.45, col: '#ff9d4a' },
     BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 98, arc: 2.4, cd: 0.50, col: '#ffb35c' },
-    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, blade: true, range: 116, arc: 2.6, cd: 0.40, col: '#9ff7ff' },
+    KATANA:  { name: 'KATANA',  dmg: 70, melee: true, blade: true, range: 110, arc: 2.6, cd: 0.46, col: '#9ff7ff' },
     SPEAR:   { name: 'LANÇA',   dmg: 60, melee: true, jav: true, range: 148, arc: 0.95, cd: 0.55, col: '#ffd9a0' },
     // GARRAFA DE VINHO: só nasce nas cozinhas da CASA (não entra no sorteio de raridade). Inteira bate fraco; ao bater numa parede
     // (golpe ou arremesso) ela QUEBRA e vira GARRAFA QUEBRADA: golpe rápido, curto e mais forte (uma faquinha).
     WINE:    { name: 'GARRAFA', dmg: 12, melee: true, range: 74, arc: 1.9, cd: 0.38, col: '#8a1f3a', brk: 'BROKEN' },
     BROKEN:  { name: 'GARRAFA QUEBRADA', dmg: 32, melee: true, range: 60, arc: 1.7, cd: 0.24, col: '#cfe9d8' },
-    PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff', muz: 32 },
-    REVOLVER:{ name: 'REVÓLVER',dmg: 55, ammo: 6,  cd: 0.60,  spread: 0.02, speed: 1300, pellets: 1, range: 1100, auto: false, col: '#ffcf5a', muz: 34 },
+    PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.30,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff', muz: 32 },
+    REVOLVER:{ name: 'REVÓLVER',dmg: 60, ammo: 6,  cd: 0.48,  spread: 0.02, speed: 1300, pellets: 1, range: 1100, auto: false, col: '#ffcf5a', muz: 34 },
     SMG:     { name: 'SMG',     dmg: 12, ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8', muz: 44 },
-    RIFLE:   { name: 'FUZIL',   dmg: 25, ammo: 24, cd: 0.15,  spread: 0.04, speed: 1400, pellets: 1, range: 1600, auto: true,  col: '#b9ff79', muz: 58 },
+    RIFLE:   { name: 'FUZIL',   dmg: 22, ammo: 24, cd: 0.15,  spread: 0.04, speed: 1400, pellets: 1, range: 1600, auto: true,  col: '#b9ff79', muz: 58 },
     SHOTGUN: { name: 'SHOTGUN', dmg: 15, ammo: 6,  cd: 0.80,  spread: 0.30, speed: 980,  pellets: 7, range: 440,  auto: false, col: '#ffc96b', muz: 58 },
     SNIPER:  { name: 'SNIPER',  dmg: 85, ammo: 4,  cd: 1.15,  spread: 0.004, speed: 2800, pellets: 1, range: 3400, auto: false, col: '#ff5a7a', muz: 78 },
-    MINIGUN: { name: 'MINIGUN', dmg: 7,  ammo: 120, cd: 0.055, spread: 0.18, speed: 1050, pellets: 1, range: 800,  auto: true,  col: '#ffb02e', muz: 68 }
+    MINIGUN: { name: 'MINIGUN', dmg: 8,  ammo: 120, cd: 0.055, spread: 0.16, speed: 1050, pellets: 1, range: 800,  auto: true,  col: '#ffb02e', muz: 68 }
   };
   // Raridade: quanto menor o peso, mais difícil da arma aparecer
   const RARITY = {
@@ -167,6 +167,8 @@
   const ITEM_EXT = { PISTOL: [4, 23], REVOLVER: [7, 26], SMG: [12, 42], RIFLE: [14, 60], SHOTGUN: [14, 62], SNIPER: [17, 82], MINIGUN: [9, 60],
     KNIFE: [6, 38], MACHETE: [6, 61], AXE: [6, 52], BAT: [6, 61], KATANA: [10, 78], SPEAR: [16, 102], WINE: [10, 42], BROKEN: [10, 30] };
   const PICK_R = 46;   // folga (px) ao redor da arma
+  const SW_REACH = 66;   // alcance (px) até a plaquinha do interruptor (a parede de 72px impede apertar do outro lado)
+  const isBottle = t => t === 'WINE' || t === 'BROKEN';   // garrafa (inteira ou quebrada): só se equipa com a tecla de INTERAGIR (V), nunca com a de pegar arma (E)
   // distância de (px,py) até a arma deitada no chão (segmento cabo -> ponta, girado por rot)
   function itemDist(type, ix, iy, rot, px, py) {
     const e = ITEM_EXT[type] || [8, 30], c = Math.cos(rot), s = Math.sin(rot);
@@ -193,7 +195,7 @@
     const free = !!theme.free;   // free = mapa desenhado INTEIRO à mão (sem o espelho automático de 180°)
     const set = free ? (x, y, v) => { g[y][x] = v; } : (x, y, v) => { g[y][x] = v; g[H - 1 - y][W - 1 - x] = v; };
     const rect = (x1, y1, x2, y2, v = 1) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) set(x, y, v); };
-    const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = [], roofs = [], bottles = []; let pair = 0;
+    const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = [], roofs = [], bottles = [], rooms = [], switches = []; let pair = 0;
     // móveis redondos (árvore, vaso, churrasqueira) colidem como CÍRCULO, não como o quadrado inteiro; a piscina (tile 4) é água: dá pra andar, mais devagar
     const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, patio: f => Math.min(f.w, f.h) / 2 - 0.05, plant: () => 0.36, bbq: () => 0.38, palm: () => 0.34, barrel: () => 0.36, lamp: () => 0.28 };
     const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
@@ -227,10 +229,14 @@
         const b = { x: W - a.x - a.w, y: H - a.y - a.h, w: a.w, h: a.h, col };
         roofs.push(a); if (!free && !same(a, b)) roofs.push(b);
       },
+      // CÔMODO com luz (tiles de dentro, sem as paredes). Devolve o índice do cômodo. Só para mapas free (sem espelho de 180°).
+      room: (x1, y1, x2, y2) => { rooms.push({ x1, y1, x2, y2 }); return rooms.length - 1; },
+      // INTERRUPTOR numa parede (tile x,y). face = lado da parede onde fica a plaquinha ('n','s','e','w' = para onde está o cômodo). Liga/desliga a luz dos cômodos listados.
+      sw: (x, y, face, ...rs) => { switches.push({ x, y, face, rooms: rs }); },
       // tipo de piso de uma região
       floor: (x1, y1, x2, y2, kind) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) { fl[y][x] = kind; if (!free) fl[H - 1 - y][W - 1 - x] = kind; } }
     });
-    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs, circ, rnd, roofs, bottles, free };
+    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs, circ, rnd, roofs, bottles, rooms, switches, free };
     MAP_IDS.push(id);
   }
 
@@ -346,6 +352,10 @@
     m.furn(6, 24, 1, 4, 'hedge'); m.furn(3, 27, 2, 1, 'bench'); m.furn(25, 26, 2, 1, 'bench'); m.furn(8, 22, 3, 1, 'flowers');
     // entrada de carros
     m.furn(38, 24, 2, 3, 'car', { col: '#d0463c' }); m.furn(41, 22, 1, 4, 'hedge'); m.furn(43, 24, 2, 1, 'stall');
+    // LUZES: um interruptor por cômodo (aperte V perto da plaquinha na parede). Começam ACESAS a cada rodada.
+    const rQuarto = m.room(12, 9, 17, 13), rBanho = m.room(12, 15, 17, 19), rSala = m.room(19, 9, 27, 19), rCozinha = m.room(29, 9, 33, 13), rEscrit = m.room(29, 15, 33, 19), rGaragem = m.room(35, 13, 41, 19), rGalpao = m.room(3, 3, 6, 5);
+    m.sw(18, 10, 'w', rQuarto); m.sw(18, 16, 'w', rBanho); m.sw(22, 20, 'n', rSala); m.sw(28, 10, 'e', rCozinha);
+    m.sw(28, 18, 'e', rEscrit); m.sw(34, 18, 'e', rGaragem); m.sw(2, 4, 'e', rGalpao);
     // GARRAFAS DE VINHO: em pé em cima das mesas da casa (mesa da cozinha, mesa da sala, mesinha de centro e mesa do escritório)
     m.bottle(30.5, 11.5); m.bottle(25.5, 9.5); m.bottle(21.5, 14.5); m.bottle(30.5, 19);
     // nascimentos: PARES distantes (0-1 noroeste/sudeste, 2-3 nordeste/sudoeste, 4-5 fundos/frente, 6-7 oeste/leste)
@@ -608,6 +618,18 @@
           hx: h ? x * TILE : (x + 0.5) * TILE, hy: h ? (y + 0.5) * TILE : y * TILE });
       }
       this.doorMap = new Map(this.doors.map(d => [d.y * this.W + d.x, d]));   // busca de porta por tile sem varrer a lista
+      this.lt = (m.rooms || []).map(() => 1);   // luz de cada cômodo (1 = acesa, 0 = apagada); toda rodada começa acesa
+    }
+    // centro da plaquinha do interruptor (px do mundo), colada na face da parede que olha para o cômodo
+    switchPos(s) {
+      const x = s.x * TILE, y = s.y * TILE;
+      return s.face === 'e' ? [x + TILE - 5, y + TILE / 2] : s.face === 'w' ? [x + 5, y + TILE / 2] : s.face === 's' ? [x + TILE / 2, y + TILE - 5] : [x + TILE / 2, y + 5];
+    }
+    // interruptor mais perto de (px,py) dentro do alcance, ou null
+    switchNear(px, py) {
+      let best = null, bd = SW_REACH;
+      for (const s of (this.m.switches || [])) { const [sx, sy] = this.switchPos(s), d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = s; } }
+      return best;
     }
     // tiles: 0 livre, 1 parede, 2 porta, 3 móvel sólido, 4 água (livre, mais lenta). Móvel redondo: o tile só vale como sólido dentro do círculo.
     solid(tx, ty) {
@@ -832,13 +854,14 @@
       p.fire = !!inp.f; p.tc = !!inp.tc;
       if (inp.fp) p.buf = 0.16;
       // EMOTE: qualquer movimento ou ação encerra a dancinha; a tecla de emote liga/desliga (só parado)
-      if (p.emT > 0 && (((inp.k | 0) & 15) || inp.f || inp.fp || inp.pk || inp.th || inp.hl || inp.sw || inp.ss || inp.sl || inp.su)) p.emT = 0;
+      if (p.emT > 0 && (((inp.k | 0) & 15) || inp.f || inp.fp || inp.pk || inp.it || inp.th || inp.hl || inp.sw || inp.ss || inp.sl || inp.su)) p.emT = 0;
       if (inp.em && p.emCd <= 0 && !((inp.k | 0) & 15)) this.emote(p);
       // cancelar a cura: apertar cura de novo, atacar, arremessar, pegar arma ou trocar de arma (não recebe a vida)
       let healCanceled = false;
-      if (p.healT > 0 && this.phase === 'live' && (inp.hl || inp.fp || inp.th || inp.pk || inp.sw || inp.ss)) { this.cancelHeal(p); healCanceled = true; }
+      if (p.healT > 0 && this.phase === 'live' && (inp.hl || inp.fp || inp.th || inp.pk || inp.it || inp.sw || inp.ss)) { this.cancelHeal(p); healCanceled = true; }
       if (this.phase === 'live' && p.alive && !p.down && !(p.healT > 0) && !p.hook) {
-        if (inp.pk) this.pickup(p);
+        if (inp.pk) this.pickup(p, false);   // E: qualquer arma, menos garrafa
+        else if (inp.it && !this.pickup(p, true)) this.toggleSwitch(p);   // V (interagir): garrafa; se não tem garrafa ao alcance, o interruptor
         if (inp.sw) this.swapTo(p, 1 - p.sel);              // scroll do mouse: alterna entre as 2 armas
         else if (inp.ss) this.swapTo(p, (inp.ss | 0) - 1);  // teclas 1 / 2: escolhe o espaço direto
         if (inp.th) this.startThrow(p);
@@ -1151,10 +1174,20 @@
       this.events.push({ t: 'hstart', id: p.id, x: p.x, y: p.y });
       return true;
     }
-    pickup(p) {
+    // INTERRUPTOR: liga/desliga a luz dos cômodos ligados a ele
+    toggleSwitch(p) {
+      const L = this.level; if (!L) return false;
+      const s = L.switchNear(p.x, p.y); if (!s) return false;
+      const on = s.rooms.some(r => !L.lt[r]);   // algum apagado -> acende tudo; senão apaga tudo
+      for (const r of s.rooms) L.lt[r] = on ? 1 : 0;
+      const [sx, sy] = L.switchPos(s);
+      this.events.push({ t: 'sw', by: p.id, on: on ? 1 : 0, x: sx, y: sy });
+      return true;
+    }
+    pickup(p, bottle) {
       let best = null, bd = PICK_R;
       for (const it of this.items) {
-        if (it.thrown || !canHold(p.skin, it.type)) continue;   // Shadow 4 só pega corpo a corpo
+        if (it.thrown || !canHold(p.skin, it.type) || isBottle(it.type) !== !!bottle) continue;   // Shadow 4 só pega corpo a corpo
         const d = itemDistOn(this.level, it.type, it.x, it.y, it.rot, p.x, p.y);
         if (d < bd && (this.level.onTable(it.x, it.y) || this.level.los(p.x, p.y, it.x, it.y))) { bd = d; best = it; }   // item na mesa: o próprio móvel não conta como parede   // não pega arma do outro lado da parede
       }
@@ -1392,6 +1425,7 @@
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
+        lo: this.level ? this.level.lt.reduce((m, v, i) => m | (v ? 0 : (1 << i)), 0) : 0,   // lo = bitmask dos cômodos com a luz APAGADA
         dr: this.level ? this.level.doors.filter(d => !d.latched).map(d => [d.i, Math.round(d.phi * 1000) / 1000, Math.round(d.w * 100) / 100]) : [],
         ev: this.events
       };
@@ -1439,7 +1473,7 @@
         if (dd < bestD) { bestD = dd; en = q; }
       }
       if (!en) return;
-      const idle = { k: 0, a: this.ang, f: 0, fp: 0, pk: 0, th: 0 };
+      const idle = { k: 0, a: this.ang, f: 0, fp: 0, pk: 0, it: 0, th: 0 };
       if (g.phase !== 'live' || !me.alive || me.down || !g.level) { g.applyInput(me, idle, dt); return; }
       const L = g.level, D = this.d, T = TILE;
       const dx = en.x - me.x, dy = en.y - me.y, dist = Math.hypot(dx, dy) || 1;
@@ -1466,10 +1500,10 @@
           if ((!armed || (gunB > 0 && d < 220)) && sc < bd) { bd = sc; item = it; }
         }
       }
-      let goal, pk = 0, fire = 0, fp = 0, th = 0, strafe = 0, back = 0, approach = true, pref = 280;
+      let goal, pk = 0, itx = 0, fire = 0, fp = 0, th = 0, strafe = 0, back = 0, approach = true, pref = 280;
       if (item) {
         goal = { x: item.x, y: item.y };
-        if (Math.hypot(item.x - me.x, item.y - me.y) < 34 && this.pkCd <= 0) { pk = 1; this.pkCd = 0.5; }
+        if (Math.hypot(item.x - me.x, item.y - me.y) < 34 && this.pkCd <= 0) { if (isBottle(item.type)) itx = 1; else pk = 1; this.pkCd = 0.5; }
       } else goal = { x: en.x, y: en.y };
 
       // 2) mira
@@ -1527,9 +1561,9 @@
         if (me.hookOn) { if (can) { if (me.cd <= 0) fp = 1; } else { sl = 1; fp = 0; } }
         else if (can) sl = 1;
       }
-      g.applyInput(me, { k, a: this.ang, ad: en.alive ? dist : HOOK_RANGE, f: fire, fp, pk, th, hl, sw, sl }, dt);
+      g.applyInput(me, { k, a: this.ang, ad: en.alive ? dist : HOOK_RANGE, f: fire, fp, pk, it: itx, th, hl, sw, sl }, dt);
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });

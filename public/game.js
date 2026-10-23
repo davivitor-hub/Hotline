@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, itemDistOn, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -41,7 +41,7 @@ let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
 let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
-let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0, sl: false, su: false, em: false };
+let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, it: false, th: false, hl: false, sw: false, ss: 0, sl: false, su: false, em: false };
 let suiHold = 0, suiArm = 0;   // suicídio: tempo segurando a tecla / confirmação do botão do menu de pausa
 const SUI_HOLD = 1.0;          // segundos segurando a tecla para se matar
 const roomMax = () => (snap && snap.cf ? snap.cf[2] : MAX_PLAYERS);   // vagas da sala (escolhidas na criação)
@@ -51,7 +51,7 @@ let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], blasts: [], hooks: [], corpses: [], pops: [], flash: 0, red: 0 };
 // predição dos MEUS tiros (online): o tiro aparece na hora do clique; quando o do servidor chega, ele é escondido para não duplicar
 let pbul = [], pshots = [], hiddenB = new Set(), knownB = new Set(), gotShot = 0, pcd = 0, pbuf = 0;
-let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [];   // roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
+let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [], roomD = [];   // roomD = escuridão atual de cada cômodo (0 = aceso, 1 = apagado, animada); roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
 const INTERP = () => (mode === 'local' ? 34 : 50);   // online: snapshots a 60 Hz → ~3 amostras de buffer
 
 function resize() {
@@ -351,7 +351,7 @@ $('volRange').oninput = e => { cfg.vol = e.target.value / 100; saveCfg(); applyM
 // o id de cada ação é a sua tecla padrão; cfg.binds guarda só o que o jogador trocou
 const ACTIONS = [
   { id: 'w', label: 'Andar para cima' }, { id: 's', label: 'Andar para baixo' }, { id: 'a', label: 'Andar para a esquerda' }, { id: 'd', label: 'Andar para a direita' },
-  { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' }, { id: 'g', label: 'Emote (dançar)' },
+  { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'v', label: 'Interagir (garrafa / luz)' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' }, { id: 'g', label: 'Emote (dançar)' },
   { id: '1', label: 'Arma do espaço 1' }, { id: '2', label: 'Arma do espaço 2' },
   { id: 'shift', label: 'Soltar / estender a câmera' },
   { id: 'k', label: 'Suicídio (segurar)' },
@@ -892,7 +892,7 @@ function buildStatic() {
   decal = document.createElement('canvas'); decal.width = W * TILE; decal.height = H * TILE; dctx = decal.getContext('2d');
 }
 function newRound(s) {
-  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx();
+  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx(); roomD = [];
   if (s.map) { level = new Level(s.map); buildStatic(); } else { level = null; levelCv = null; roofCv = null; roofA = []; }
 }
 function onSnapshot(s) {
@@ -1030,6 +1030,7 @@ function handleEvent(e, now) {
       break;
     case 'hstart': sfx('click', e.x, e.y); fx.lights.push({ x: e.x, y: e.y, t: 0.25, r: 90, c: '90,255,140' }); break;
     case 'pick': sfx('pick', e.x, e.y); break;
+    case 'sw': sfx('click', e.x, e.y); break;   // interruptor
     case 'click': sfx('click', e.x, e.y); break;
     case 'throw': sfx('throw', e.x, e.y); break;
     case 'go': goUntil = now + 900; sfx('go'); break;
@@ -1068,6 +1069,7 @@ addEventListener('keydown', e => {
   if (canSpec()) { if (id === 'a') specStep(-1); else if (id === 'd') specStep(1); }
   keys[id] = true;
   if (id === 'e') edge.pk = true;
+  if (id === 'v') edge.it = true;   // interagir: equipa a garrafa
   if (id === ' ' && (() => { const m = myState(); return m && hasActive(m.sk); })()) edge.sl = true;   // ativa (gorila: explosão · Shadow 4: gancho)
   if (id === 'f') edge.th = true;   // arremessar
   if (id === 'q') edge.hl = true;
@@ -1132,8 +1134,8 @@ function stepInput() {
   }
   // distância da mira (cursor) em px do mundo: é até onde o gancho vai. No toque não há cursor de verdade, então vale o alcance máximo.
   const ad = IS_TOUCH ? HOOK_RANGE : Math.round(Math.hypot(mouse.x - (W / 2 + (pred.x - cam.x) * Z), mouse.y - (H / 2 + (pred.y - cam.y) * Z)) / Z);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), ad, f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, em: edge.em ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
-  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = edge.su = edge.em = false; edge.ss = 0;
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), ad, f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, it: edge.it ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, em: edge.em ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  edge.fp = edge.pk = edge.it = edge.th = edge.hl = edge.sw = edge.sl = edge.su = edge.em = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   if (me) pred.skin = me.sk;
   const hooked = !!(me && me.hk);   // preso no gancho: o servidor move o boneco, a previsão só espera
@@ -1150,7 +1152,7 @@ function predictShots(inp) {
   if (snap.ph !== 'live') return;
   const me = myState(); if (!me || !me.al || me.dn || me.hz > 0 || me.ch >= 0) return;
   pcd -= STEP; pbuf -= STEP;
-  if (inp.pk || inp.sw || inp.ss || inp.th || inp.hl) { pcd = Math.max(pcd, 0.25); pbuf = 0; return; }   // trocou/pegou/jogou/curou: espera o servidor
+  if (inp.pk || inp.it || inp.sw || inp.ss || inp.th || inp.hl) { pcd = Math.max(pcd, 0.25); pbuf = 0; return; }   // trocou/pegou/jogou/curou: espera o servidor
   if (inp.fp) pbuf = 0.16;
   const wd = me.w ? WEAPONS[me.w] : null;
   if (!wd || wd.melee || me.am - pshots.length <= 0) return;
@@ -1410,7 +1412,7 @@ function heroArm(x1, y1, x2, y2) {
 // SHADOW 4 — pernas do sprite: calça ciano com realce branco no meio e tênis branco GRANDE no fim da perna (bem à frente ou bem atrás, conforme a passada)
 function heroLegs(stp) {
   for (const [s, o] of [[-1, stp], [1, -stp]]) {
-    const hx = -1, hy = s * 4.2, ex = -4 + o * 1.9, ey = s * 5.2, ux = ex >= hx ? 1 : -1;   // quadril -> tornozelo
+    const hx = -1, hy = s * 4.2, ex = -4 + o * (o > 0 ? 2.8 : 1.9), ey = s * 5.2, ux = ex >= hx ? 1 : -1;   // quadril -> tornozelo
     const P = v => v / PU + SCO, ax = P(hx), ay = P(hy), bx = P(ex), by = P(ey);
     scrB.paint(mkSeg(ax, ay, bx, by, 3.3), (x, y) => {
       const I = segInfo(x + .5, y + .5, ax, ay, bx, by), d = I.side * s * ux;
@@ -1875,7 +1877,7 @@ function render(now, dt) {
       else { ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; }
       ctx.scale(CS * 1.05, CS * 1.05); if (thrown && type === 'SPEAR') ctx.translate(-55, 0); drawWeaponSprite(type); ctx.restore();
     }
-    if (!thrown && me && me.al && canHold(me.sk, type)) { const d = itemDistOn(level, type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
+    if (!thrown && me && me.al && canHold(me.sk, type) && !isBottle(type)) { const d = itemDistOn(level, type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
   }
   if (near) {
     const t = (WEAPONS[near[3]].name + (near[4] ? ' · ' + near[4] : '')).toUpperCase();
@@ -1974,6 +1976,43 @@ function render(now, dt) {
       const r1 = wd.range * 0.95, r0 = wd.range * 0.5, a0 = Math.min(head, tail), a1 = Math.max(head, tail);
       ctx.globalAlpha = fade * 0.55; ctx.fillStyle = wd.col; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.arc(0, 0, r0, a1, a0, true); ctx.closePath(); ctx.fill();
       ctx.globalAlpha = fade * 0.95; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // LUZES DA CASA: cômodo apagado fica escuro (os bonecos continuam visíveis, só mais fracos), com um halo em volta de quem está lá dentro
+  if (level.m.rooms && level.m.rooms.length) {
+    const rooms = level.m.rooms, off = snap.lo | 0, vx2 = me && me.al ? pred.x : cam.x, vy2 = me && me.al ? pred.y : cam.y;
+    ctx.save(); ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    for (let i = 0; i < rooms.length; i++) {
+      const target = (off >> i) & 1; roomD[i] = (roomD[i] || 0) + (target - (roomD[i] || 0)) * Math.min(1, dt * 10);
+      const a = roomD[i]; if (a < 0.02) continue;
+      const r = rooms[i], x0 = (r.x1 - 1) * TILE, y0 = (r.y1 - 1) * TILE, w0 = (r.x2 - r.x1 + 3) * TILE, h0 = (r.y2 - r.y1 + 3) * TILE;
+      if (!inView(x0 + w0 / 2, y0 + h0 / 2, Math.max(w0, h0))) continue;
+      const inside = vx2 >= r.x1 * TILE && vx2 < (r.x2 + 1) * TILE && vy2 >= r.y1 * TILE && vy2 < (r.y2 + 1) * TILE;
+      if (inside) { const g = ctx.createRadialGradient(vx2, vy2, 30, vx2, vy2, 240); g.addColorStop(0, `rgba(6,8,22,${0.18 * a})`); g.addColorStop(1, `rgba(6,8,22,${0.7 * a})`); ctx.fillStyle = g; }
+      else ctx.fillStyle = `rgba(6,8,22,${0.7 * a})`;
+      ctx.fillRect(x0, y0, w0, h0);
+    }
+    // interruptores: plaquinha na parede (alavanca para cima = aceso). Apagado, ganha um brilhinho para dar pra achar no escuro.
+    const swNear = me && me.al ? level.switchNear(pred.x, pred.y) : null;
+    for (const s of level.m.switches) {
+      const [sx, sy] = level.switchPos(s);
+      if (!inView(sx, sy, 60)) continue;
+      const on = !s.rooms.some(r => (off >> r) & 1), rot = { e: 0, s: Math.PI / 2, w: Math.PI, n: -Math.PI / 2 }[s.face] || 0;
+      if (!on) { ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 34); g.addColorStop(0, 'rgba(255,214,110,.38)'); g.addColorStop(1, 'rgba(255,214,110,0)'); ctx.fillStyle = g; ctx.fillRect(sx - 34, sy - 34, 68, 68); ctx.globalCompositeOperation = 'source-over'; }
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(rot);
+      rrect(ctx, -3, -11, 6, 22, 2, '#f3ead6', '#5a4632', 1.2);
+      rrect(ctx, -1.6, on ? -8 : 1, 3.2, 7, 1, on ? '#f2c94c' : '#7d828c');
+      ctx.restore();
+      if (swNear === s) {   // balãozinho com a tecla de interagir
+        const t = keyName(bindOf('v')), nx = Math.cos(rot), ny = Math.sin(rot), bx = sx + nx * 34, by = sy + ny * 34;
+        ctx.save(); ctx.font = '700 13px Rajdhani, sans-serif'; ctx.textBaseline = 'middle';
+        const tw = ctx.measureText('LUZ').width, bw = tw + 14 + Math.max(16, ctx.measureText(t).width + 8);
+        rrect(ctx, bx - bw / 2, by - 11, bw, 22, 2, 'rgba(11,12,10,.9)', 'rgba(226,169,59,.9)', 1.2);
+        const kw = Math.max(16, ctx.measureText(t).width + 8); rrect(ctx, bx - bw / 2 + 3, by - 8, kw, 16, 2, '#e2a93b');
+        ctx.fillStyle = '#14120c'; ctx.textAlign = 'center'; ctx.fillText(t, bx - bw / 2 + 3 + kw / 2, by + 0.5);
+        ctx.fillStyle = '#e8e6d8'; ctx.textAlign = 'left'; ctx.fillText('LUZ', bx - bw / 2 + kw + 9, by + 0.5); ctx.restore();
+      }
     }
     ctx.restore();
   }

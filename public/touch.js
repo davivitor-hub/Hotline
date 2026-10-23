@@ -24,6 +24,7 @@
     { id: 'sl',  name: 'ATIVA',        label: 'ATIVA',    w: 96,  h: 56, fs: 0.78 },
     { id: 'th',  name: 'JOGAR',        label: 'JOGAR',    w: 56,  h: 56, fs: 0.62 },
     { id: 'pk',  name: 'PEGAR',        label: 'PEGAR',    w: 56,  h: 56, fs: 0.62 },
+    { id: 'it',  name: 'INTERAGIR',    label: 'INTERAGIR', w: 56, h: 56, fs: 0.5 },
     { id: 'hl',  name: 'CURAR',        label: 'CURAR',    w: 56,  h: 56, fs: 0.62 },
     { id: 'sw',  name: 'TROCAR ARMA',  label: 'TROCAR',   w: 56,  h: 56, fs: 0.62 },
     { id: 'em',  name: 'DANÇAR',       label: 'DANÇAR',   w: 56,  h: 56, fs: 0.58 }
@@ -65,6 +66,7 @@
     sl: [() => { edge.sl = true; }],
     th: [() => { edge.th = true; keys.f = true; }, () => { keys.f = false; }],
     pk: [() => { edge.pk = true; }],
+    it: [() => { edge.it = true; }],
     hl: [() => { edge.hl = true; }],
     sw: [() => { edge.sw = true; }],
     em: [() => { edge.em = true; }]
@@ -98,7 +100,8 @@
       hl: [c0, y1], sw: [c1, y1],
       th: [c0, y2], pk: [c1, y2],
       sl: [cb, y3],
-      em: [c1, y4]
+      em: [c1, y4],
+      it: [c0, y4]
     };
     const d = {};
     for (const id in px) d[id] = { x: px[id][0] / W_, y: px[id][1] / H_, s: 1 };
