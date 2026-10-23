@@ -109,6 +109,10 @@
           </div>
           <div class="dc-sep"></div>
           <div class="dc-row">
+            <button id="btnShadows" class="dc-btn" type="button"><b>Shadows</b></button>
+            <div class="dc-bar dc-desc">veja todos os personagens</div>
+          </div>
+          <div class="dc-row">
             <button id="btnMusic" class="dc-btn" type="button"><b>Músicas</b></button>
             <div class="dc-bar dc-desc">escolha a trilha</div>
           </div>
@@ -126,6 +130,12 @@
         <label class="vol">Volume <input type="range" id="volRange" min="0" max="100" step="1"></label>
         <p class="mtip small" id="hintMusicKeys">Durante a partida, aperte <kbd>N</kbd> para trocar de faixa e <kbd>M</kbd> para mutar.</p>
         <button id="btnMusicBack" class="dc-btn dc-back" type="button"><b>Voltar</b></button>
+      </div>
+
+      <div id="tabShadows" role="tabpanel" class="hidden">
+        <h2 class="dc-title">Escolha o seu Shadow.</h2>
+        <div id="shadowList"></div>
+        <button id="btnShadowsBack" class="dc-btn dc-back" type="button"><b>Voltar</b></button>
       </div>
 
       <footer class="dc-foot" aria-hidden="true">

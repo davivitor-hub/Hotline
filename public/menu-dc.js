@@ -4,7 +4,7 @@
   if (!menu) return;
   const open = () => !menu.classList.contains('hidden');
   const tick = () => { try { if (typeof ac !== 'undefined' && ac) sfx('tick'); } catch { } };
-  const items = () => [...menu.querySelectorAll('#tabPlay:not(.hidden) .dc-btn:not(.dc-static), #tabMusic:not(.hidden) .track, #tabMusic:not(.hidden) .dc-back')];
+  const items = () => [...menu.querySelectorAll('#tabPlay:not(.hidden) .dc-btn:not(.dc-static), #tabMusic:not(.hidden) .track, #tabMusic:not(.hidden) .dc-back, #tabShadows:not(.hidden) .shad, #tabShadows:not(.hidden) .dc-back')];
   addEventListener('keydown', e => {
     if (!open() || e.ctrlKey || e.metaKey || e.altKey) return;
     try { if ((typeof mode !== 'undefined' && mode) || (typeof introOn !== 'undefined' && introOn)) return; } catch { }
@@ -20,11 +20,13 @@
       l[n].focus(); tick();
     } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
       const a = document.activeElement;
-      if (!a || !a.classList.contains('skin')) return;
-      const s = [...menu.querySelectorAll('#skins .skin')], i = s.indexOf(a);
+      if (!a || !(a.classList.contains('skin') || a.classList.contains('shad'))) return;
+      const s = [...menu.querySelectorAll(a.classList.contains('shad') ? '#shadowList .shad' : '#skins .skin')], i = s.indexOf(a);
       e.preventDefault(); s[(i + (k === 'ArrowRight' ? 1 : -1) + s.length) % s.length].focus(); tick();
     } else if (k === 'Escape' && !$('tabMusic').classList.contains('hidden')) {
       e.preventDefault(); $('btnMusicBack').click(); tick();
+    } else if (k === 'Escape' && $('tabShadows') && !$('tabShadows').classList.contains('hidden')) {
+      e.preventDefault(); $('btnShadowsBack').click(); tick();
     }
   });
 })();
