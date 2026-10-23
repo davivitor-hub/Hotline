@@ -330,8 +330,9 @@ function setSuiBar(f) { const el = $('suiBar'); if (f <= 0) { el.classList.add('
 
 /* abas do menu */
 function showTab(which) {
-  const m = which === 'music';
-  $('tabPlay').classList.toggle('hidden', m); $('tabMusic').classList.toggle('hidden', !m);
+  const m = which === 'music', sh = which === 'shadows', shEl = $('tabShadows');
+  $('tabPlay').classList.toggle('hidden', m || sh); $('tabMusic').classList.toggle('hidden', !m);
+  if (shEl) { shEl.classList.toggle('hidden', !sh); if (sh) buildShadows(); }
   $('tabBtnPlay').setAttribute('aria-selected', m ? 'false' : 'true'); $('tabBtnMusic').setAttribute('aria-selected', m ? 'true' : 'false');
 }
 $('tabBtnPlay').onclick = () => showTab('play');
@@ -2542,6 +2543,44 @@ introLast = performance.now(); requestAnimationFrame(introFrame);
 /* ------------------------------------------------ MENU: música */
 $('btnMusic').onclick = () => showTab('music');
 $('btnMusicBack').onclick = () => showTab('play');
+
+/* ------------------------------------------------ MENU: Shadows (todos os personagens) */
+function shadowInfo(k) {
+  const st = (Shared.SKIN_STATS && Shared.SKIN_STATS[k]) || {}, L = [];
+  const pct = v => Math.round(v * 100) + '%';
+  L.push('Vida ' + pct(maxHpOf(k) / MAX_HP));
+  if (Shared.speedMulOf(k) !== 1) L.push('Velocidade ' + pct(Shared.speedMulOf(k)));
+  if (Shared.dmgTakenOf(k) !== 1) L.push('Dano de armas recebido ' + pct(Shared.dmgTakenOf(k)));
+  if (st.healTime || st.healPct) L.push('Cura ' + Shared.healPctOf(k) + '% da vida em ' + String(healTimeOf(k)).replace('.', ',') + ' s');
+  if (st.meleeOnly) L.push('Só empunha armas corpo a corpo');
+  if (st.bladeKill) L.push('Lâmina arremessada que acerta a lâmina tira 100%');
+  if (hasActive(k)) L.push('Ativa (Espaço): ' + (hasHook(k) ? 'gancho' : 'explosão'));
+  return L;
+}
+function buildShadows() {
+  const box = $('shadowList'); if (!box) return;
+  box.textContent = '';
+  for (const k in SKINS) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'shad'; b.dataset.skin = k;
+    const cv = document.createElement('canvas'); cv.width = 112; cv.height = 112; cv.className = 'shad-face';
+    try { drawFace(cv, k, SKINS[k].c); } catch { }
+    const info = document.createElement('div'); info.className = 'shad-info';
+    const nm = document.createElement('b'); nm.textContent = SKINS[k].n;
+    const ul = document.createElement('ul');
+    const lines = shadowInfo(k);
+    if (lines.length === 1) lines.push('Sem passivas · estilo equilibrado');
+    for (const t of lines) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+    const tag = document.createElement('em'); tag.className = 'shad-tag'; tag.textContent = 'EM USO';
+    info.append(nm, ul); b.append(cv, info, tag);
+    b.onclick = () => { cfg.skin = k; saveCfg(); refreshSkins(); refreshShadows(); try { if (ac) sfx('tick'); } catch { } };
+    box.appendChild(b);
+  }
+  refreshShadows();
+}
+function refreshShadows() { const box = $('shadowList'); if (box) for (const b of box.children) b.setAttribute('aria-pressed', b.dataset.skin === cfg.skin ? 'true' : 'false'); }
+$('btnShadows').onclick = () => showTab('shadows');
+$('btnShadowsBack').onclick = () => showTab('play');
 
 // Esc: só pausa quando o menu inicial NÃO está aberto
 addEventListener('keydown', e => {

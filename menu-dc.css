@@ -118,6 +118,22 @@
 #menu kbd{background:rgba(6,18,66,.6);border:1px solid var(--dc-hi);color:var(--dc-cy);font:800 .75rem var(--dc-font);border-radius:4px}
 .dc-back{margin-top:10px}
 
+/* ------------------------------------------------------------ shadows (todos os personagens) */
+#menu #shadowList{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;padding:10px;border-top:1px solid rgba(157,185,238,.55);border-bottom:1px solid rgba(8,20,70,.7);background:rgba(6,18,66,.28)}
+#menu .shad{position:relative;display:flex;align-items:stretch;gap:10px;width:100%;padding:8px;text-align:left;color:var(--dc-white);cursor:pointer;font-family:var(--dc-font);
+  background:var(--dc-btn);border:2px solid;border-color:#c1d4f6 #1b2f6c #1b2f6c #c1d4f6;border-radius:7px;box-shadow:0 2px 3px rgba(0,0,30,.45)}
+#menu .shad:hover,#menu .shad:focus-visible{outline:none;background:var(--dc-btn-on);border-color:#e6fbff #3a6fbf #3a6fbf #e6fbff;box-shadow:0 0 0 2px var(--dc-cy),0 0 12px rgba(98,243,255,.7)}
+#menu .shad[aria-pressed="true"]{background:var(--dc-btn-on);border-color:#e6fbff #3a6fbf #3a6fbf #e6fbff;box-shadow:0 0 0 2px #ffe27a,0 0 10px rgba(255,226,122,.55)}
+#menu .shad-face{flex:none;width:68px;height:68px;align-self:flex-start;border:2px solid #06143f;border-radius:5px;background:#060f33;image-rendering:auto}
+#menu .shad-info{min-width:0;display:flex;flex-direction:column;gap:3px}
+#menu .shad-info b{font:800 1rem var(--dc-font);color:#fff;letter-spacing:.02em;text-shadow:0 1px 0 #0c1c55}
+#menu .shad-info ul{margin:0;padding:0;list-style:none;display:grid;gap:1px}
+#menu .shad-info li{font:600 .76rem/1.25 var(--dc-font);color:var(--dc-dim)}
+#menu .shad-info li::before{content:"› ";color:var(--dc-cy)}
+#menu .shad-tag{display:none;position:absolute;top:6px;right:8px;padding:1px 7px;border-radius:4px;background:#ffe27a;color:#3a2a00;font:800 .66rem var(--dc-font);font-style:normal;letter-spacing:.08em}
+#menu .shad[aria-pressed="true"] .shad-tag{display:block}
+@media (max-width:560px){#menu #shadowList{grid-template-columns:1fr}#menu .shad-face{width:60px;height:60px}}
+
 /* ------------------------------------------------------------ rodapé: "A - Decide ● B - Cancel" */
 .dc-foot{display:flex;align-items:center;justify-content:center;gap:12px;margin:12px calc(-1 * clamp(16px,2.6vw,28px)) 0;padding:9px 12px 10px;
   background:linear-gradient(180deg,rgba(20,58,160,.15),#1b4fc0 100%);border-top:1px solid rgba(157,185,238,.35);
