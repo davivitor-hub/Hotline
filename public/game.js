@@ -219,6 +219,7 @@ function sfx(n, x, y) {
     case 'go': osc(d, 'sawtooth', 220, t, 0.35, 0.4, 660); osc(d, 'square', 330, t, 0.35, 0.2, 990); break;
     case 'end': osc(d, 'triangle', 440, t, 0.4, 0.4, 220); break;
     case 'tick': osc(d, 'square', 880, t, 0.06, 0.2); break;
+    case 'glass': nz(d, t, 0.35, 0.8 * v, 'highpass', 4500); nz(d, t, 0.12, 0.5 * v, 'bandpass', 2600); [2400, 3100, 3900].forEach((f, i) => osc(d, 'triangle', f, t + i * 0.03, 0.18, 0.16 * v, f * 0.6)); break;
     case 'unlock': [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { osc(d, 'triangle', f, t + i * 0.09, 0.6, 0.35); osc(d, 'sine', f * 2, t + i * 0.09, 0.5, 0.12); }); nz(d, t, 0.5, 0.25, 'highpass', 5000); break;
     case 'heal': osc(d, 'sine', 520, t, 0.25, 0.5 * v, 1040); osc(d, 'triangle', 780, t + 0.08, 0.25, 0.35 * v, 1560); break;
   }
@@ -692,6 +693,39 @@ const FURN = {
     const n = Math.round(Math.max(w, h) / 16);
     for (let i = 0; i < n; i++) { const t = (i + .5) / n; dot(c, w > h ? t * w : w / 2, w > h ? h / 2 : t * h, 9, i & 1 ? '#3b8f3a' : '#43a043'); }
   },
+  lounger(c, w, h) {   // espreguiçadeira (serve na horizontal e na vertical)
+    c.save(); if (h > w) { c.translate(w, 0); c.rotate(Math.PI / 2); const t = w; w = h; h = t; }
+    rrect(c, 3, 7, w - 6, h - 14, 7, '#f4f0e6', OUT, 1.6);
+    rrect(c, 8, 11, w * .30, h - 22, 5, '#f2b640', OUT, 1);
+    rrect(c, 8 + w * .30 + 4, 11, w - 16 - w * .30 - 4, h - 22, 5, '#3fa7d6', OUT, 1);
+    c.fillStyle = 'rgba(255,255,255,.55)'; c.fillRect(8 + w * .30 + 9, 15, w - 26 - w * .30, 2);
+    c.restore();
+  },
+  patio(c, w, h) {   // mesa de jardim com ombrelone (visto de cima)
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 2;
+    c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(cx + 4, cy + 5, R, R * .94, 0, 0, TAU); c.fill();
+    dot(c, cx, cy, R, '#f4ead0', OUT, 2);
+    for (let i = 0; i < 8; i++) { c.fillStyle = i & 1 ? '#f4ead0' : '#e0533f'; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R - 2, i * TAU / 8, (i + 1) * TAU / 8); c.closePath(); c.fill(); }
+    c.strokeStyle = 'rgba(70,24,12,.4)'; c.lineWidth = 1.2;
+    for (let i = 0; i < 8; i++) { c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(i * TAU / 8) * (R - 2), cy + Math.sin(i * TAU / 8) * (R - 2)); c.stroke(); }
+    dot(c, cx, cy, 5, '#8a5a30', OUT, 1.2); dot(c, cx - 1, cy - 1, 1.8, '#d9b27a');
+  },
+  flowers(c, w, h) {   // canteiro de flores
+    rrect(c, 3, 6, w - 6, h - 12, 9, '#8a5a30', OUT);
+    rrect(c, 7, 10, w - 14, h - 20, 6, '#4a2c18');
+    const cols = ['#ff7aa8', '#ffd84a', '#ffffff', '#b98cf0', '#ff8a4a'], n = Math.max(4, Math.round((w - 14) / 14)), seed = (w * 3 + h) | 0;
+    for (let i = 0; i < n; i++) {
+      const px = 12 + (i + .5) / n * (w - 24) + (hash(i, seed) - .5) * 6, py = h / 2 + (hash(seed, i) - .5) * (h - 30);
+      dot(c, px - 5, py + 3, 4, '#2f9a4a'); dot(c, px + 5, py + 3, 4, '#3fb85c');
+      dot(c, px, py, 5.5, cols[i % cols.length], 'rgba(40,20,10,.5)', 1); dot(c, px, py, 1.8, '#fff3a8');
+    }
+  },
+  doghouse(c, w, h) {   // casinha de cachorro + tigela
+    rrect(c, 3, 5, w * .62, h - 10, 4, '#b5523b', OUT, 1.8);
+    c.fillStyle = 'rgba(0,0,0,.26)'; c.fillRect(3 + w * .31 - 2, 7, 4, h - 14);
+    c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(3 + w * .31 - 2, 7, 2, h - 14);
+    dot(c, w * .82, h / 2, 9, '#d9d4c8', OUT, 1.2); dot(c, w * .82, h / 2, 6, '#c0392b'); dot(c, w * .82, h / 2, 3, '#7a4a2a');
+  },
   bbq(c, w, h) {
     rrect(c, 8, 28, w - 16, 16, 3, '#2a2d33', OUT, 1); dot(c, w / 2, h / 2 - 4, 17, '#2a2d33', OUT, 1.5); dot(c, w / 2, h / 2 - 4, 13, '#4a4f58');
     c.strokeStyle = '#8a8f98'; c.lineWidth = 1.2; for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(w / 2 - 11, h / 2 - 4 + i * 4); c.lineTo(w / 2 + 11, h / 2 - 4 + i * 4); c.stroke(); }
@@ -930,6 +964,14 @@ function handleEvent(e, now) {
       if (e.miss) fx.hooks.push({ x: e.x, y: e.y, a: e.a, l: e.l > 0 ? e.l : 300, t0: now });
       else if (e.wall) { addPop(e.x, e.y - 30, 'GANCHO!', '#9fe6ff'); addShake(e.id === myId ? 2 : 1); }
       else { addPop(e.x, e.y - 30, 'PUXA!', '#9fe6ff'); addShake(e.id === myId ? 3 : 1.5); }
+      break;
+    }
+    case 'shatter': {   // garrafa de vinho quebrou (bateu na parede): cacos de vidro, respingo de vinho e som
+      sfx('glass', e.x, e.y);
+      for (let i = 0; i < 16; i++) { const a = e.a + Math.PI + (Math.random() - .5) * 2.4, sp = 120 + Math.random() * 300; fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.2 + Math.random() * 0.25, sz: 3, col: Math.random() < 0.6 ? '#dff5e6' : '#8b1a2f' }); }
+      if (dctx) { for (let i = 0; i < 7; i++) { dctx.fillStyle = 'rgba(110,18,42,.6)'; dctx.beginPath(); dctx.arc(e.x + Math.cos(e.a + Math.PI) * (6 + Math.random() * 26) + (Math.random() - .5) * 18, e.y + Math.sin(e.a + Math.PI) * (6 + Math.random() * 26) + (Math.random() - .5) * 18, 2 + Math.random() * 5, 0, TAU); dctx.fill(); } }
+      fx.lights.push({ x: e.x, y: e.y, t: 0.12, r: 90, c: '210,255,225' });
+      addPop(e.x, e.y - 24, 'QUEBROU!', '#cfe9d8'); addShake(e.by === myId ? 3 : 1.5);
       break;
     }
     case 'blast': {   // ATIVA: explosão em área em volta de quem sacrificou a vida
@@ -1194,6 +1236,20 @@ function drawWeaponSprite(type) {
       part([21, -5.6, 24, -5.6, 24, 5.6, 21, 5.6], ML); part([35, -5.6, 38, -5.6, 38, 5.6, 35, 5.6], ML);   // braçadeiras
       part([-1, -9.8, 3, -9.8, 3, -5.6, -1, -5.6], MD);                                           // alça
       rr(40, -4.4, 2, 9, w.col); break;
+    case 'WINE':   // garrafa de vinho: a mão segura o gargalo, o corpo da garrafa é o que bate
+      part([-6, -1.5, 4.5, -1.7, 4.5, 1.7, -6, 1.5], '#1f3a26');                                  // gargalo
+      rr(-7.4, -2.1, 2, 4.2, '#8b1a2f'); rr(-5.6, -2.1, 0.8, 4.2, '#d9a8b0');                    // lacre + anel
+      part([4.5, -1.7, 8.5, -3.8, 28, -3.8, 30.4, -2.6, 30.4, 2.6, 28, 3.8, 8.5, 3.8, 4.5, 1.7], '#24472d');   // ombro + corpo
+      rr(9, -3.4, 19, 0.9, 'rgba(255,255,255,.35)');                                              // brilho do vidro
+      rr(13, -3.8, 9, 7.6, '#efe6d0'); rr(15, -1.1, 5, 2.2, '#8b1a2f');   // rótulo
+      rr(28.6, -2.4, 1.4, 4.8, '#14291a'); break;                                                // fundo da garrafa
+    case 'BROKEN':   // garrafa quebrada: gargalo na mão e o corpo terminando em cacos de vidro
+      part([-6, -1.5, 4.5, -1.7, 4.5, 1.7, -6, 1.5], '#1f3a26');
+      rr(-7.4, -2.1, 2, 4.2, '#8b1a2f'); rr(-5.6, -2.1, 0.8, 4.2, '#d9a8b0');
+      part([4.5, -1.7, 8.5, -3.8, 15, -3.8, 15, 3.8, 8.5, 3.8, 4.5, 1.7], '#24472d');
+      rr(9, -3.4, 5, 0.9, 'rgba(255,255,255,.35)');
+      part([14, -3.8, 22, -2.8, 17, -1.4, 24, 0.2, 17, 1.8, 22.5, 3, 14, 3.8], '#cfe9d8');       // cacos
+      rr(15, -2.4, 6, 0.8, '#fff'); rr(15, 0.8, 5, 0.7, w.col); break;
     case 'KNIFE':
       rr(-3.6, -2, 9, 4, '#2b1c1c'); for (let i = 0; i < 3; i++) rr(-2 + i * 2.6, -2, 0.8, 4, 'rgba(255,255,255,.18)');
       part([5, -4.2, 7, -4.2, 7, 4.2, 5, 4.2], ML);                                               // guarda
@@ -1202,6 +1258,9 @@ function drawWeaponSprite(type) {
       rr(-4, -2.2, 12, 4.4, '#2a1a10'); for (let i = 0; i < 3; i++) rr(-2.6 + i * 3, -2.2, 0.8, 4.4, 'rgba(255,255,255,.15)');
       part([8, -3.4, 9.8, -3.4, 9.8, 3.4, 8, 3.4], ML);
       part([9.8, -2.4, 36, -3.8, 43, -1.8, 43, 2.4, 9.8, 2.8], '#cfd8d2'); rr(10, -2.2, 31, 1.2, '#8c978f'); rr(11, 1.6, 30, 0.8, w.col); break;
+    case 'AXE':
+      rr(-5, -1.6, 38, 3.2, '#7a5430'); rr(-5, -1.6, 38, 0.9, WL); rr(-7, -2.2, 3, 4.4, ML);          // cabo
+      part([26, -9, 33, -10.5, 40, -7, 40, 7, 33, 10.5, 26, 9], '#cfd8d2'); rr(34, -6.4, 1.2, 12.8, '#fff'); rr(27, -8, 2, 16, '#8c978f'); rr(36, 6, 3, 1.2, w.col); break;   // cabeça do machado
     case 'BAT':
       part([-4, -1.8, 12, -1.8, 12, 1.8, -4, 1.8], '#8a5a2c'); for (let i = 0; i < 4; i++) rr(-3 + i * 3, -1.8, 0.8, 3.6, 'rgba(0,0,0,.35)');
       part([12, -2.2, 33, -3.8, 42, -3.4, 43, 0, 42, 3.4, 33, 3.8, 12, 2.2], '#c58a4a'); rr(14, -2.4, 26, 1, '#e6b97c');
@@ -1455,7 +1514,7 @@ function drawBody(skin, jacket, flat) {
 /* ---------- animação do golpe corpo a corpo (estilo Hotline Miami) ----------
    preparação (puxa para trás) -> varrida rápida com leve passada do corpo -> acompanha o golpe e volta ao repouso.
    O sentido alterna a cada golpe (ida e volta), como o taco/faca do jogo original. */
-const SWDUR = { FISTS: 200, KNIFE: 230, MACHETE: 270, BAT: 340, KATANA: 300, SPEAR: 300 };
+const SWDUR = { FISTS: 200, KNIFE: 230, MACHETE: 270, AXE: 310, BAT: 340, KATANA: 300, SPEAR: 300, WINE: 260, BROKEN: 210 };
 const swDur = t => SWDUR[t] || 240;
 const lerpN = (a, b, t) => a + (b - a) * t;
 function swingAng(sp, arc, dir) {

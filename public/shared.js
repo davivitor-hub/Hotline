@@ -77,17 +77,20 @@
   const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: 100% de dano (senão acerta o cabo)
   // Lâmina arremessada: só a MACHETE tira 100% de dano (BLADE_CHANCE); faca e katana acertando a lâmina tiram só uma fatia da vida.
   // (a lança arremessada já chega a 100% quando carregada no máximo: SPEAR_THROW_MAX)
-  const BLADE_KILL = { MACHETE: true };
+  const BLADE_PCT = { MACHETE: 70, AXE: 150 };         // % de vida tirada pela LÂMINA arremessada (machete 70%, machado 150%)
+  const BLADE_CHANCE_OF = { AXE: 0.25 };               // chance de acertar a LÂMINA por arma (padrão BLADE_CHANCE); o machado é mais difícil de acertar com a lâmina
+  const bladeChanceOf = type => BLADE_CHANCE_OF[type] !== undefined ? BLADE_CHANCE_OF[type] : BLADE_CHANCE;
   const BLADE_DMG = { KNIFE: 35, KATANA: 50 };   // % de vida tirada pela lâmina de quem não tira 100%
   // Atordoamento (s) de quem leva uma arma arremessada: corpo a corpo não atordoa (só o taco), armas de fogo 1 s
   const THROW_DOWN = {
-    KNIFE: 0, MACHETE: 0, KATANA: 0, SPEAR: 0,    // corpo a corpo: sem atordoamento
+    KNIFE: 0, MACHETE: 0, AXE: 0, KATANA: 0, SPEAR: 0,    // corpo a corpo: sem atordoamento
     BAT: 1.5, MINIGUN: 1.5,
+    WINE: 0.5, BROKEN: 0,        // garrafa de vinho (só existe na CASA): inteira atordoa um pouco; quebrada não
     PISTOL: 0.5,
     SMG: 1, REVOLVER: 1, RIFLE: 1, SHOTGUN: 1, SNIPER: 1
   };
   // Peso (kg aprox.) de cada arma: define o alcance do arremesso. Mais leve = voa mais longe; mais pesada = cai perto.
-  const WEIGHT = { FISTS: 0, KNIFE: 0.4, PISTOL: 1, MACHETE: 1, KATANA: 1.1, REVOLVER: 1.3, SPEAR: 1.5, BAT: 1.6, SMG: 2.2, RIFLE: 3.5, SHOTGUN: 3.8, SNIPER: 5, MINIGUN: 9 };
+  const WEIGHT = { FISTS: 0, KNIFE: 0.4, PISTOL: 1, MACHETE: 1, AXE: 1.4, KATANA: 1.1, REVOLVER: 1.3, SPEAR: 1.5, BAT: 1.6, WINE: 0.9, BROKEN: 0.3, SMG: 2.2, RIFLE: 3.5, SHOTGUN: 3.8, SNIPER: 5, MINIGUN: 9 };
   const throwFactor = type => 1.4 / (1 + 0.25 * (WEIGHT[type] || 1));   // multiplicador da velocidade (e portanto do alcance) do arremesso
   const SPEAR_CHARGE = 1.1;   // segundos segurando o arremesso para a lança chegar na força máxima
   const SPEAR_THROW_MIN = 20, SPEAR_THROW_MAX = 100;   // % de vida tirada pela lança arremessada: toque rápido -> segurando até o fim
@@ -104,9 +107,14 @@
     FISTS:   { name: 'MÃOS',    dmg: 5,  melee: true, range: 52, arc: 2.0, cd: 0.40, col: '#ffd7b0' },
     KNIFE:   { name: 'FACA',    dmg: 40, melee: true, blade: true, range: 70, arc: 1.7, cd: 0.26, col: '#e6f1ff' },
     MACHETE: { name: 'MACHETE', dmg: 55, melee: true, blade: true, range: 90, arc: 2.2, cd: 0.34, col: '#b9ff79' },
+    AXE:     { name: 'MACHADO', dmg: 45, melee: true, blade: true, range: 80, arc: 2.1, cd: 0.42, col: '#ff9d4a' },
     BAT:     { name: 'TACO',    dmg: 50, melee: true, range: 98, arc: 2.4, cd: 0.50, col: '#ffb35c' },
     KATANA:  { name: 'KATANA',  dmg: 70, melee: true, blade: true, range: 116, arc: 2.6, cd: 0.40, col: '#9ff7ff' },
     SPEAR:   { name: 'LANÇA',   dmg: 60, melee: true, jav: true, range: 148, arc: 0.95, cd: 0.55, col: '#ffd9a0' },
+    // GARRAFA DE VINHO: só nasce nas cozinhas da CASA (não entra no sorteio de raridade). Inteira bate fraco; ao bater numa parede
+    // (golpe ou arremesso) ela QUEBRA e vira GARRAFA QUEBRADA: golpe rápido, curto e mais forte (uma faquinha).
+    WINE:    { name: 'GARRAFA', dmg: 12, melee: true, range: 74, arc: 1.9, cd: 0.38, col: '#8a1f3a', brk: 'BROKEN' },
+    BROKEN:  { name: 'GARRAFA QUEBRADA', dmg: 32, melee: true, range: 60, arc: 1.7, cd: 0.24, col: '#cfe9d8' },
     PISTOL:  { name: 'PISTOLA', dmg: 35, ammo: 9,  cd: 0.27,  spread: 0.03, speed: 1150, pellets: 1, range: 1100, auto: false, col: '#6bf4ff', muz: 32 },
     REVOLVER:{ name: 'REVÓLVER',dmg: 55, ammo: 6,  cd: 0.60,  spread: 0.02, speed: 1300, pellets: 1, range: 1100, auto: false, col: '#ffcf5a', muz: 34 },
     SMG:     { name: 'SMG',     dmg: 12, ammo: 30, cd: 0.085, spread: 0.11, speed: 1100, pellets: 1, range: 900,  auto: true,  col: '#ff8ad8', muz: 44 },
@@ -118,7 +126,7 @@
   // Raridade: quanto menor o peso, mais difícil da arma aparecer
   const RARITY = {
     KNIFE: 10, BAT: 10, PISTOL: 10,                 // comuns
-    MACHETE: 6, SPEAR: 6, SMG: 6,                   // incomuns
+    MACHETE: 6, AXE: 6, SPEAR: 6, SMG: 6,                   // incomuns
     KATANA: 3, SHOTGUN: 3, RIFLE: 3, REVOLVER: 3,   // raras
     SNIPER: 1.2, MINIGUN: 0.8                       // épicas
   };
@@ -157,7 +165,7 @@
   // Hitbox das armas no chão: em vez de um círculo no centro, é o COMPRIMENTO da arma (cabo -> ponta) + uma folga.
   // ext = [trás, frente] do sprite (px do mundo, já com a escala do desenho). Armas compridas (lança, sniper, katana) agora são fáceis de pegar.
   const ITEM_EXT = { PISTOL: [4, 23], REVOLVER: [7, 26], SMG: [12, 42], RIFLE: [14, 60], SHOTGUN: [14, 62], SNIPER: [17, 82], MINIGUN: [9, 60],
-    KNIFE: [6, 38], MACHETE: [6, 61], BAT: [6, 61], KATANA: [10, 78], SPEAR: [16, 102] };
+    KNIFE: [6, 38], MACHETE: [6, 61], AXE: [6, 52], BAT: [6, 61], KATANA: [10, 78], SPEAR: [16, 102], WINE: [10, 42], BROKEN: [10, 30] };
   const PICK_R = 46;   // folga (px) ao redor da arma
   // distância de (px,py) até a arma deitada no chão (segmento cabo -> ponta, girado por rot)
   function itemDist(type, ix, iy, rot, px, py) {
@@ -176,22 +184,27 @@
   function buildMap(id, name, theme, def) {
     const W = theme.W || 32, H = theme.H || 20, g = [], fl = [];   // mapas grandes (ex.: CIDADE) definem W/H no tema
     for (let y = 0; y < H; y++) { g.push(new Array(W).fill(0)); fl.push(new Array(W).fill(theme.base)); }
-    const set = (x, y, v) => { g[y][x] = v; g[H - 1 - y][W - 1 - x] = v; };
+    const free = !!theme.free;   // free = mapa desenhado INTEIRO à mão (sem o espelho automático de 180°)
+    const set = free ? (x, y, v) => { g[y][x] = v; } : (x, y, v) => { g[y][x] = v; g[H - 1 - y][W - 1 - x] = v; };
     const rect = (x1, y1, x2, y2, v = 1) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) set(x, y, v); };
-    const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = [], roofs = []; let pair = 0;
+    const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = [], roofs = [], bottles = []; let pair = 0;
     // móveis redondos (árvore, vaso, churrasqueira) colidem como CÍRCULO, não como o quadrado inteiro; a piscina (tile 4) é água: dá pra andar, mais devagar
-    const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, plant: () => 0.36, bbq: () => 0.38, palm: () => 0.34, barrel: () => 0.36, lamp: () => 0.28 };
+    const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, patio: f => Math.min(f.w, f.h) / 2 - 0.05, plant: () => 0.36, bbq: () => 0.38, palm: () => 0.34, barrel: () => 0.36, lamp: () => 0.28 };
     const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
     def({
       rect,
       // cada chamada cria 2 pontos de nascimento (o ponto e o seu espelho de 180°)
-      spawn: (x, y) => { spawn.push([x, y], [W - 1 - x, H - 1 - y]); },
-      weapon: (x, y, k) => { wp.push({ x, y, k, pair }); wp.push({ x: W - 1 - x, y: H - 1 - y, k, pair }); pair++; },
+      // (mapa free: cada chamada cria 1 ponto; os pontos devem ser listados em PARES distantes entre si: 0-1, 2-3, ...)
+      spawn: (x, y) => { spawn.push([x, y]); if (!free) spawn.push([W - 1 - x, H - 1 - y]); },
+      // garrafa de vinho no chão (nasce a cada rodada); também é espelhada em 180° (justo)
+      bottle: (x, y) => { bottles.push([x, y]); if (!free) bottles.push([W - 1 - x, H - 1 - y]); },
+      weapon: (x, y, k) => { wp.push({ x, y, k, pair }); if (!free) wp.push({ x: W - 1 - x, y: H - 1 - y, k, pair }); pair++; },
       // móvel sólido (w x h tiles). O espelho de 180° é criado automaticamente.
       furn: (x, y, w, h, k, o = {}) => {
         const a = Object.assign({ x, y, w, h, k, r: 0 }, o), b = Object.assign({}, a, { x: W - x - w, y: H - y - h, r: 2 });
-        furn.push(a); if (!same(a, b)) furn.push(b);
-        for (const f of (same(a, b) ? [a] : [a, b])) {
+        const list = (free || same(a, b)) ? [a] : [a, b];
+        for (const f of list) furn.push(f);
+        for (const f of list) {
           const rf = ROUND[f.k];
           if (rf) circ.push({ x: (f.x + f.w / 2) * TILE, y: (f.y + f.h / 2) * TILE, r: rf(f) * TILE });
           for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) { g[j][i] = (f.k === 'pool' || f.k === 'oasis' || f.k === 'fountain') ? 4 : 3; if (rf) rnd.push(j * W + i); }
@@ -200,18 +213,18 @@
       // tapete (decoração sem colisão)
       rug: (x, y, w, h, col) => {
         const a = { x, y, w, h, col }, b = { x: W - x - w, y: H - y - h, w, h, col };
-        rugs.push(a); if (!same(a, b)) rugs.push(b);
+        rugs.push(a); if (!free && !same(a, b)) rugs.push(b);
       },
       // TETO (estilo Goose Goose Duck): cobre a construção por fora e some (fade) quando o jogador entra. Cobre também as paredes; os tiles de porta ficam de fora.
       roof: (x1, y1, x2, y2, col) => {
         const a = { x: x1, y: y1, w: x2 - x1 + 1, h: y2 - y1 + 1, col };
         const b = { x: W - a.x - a.w, y: H - a.y - a.h, w: a.w, h: a.h, col };
-        roofs.push(a); if (!same(a, b)) roofs.push(b);
+        roofs.push(a); if (!free && !same(a, b)) roofs.push(b);
       },
       // tipo de piso de uma região
-      floor: (x1, y1, x2, y2, kind) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) { fl[y][x] = kind; fl[H - 1 - y][W - 1 - x] = kind; } }
+      floor: (x1, y1, x2, y2, kind) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) { fl[y][x] = kind; if (!free) fl[H - 1 - y][W - 1 - x] = kind; } }
     });
-    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs, circ, rnd, roofs };
+    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs, circ, rnd, roofs, bottles, free };
     MAP_IDS.push(id);
   }
 
@@ -245,32 +258,94 @@
     m.furn(11, 7, 1, 2, 'bookshelf');
     m.furn(11, 17, 1, 1, 'plant'); m.furn(20, 8, 1, 1, 'plant');
     m.spawn(4, 5); m.spawn(17, 3); m.spawn(4, 12); m.spawn(3, 16);
+    m.bottle(12, 2); m.bottle(19, 3);                  // garrafas de vinho na cozinha (e nas espelhadas)
     m.weapon(3, 7, 'M'); m.weapon(2, 16, 'M');
     m.weapon(8, 3, 'G'); m.weapon(12, 6, 'G');
     m.weapon(8, 16, 'R'); m.weapon(13, 10, 'R');
     m.weapon(7, 12, 'G'); m.weapon(17, 5, 'R');
   });
 
-  // ---- CASA COM QUINTAL: casa no meio, jardim com piscina em volta.
-  buildMap('YARD', 'CASA COM QUINTAL', { base: 'grass', wall: '#efe4cf', wallTop: '#fbf4e4', edge: '#5a4632', out: '#142418', hedge: true }, m => {
-    m.rect(0, 0, 31, 0); m.rect(0, 0, 0, 19);          // cerca viva
-    m.rect(8, 6, 23, 6); m.rect(8, 6, 8, 13);          // paredes da casa
-    m.rect(15, 6, 15, 6, 2); m.rect(8, 9, 8, 9, 2);    // portas
-    m.rect(8, 11, 8, 11, 0);                           // passagem
-    m.floor(9, 7, 22, 12, 'wood');
-    m.floor(15, 1, 16, 5, 'path'); m.floor(2, 2, 6, 5, 'deck');
-    // casa
-    m.rug(12, 8, 8, 4, '#a34a5e');
-    m.furn(10, 7, 1, 1, 'fridge'); m.furn(11, 7, 3, 1, 'counter');
-    m.furn(9, 7, 1, 1, 'plant');
-    m.furn(12, 10, 4, 1, 'sofa'); m.furn(13, 12, 2, 1, 'tv');
-    // quintal
-    m.furn(3, 3, 3, 2, 'pool'); m.furn(12, 2, 2, 2, 'tree');
-    m.furn(3, 14, 1, 3, 'hedge'); m.furn(8, 15, 1, 1, 'bbq');
-    m.spawn(2, 9); m.spawn(10, 3); m.spawn(2, 16); m.spawn(10, 10);
-    m.weapon(2, 5, 'M'); m.weapon(5, 10, 'G'); m.weapon(10, 8, 'R');
-    m.weapon(13, 4, 'R'); m.weapon(6, 17, 'M'); m.weapon(11, 16, 'G');
-    m.weapon(10, 12, 'G'); m.weapon(7, 2, 'R');
+  // ---- CASA COM QUINTAL (48x30): mapa COMPLETO, desenhado à mão e SEM espelho (cada canto é diferente).
+  // Quintal dos fundos (norte): piscina com deck, espreguiçadeiras e mesa com ombrelone, área do churrasco e pomar.
+  // Casa (centro): quarto, banheiro, sala, cozinha aberta e escritório, com porta da frente, dos fundos e laterais.
+  // Garagem (leste) com carro, galpão de ferramentas (noroeste), jardim lateral, gramado da frente com fonte e garagem com carro.
+  // Os pontos de nascimento ficam em PARES distantes (0-1, 2-3, 4-5, 6-7) e o servidor sorteia o par e o lado a cada rodada; as armas nascem em duplas (uma metade do mapa de cada lado).
+  buildMap('YARD', 'CASA COM QUINTAL', { base: 'grass', wall: '#efe4cf', wallTop: '#fbf4e4', edge: '#5a4632', out: '#142418', hedge: true, W: 48, H: 30, free: true }, m => {
+    const R = m.rect, D = (x, y) => m.rect(x, y, x, y, 2);
+    // cerca viva em volta do terreno
+    R(0, 0, 47, 0); R(0, 29, 47, 29); R(0, 0, 0, 29); R(47, 0, 47, 29);
+    // CASA (x 11-34, y 8-20)
+    R(11, 8, 34, 8); R(11, 20, 34, 20); R(11, 8, 11, 20); R(34, 8, 34, 20);
+    R(18, 9, 18, 19);                       // divisória oeste (quarto / banheiro | sala)
+    R(28, 9, 28, 11); R(28, 14, 28, 19);    // divisória leste (cozinha aberta para a sala em y 12-13)
+    R(12, 14, 17, 14); R(29, 14, 33, 14);   // quarto | banheiro e cozinha | escritório
+    // GARAGEM (x 35-41 por dentro) e GALPÃO (noroeste)
+    R(34, 12, 42, 12); R(42, 12, 42, 20); R(34, 20, 42, 20);
+    R(2, 2, 7, 2); R(2, 6, 7, 6); R(2, 2, 2, 6); R(7, 2, 7, 6);
+    // portas
+    D(23, 20); D(23, 8); D(11, 12); D(34, 11);         // frente, fundos, lateral do quarto, lateral da cozinha
+    D(18, 11); D(18, 17); D(28, 17); D(15, 14); D(31, 14); D(34, 17);   // internas (a última liga o escritório à garagem)
+    D(38, 20); D(38, 12); D(5, 6);                     // garagem (frente e fundos) e galpão
+    // tetos (somem quando você entra)
+    m.roof(11, 8, 34, 20, '#a8473a'); m.roof(35, 12, 42, 20, '#6f7782'); m.roof(2, 2, 7, 6, '#6b4a2a');
+    // pisos
+    m.floor(12, 9, 33, 19, 'wood'); m.floor(12, 9, 17, 13, 'carpet'); m.floor(12, 15, 17, 19, 'tile');
+    m.floor(29, 9, 33, 13, 'ktile'); m.floor(29, 15, 33, 19, 'carpet');
+    m.floor(35, 13, 41, 19, 'stone'); m.floor(3, 3, 6, 5, 'wood');
+    m.floor(12, 1, 26, 7, 'deck'); m.floor(29, 1, 35, 6, 'deck');
+    m.floor(22, 21, 24, 28, 'path'); m.floor(37, 21, 40, 28, 'sidewalk');
+    // QUARTO
+    m.rug(13, 11, 4, 2, '#b8574a');
+    m.furn(12, 9, 2, 3, 'bed'); m.furn(14, 9, 1, 1, 'nightstand'); m.furn(15, 9, 2, 1, 'wardrobe'); m.furn(17, 9, 1, 1, 'plant'); m.furn(16, 13, 2, 1, 'desk');
+    // BANHEIRO
+    m.rug(13, 16, 3, 2, '#6fb8b4');
+    m.furn(12, 19, 3, 1, 'tub'); m.furn(12, 15, 1, 1, 'washer'); m.furn(13, 15, 1, 1, 'washer'); m.furn(16, 15, 1, 1, 'sink'); m.furn(17, 15, 1, 1, 'toilet');
+    m.furn(15, 19, 2, 1, 'shelf'); m.furn(17, 19, 1, 1, 'plant');
+    // SALA
+    m.rug(20, 12, 7, 5, '#a34a5e');
+    m.furn(19, 9, 1, 2, 'bookshelf'); m.furn(25, 9, 2, 2, 'dining'); m.furn(27, 9, 1, 1, 'plant');
+    m.furn(20, 12, 4, 1, 'sofa'); m.furn(21, 14, 2, 2, 'coffee'); m.furn(21, 18, 2, 1, 'tv');
+    m.furn(19, 19, 1, 1, 'plant'); m.furn(27, 19, 1, 1, 'plant');
+    // COZINHA
+    m.furn(29, 9, 4, 1, 'counter'); m.furn(33, 9, 1, 1, 'fridge'); m.furn(30, 11, 2, 2, 'dining');
+    // ESCRITÓRIO
+    m.rug(30, 16, 3, 2, '#3f5f8a');
+    m.furn(29, 15, 1, 2, 'bookshelf'); m.furn(32, 15, 2, 1, 'shelf'); m.furn(30, 19, 2, 1, 'desk'); m.furn(33, 19, 1, 1, 'plant');
+    // GARAGEM
+    m.furn(36, 14, 2, 3, 'car', { col: '#3a7bd5' }); m.furn(39, 13, 3, 1, 'shelf'); m.furn(41, 14, 1, 1, 'crate'); m.furn(41, 15, 1, 1, 'crate');
+    m.furn(40, 19, 1, 1, 'barrel'); m.furn(41, 19, 1, 1, 'barrel'); m.furn(35, 19, 3, 1, 'pipes');
+    // GALPÃO
+    m.furn(3, 3, 1, 1, 'crate'); m.furn(4, 3, 1, 1, 'crate'); m.furn(6, 3, 1, 1, 'barrel'); m.furn(3, 5, 2, 1, 'shelf'); m.furn(6, 5, 1, 1, 'crate');
+    // QUINTAL DOS FUNDOS: piscina (água: dá pra andar, mais devagar) com deck
+    m.furn(14, 2, 8, 4, 'pool');
+    m.furn(14, 6, 2, 1, 'lounger'); m.furn(17, 6, 2, 1, 'lounger'); m.furn(12, 3, 1, 2, 'lounger');
+    m.furn(24, 2, 2, 2, 'patio'); m.furn(24, 5, 2, 1, 'bench');
+    m.furn(13, 1, 1, 1, 'plant'); m.furn(22, 1, 1, 1, 'plant'); m.furn(12, 6, 1, 1, 'lamp'); m.furn(26, 6, 1, 1, 'lamp');
+    // churrasco
+    m.furn(30, 2, 1, 1, 'bbq'); m.furn(32, 2, 2, 2, 'patio'); m.furn(30, 5, 3, 1, 'bench'); m.furn(35, 1, 1, 1, 'plant');
+    // pomar e jardim (nordeste)
+    m.furn(38, 2, 2, 2, 'tree'); m.furn(42, 2, 2, 2, 'tree'); m.furn(45, 5, 2, 2, 'tree'); m.furn(44, 9, 2, 2, 'tree');
+    m.furn(36, 5, 5, 1, 'hedge'); m.furn(43, 7, 3, 1, 'hedge');
+    m.furn(36, 8, 3, 1, 'flowers'); m.furn(41, 9, 3, 1, 'flowers'); m.furn(36, 10, 2, 1, 'doghouse');
+    // noroeste
+    m.furn(9, 1, 2, 2, 'tree'); m.furn(3, 8, 3, 1, 'flowers');
+    // JARDIM LATERAL (oeste)
+    m.furn(2, 10, 2, 2, 'tree'); m.furn(8, 10, 2, 2, 'tree'); m.furn(5, 10, 3, 1, 'flowers'); m.furn(5, 13, 3, 1, 'bench');
+    m.furn(2, 15, 5, 1, 'hedge'); m.furn(8, 16, 1, 3, 'hedge'); m.furn(2, 18, 2, 1, 'doghouse'); m.furn(10, 14, 1, 1, 'lamp'); m.furn(9, 19, 1, 1, 'barrel');
+    // lado leste da garagem
+    m.furn(44, 13, 2, 2, 'tree'); m.furn(44, 16, 1, 3, 'hedge'); m.furn(43, 12, 1, 1, 'barrel'); m.furn(43, 20, 2, 1, 'dumpster');
+    // GRAMADO DA FRENTE
+    m.furn(12, 21, 4, 1, 'flowers'); m.furn(30, 21, 4, 1, 'flowers'); m.furn(21, 21, 1, 1, 'lamp'); m.furn(25, 21, 1, 1, 'lamp');
+    m.furn(14, 24, 3, 3, 'fountain');                  // fonte (água: dá pra atravessar, mais devagar)
+    m.furn(27, 23, 2, 2, 'tree'); m.furn(31, 25, 2, 2, 'tree'); m.furn(19, 26, 2, 2, 'tree'); m.furn(2, 22, 2, 2, 'tree'); m.furn(44, 25, 2, 2, 'tree');
+    m.furn(6, 24, 1, 4, 'hedge'); m.furn(3, 27, 2, 1, 'bench'); m.furn(25, 26, 2, 1, 'bench'); m.furn(8, 22, 3, 1, 'flowers');
+    // entrada de carros
+    m.furn(38, 24, 2, 3, 'car', { col: '#d0463c' }); m.furn(41, 22, 1, 4, 'hedge'); m.furn(43, 24, 2, 1, 'stall');
+    // nascimentos: PARES distantes (0-1 noroeste/sudeste, 2-3 nordeste/sudoeste, 4-5 fundos/frente, 6-7 oeste/leste)
+    m.spawn(10, 5); m.spawn(37, 25);
+    m.spawn(41, 6); m.spawn(4, 25);
+    m.spawn(23, 6); m.spawn(23, 27);
+    m.spawn(9, 14); m.spawn(43, 15);
   });
 
   // ---- AURA AREIUDA: vila de arenito com oásis no centro (inspirada em Oasis/Dust). Só a metade esquerda é desenhada; o resto é o espelho de 180°.
@@ -669,7 +744,7 @@
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
     spawnPlayer(p, idx) {
-      const sp = this.level.m.spawn, s = sp[idx % sp.length];
+      const sp = this.level.m.spawn, so = this.spawnOrder, s = sp[so ? so[idx % so.length] : idx % sp.length];   // mapa free: par e lado sorteados a cada rodada
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
@@ -681,6 +756,14 @@
       this.mapIdx = this.mapPref ? MAP_IDS.indexOf(this.mapPref) : Math.floor(Math.random() * MAP_IDS.length);   // fase escolhida, ou sorteada a cada rodada
       this.level = new Level(MAP_IDS[this.mapIdx]);
       this.bullets = []; this.items = []; this.winner = -1; this.tu = false; this.rt = this.roundTime;
+      this.spawnOrder = null;
+      if (this.level.m.free) {   // mapa desenhado à mão (sem espelho): sorteia qual PAR de pontos e qual lado cada jogador ocupa, para ninguém ficar sempre no mesmo canto
+        const spl = this.level.m.spawn, np = Math.floor(spl.length / 2), pr = Array.from({ length: np }, (_, i) => i), side = Math.random() < 0.5 ? 1 : 0, ord = [];
+        for (let i = np - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = pr[i]; pr[i] = pr[j]; pr[j] = t; }
+        for (const q of pr) ord.push(q * 2 + side, q * 2 + 1 - side);
+        if (spl.length % 2) ord.push(spl.length - 1);
+        this.spawnOrder = ord;
+      }
       let idx = 0;
       for (const p of this.players) if (p) this.spawnPlayer(p, idx++);
       // armas totalmente aleatórias a cada rodada: posições sorteadas em qualquer chão livre (sempre em PARES espelhados = justo),
@@ -693,7 +776,25 @@
       }
       const want = Math.max(1, Math.round((4 + Math.floor(Math.random() * 6)) * (L.W * L.H > 700 ? 1.8 : 1) * this.weaponMul)), placed = [];   // mapa grande = mais armas
       const roofs = L.m.roofs || [], indoor = roofs.length ? cand.filter(([x, y]) => roofs.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)) : [];   // com tetos: metade das armas nasce DENTRO das casas
-      for (let tries = 0; tries < 600 && placed.length < want && cand.length; tries++) {
+      if (L.m.free) {
+        // mesma regra de justiça sem espelho: cada arma sorteada nasce DUAS vezes, uma na metade esquerda e outra na direita (metade das duplas dentro das construções)
+        const half = L.W / 2, put = [];
+        const spot = (arr, right) => {
+          const f = arr.filter(c => (c[0] >= half) === right && !put.some(q => Math.hypot(q[0] - c[0], q[1] - c[1]) < 2.2));
+          return f.length ? pick(f) : null;
+        };
+        for (let n = 0; n < want; n++) {
+          const useIn = indoor.length && n % 2 === 0;
+          let a = spot(useIn ? indoor : cand, false), b = spot(useIn ? indoor : cand, true);
+          if (!a || !b) { a = spot(cand, false); b = spot(cand, true); }
+          if (!a || !b) continue;
+          put.push(a, b);
+          const type = rollWeapon();
+          for (const c of [a, b]) this.addItem(type, (c[0] + 0.5) * TILE + (Math.random() - 0.5) * 24, (c[1] + 0.5) * TILE + (Math.random() - 0.5) * 24);
+        }
+        placed.length = 0;
+      }
+      for (let tries = 0; tries < 600 && !L.m.free && placed.length < want && cand.length; tries++) {
         const [x, y] = pick(indoor.length && placed.length % 2 === 0 ? indoor : cand), mx = L.W - 1 - x, my = L.H - 1 - y;
         if (placed.some(q => Math.hypot(q[0] - x, q[1] - y) < 2.2 || Math.hypot(q[0] - mx, q[1] - my) < 2.2)) continue;
         if (Math.hypot(x - mx, y - my) < 1.5) continue;
@@ -704,6 +805,7 @@
         this.addItem(type, (x + 0.5) * TILE + jx, (y + 0.5) * TILE + jy);
         this.addItem(type, (L.W - x - 0.5) * TILE - jx, (L.H - y - 0.5) * TILE - jy);
       }
+      for (const [x, y] of (L.m.bottles || [])) this.addItem('WINE', (x + 0.5) * TILE, (y + 0.5) * TILE);   // garrafas de vinho do mapa (só a CASA define)
       this.phase = 'countdown'; this.timer = 2.8;
       this.events.push({ t: 'round' });
     }
@@ -837,6 +939,7 @@
         p.cd = wd.cd; p.swing = 0.2;
         this.events.push({ t: 'swing', by: p.id, w: p.weapon ? p.weapon.type : 'FISTS', x: p.x, y: p.y, a: p.angle });
         // o golpe atinge todos os adversários dentro do arco
+        let hitAny = false;
         for (const o of this.players) {
           if (!o || o === p || !o.alive) continue;
           const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
@@ -844,8 +947,17 @@
           const aa = Math.atan2(dy, dx);
           const tol = wd.arc / 2 + Math.asin(Math.min(1, PR * 0.75 / Math.max(d, 1)));   // alvo grande = mais fácil de acertar de raspão
           if ((Math.abs(angDiff(aa, p.angle)) <= tol || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
+            hitAny = true;
             if (o.down) this.hurt(o, p, wd.dmg * EXEC_MULT, 'exec', aa);
             else { this.hurt(o, p, wd.dmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
+          }
+        }
+        // garrafa inteira que bate numa parede/porta/móvel: QUEBRA e vira garrafa quebrada (se acertou alguém, sobrevive)
+        if (wd.brk && !hitAny && p.weapon) {
+          const reach = PR + wd.range * 0.8;
+          for (const off of [0, 0.45, -0.45]) {
+            const a = p.angle + off, d = this.level.ray(p.x, p.y, a, reach);
+            if (d < reach) { this.shatter(p, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, a); break; }
           }
         }
         return;
@@ -864,6 +976,14 @@
       this.events.push({ t: 'shot', by: p.id, w: p.weapon.type, x: p.x, y: p.y, a: p.angle });
     }
 
+    // Garrafa quebra: a arma da mão do jogador `p` vira a versão quebrada (GARRAFA QUEBRADA) e sai um estilhaço de vidro/vinho no ponto do impacto.
+    shatter(p, x, y, a) {
+      const wd = p.weapon && WEAPONS[p.weapon.type];
+      if (!wd || !wd.brk) return false;
+      p.weapon = { type: wd.brk, ammo: 0 };
+      this.events.push({ t: 'shatter', x, y, a, by: p.id });
+      return true;
+    }
     // Tira `pct`% da vida máxima. Se zerar, mata.
     hurt(v, by, pct, how, a) {
       if (!v.alive || this.phase !== 'live') return false;
@@ -1200,7 +1320,13 @@
               const dh = this.level.doorHit(nx, ny, 3);
               if (dh) { const m = 0.6 + wgt * 0.3; this.shotDoor(dh, { x: nx, y: ny, vx: it.vx * m, vy: it.vy * m, owner: it.owner }); this.events.push({ t: 'door', i: dh.i, dir: 0, x: nx, y: ny, hit: false }); }
             }
-            if (this.level.solidAt(nx, ny) || this.level.doorAt(nx, ny, 3)) { stop = true; it.vx *= -0.15; it.vy *= -0.15; break; }
+            if (this.level.solidAt(nx, ny) || this.level.doorAt(nx, ny, 3)) {
+              if (WEAPONS[it.type].brk && this.level.solidAt(nx, ny)) {   // garrafa arremessada na parede: estilhaça e fica a garrafa quebrada no chão
+                it.type = WEAPONS[it.type].brk; it.ammo = 0;
+                this.events.push({ t: 'shatter', x: it.x, y: it.y, a: Math.atan2(it.vy, it.vx), by: it.owner });
+              }
+              stop = true; it.vx *= -0.15; it.vy *= -0.15; break;
+            }
             it.x = nx; it.y = ny;
             for (const p of this.players) {
               if (!p || !p.alive || p.id === it.owner) continue;
@@ -1209,11 +1335,11 @@
                 let pct = THROW_DMG, how = 'throw', bl = 0, cb = 0, pw = 0;
                 const thrower = this.byId(it.owner);
                 if (wd.blade && thrower && bladeKills(thrower.skin)) {   // Shadow 4: vale a ponta que bate primeiro — a arma gira no ar; ponta (lâmina) na frente = 100% de dano; cabo na frente = pancada comum de 10%
-                  if (Math.cos(angDiff(it.rot, ang)) > 0) { pct = 100; how = 'blade'; bl = 1; }
+                  if (Math.cos(angDiff(it.rot, ang)) > 0) { pct = Math.max(100, BLADE_PCT[it.type] || 0); how = 'blade'; bl = 1; }   // 100% (machete/faca/katana) · machado mantém 150%
                   else cb = 1;
                 } else if (wd.blade) {                // pontiaguda arremessada: sorte decide se acerta a LÂMINA (morte) ou o CABO (pancada comum)
-                  if (Math.random() < BLADE_CHANCE) {
-                    if (BLADE_KILL[it.type]) { pct = 100; how = 'blade'; bl = 1; }       // só a machete: 100% de dano
+                  if (Math.random() < bladeChanceOf(it.type)) {
+                    if (BLADE_PCT[it.type]) { pct = BLADE_PCT[it.type]; how = 'blade'; bl = 1; }   // machete 70% · machado 150%
                     else pct = BLADE_DMG[it.type] || THROW_DMG;                           // faca/katana: lâmina machuca, fatia da vida
                   } else cb = 1;
                 } else if (wd.jav) {                  // lança: dano cresce com o tempo que o jogador segurou
@@ -1394,5 +1520,5 @@
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });
