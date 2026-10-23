@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -17,6 +17,7 @@ const SERVER_URL = SAME_ORIGIN ? (location.protocol === 'https:' ? 'wss://' : 'w
 if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'no-cors' }); } catch { } }
 
 const STEP = 1 / 60, TAU = Math.PI * 2;
+const HOOK_FX_T = 260;   // ms que o gancho que errou leva para sumir
 const BLAST_T = 450;   // ms que a onda de choque da ativa leva para abrir e sumir
 const SKINS = {
   HERO: { c: '#8b5e34', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
@@ -47,7 +48,7 @@ const roomMax = () => (snap && snap.cf ? snap.cf[2] : MAX_PLAYERS);   // vagas d
 const roomWin = () => (snap && snap.cf ? snap.cf[0] : 5);            // rodadas para vencer
 const fmtDur = s => (s % 60 === 0 ? (s / 60) + ' min' : s + ' s');
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
-let fx = { parts: [], lights: [], slashes: [], blasts: [], corpses: [], pops: [], flash: 0, red: 0 };
+let fx = { parts: [], lights: [], slashes: [], blasts: [], hooks: [], corpses: [], pops: [], flash: 0, red: 0 };
 // predição dos MEUS tiros (online): o tiro aparece na hora do clique; quando o do servidor chega, ele é escondido para não duplicar
 let pbul = [], pshots = [], hiddenB = new Set(), knownB = new Set(), gotShot = 0, pcd = 0, pbuf = 0;
 let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [];   // roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
@@ -509,7 +510,7 @@ let colorMap = {};
 const jacketOf = (id) => colorMap[id] || '#ff2e97';
 
 function resetFx() {
-  fx = { parts: [], lights: [], slashes: [], blasts: [], corpses: [], pops: [], flash: 0, red: 0 };
+  fx = { parts: [], lights: [], slashes: [], blasts: [], hooks: [], corpses: [], pops: [], flash: 0, red: 0 };
   pbul = []; pshots = []; hiddenB.clear(); knownB = new Set(); gotShot = 0; pcd = 0; pbuf = 0;
   if (dctx && decal) dctx.clearRect(0, 0, decal.width, decal.height);
 }
@@ -885,9 +886,11 @@ function onSnapshot(s) {
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
     const t = { x: me.x, y: me.y, skin: me.sk };
-    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt, p.sm);
+    if (me.hk) { pending = []; pred.x = me.x; pred.y = me.y; first = false; }   // puxado pelo gancho: segue a posição do servidor
+    else if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt, p.sm);
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
-    if (first || err > 40) { pred.x = t.x; pred.y = t.y; first = false; }
+    if (me.hk) { /* já posicionado acima */ }
+    else if (first || err > 40) { pred.x = t.x; pred.y = t.y; first = false; }
     else { pred.x += (t.x - pred.x) * 0.35; pred.y += (t.y - pred.y) * 0.35; }
   }
 }
@@ -921,6 +924,12 @@ function handleEvent(e, now) {
       break;
     }
     case 'swap': sfx('swap', e.x, e.y); break;
+    case 'hook': {   // ATIVA do Shadow 4: lança o gancho (errou = corda curta que some)
+      sfx('swing', e.x, e.y); sfx('swap', e.x, e.y);
+      if (e.miss) fx.hooks.push({ x: e.x, y: e.y, a: e.a, t0: now });
+      else { addPop(e.x, e.y - 30, 'GANCHO', '#9fe6ff'); addShake(e.id === myId ? 3 : 1.5); }
+      break;
+    }
     case 'blast': {   // ATIVA: explosão em área em volta de quem sacrificou a vida
       sfx('kill', e.x, e.y); sfx('door', e.x, e.y);
       fx.blasts.push({ x: e.x, y: e.y, r: e.r, t0: now });
@@ -1014,7 +1023,7 @@ addEventListener('keydown', e => {
   if (canSpec()) { if (id === 'a') specStep(-1); else if (id === 'd') specStep(1); }
   keys[id] = true;
   if (id === 'e') edge.pk = true;
-  if (id === ' ' && (() => { const m = myState(); return m && hasActive(m.sk); })()) edge.sl = true;   // ativa (só o gorila)
+  if (id === ' ' && (() => { const m = myState(); return m && hasActive(m.sk); })()) edge.sl = true;   // ativa (gorila: explosão · Shadow 4: gancho)
   if (id === 'f') edge.th = true;   // arremessar
   if (id === 'q') edge.hl = true;
   if (id === '1') edge.ss = 1;
@@ -1063,12 +1072,25 @@ function stepInput() {
     setSuiBar(suiHold / SUI_HOLD);
   }
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  let aim = aimAngle();
+  if (IS_TOUCH && edge.sl && level) {   // celular: o gancho do Shadow 4 mira sozinho no adversário vivo mais perto que esteja à vista (difícil apontar o analógico com precisão)
+    const m0 = myState();
+    if (m0 && m0.al && hasHook(m0.sk)) {
+      let bd = HOOK_RANGE;
+      for (const f of foesOf()) {
+        if (!f.al) continue;
+        const d = Math.hypot(f.x - pred.x, f.y - pred.y);
+        if (d < bd && level.los(pred.x, pred.y, f.x, f.y)) { bd = d; aim = Math.atan2(f.y - pred.y, f.x - pred.x); }
+      }
+    }
+  }
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
   edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = edge.su = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   if (me) pred.skin = me.sk;
-  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP, sm);
-  pending.push({ seq: inp.seq, dt: STEP, k, sm }); if (pending.length > 120) pending.shift();
+  const hooked = !!(me && me.hk);   // preso no gancho: o servidor move o boneco, a previsão só espera
+  if (me && !hooked && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP, sm);
+  if (!hooked) { pending.push({ seq: inp.seq, dt: STEP, k, sm }); if (pending.length > 120) pending.shift(); }
   predictShots(inp);
   sendInput(inp);
 }
@@ -1596,6 +1618,7 @@ function updateFx(dt) {
   for (const l of fx.lights) l.t -= d; fx.lights = fx.lights.filter(l => l.t > 0);
   fx.slashes = fx.slashes.filter(s => performance.now() - s.t0 < swDur(s.w) + 40);
   fx.blasts = fx.blasts.filter(b => performance.now() - b.t0 < BLAST_T);
+  fx.hooks = fx.hooks.filter(h => performance.now() - h.t0 < HOOK_FX_T);
   if (pbul.length && level) {
     const foes = foesOf().filter(f => f.al).map(f => interpEnemy(f.id) || f);
     for (const b of pbul) {
@@ -1677,7 +1700,7 @@ function render(now, dt) {
     if (!inView(x, y, 140)) continue;
     ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
     ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; ctx.scale(CS * 1.05, CS * 1.05); if (thrown && type === 'SPEAR') ctx.translate(-55, 0); drawWeaponSprite(type); ctx.restore();
-    if (!thrown && me && me.al) { const d = itemDist(type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
+    if (!thrown && me && me.al && canHold(me.sk, type)) { const d = itemDist(type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
   }
   if (near) {
     const t = (WEAPONS[near[3]].name + (near[4] ? ' · ' + near[4] : '')).toUpperCase();
@@ -1723,6 +1746,18 @@ function render(now, dt) {
     if (!inView(ie.x, ie.y, 160) && !(spec && f.id === spec.id)) continue;
     if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
     drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? maxHpOf(f.sk), false, maxHpOf(f.sk)); drawName(ie.x, ie.y, f.nm, f.id);   // barras de cura e de carga da lança só aparecem para o próprio jogador
+  }
+  // GANCHO do Shadow 4: corda do boneco até o alvo preso (e a corda curta de quem errou)
+  for (const p of snap.pl) {
+    if (!p.hk || !p.al) continue;
+    const tg = snap.pl.find(q => q.sl === p.hk - 1); if (!tg || !tg.al) continue;
+    const pos = (q, mineRaw) => q.id === myId ? { x: pred.x, y: pred.y } : (mineRaw ? { x: q.x, y: q.y } : (interpEnemy(q.id) || { x: q.x, y: q.y }));
+    const A = pos(p, false), B = pos(tg, p.id === myId);   // quando EU puxo, o alvo vem da posição do servidor para a corda não "sobrar"
+    drawHookRope(A.x, A.y, B.x, B.y, 1);
+  }
+  for (const h of fx.hooks) {
+    const t = Math.min(1, (performance.now() - h.t0) / HOOK_FX_T), len = 300 * (t < 0.5 ? t * 2 : 1), a = 1 - t;
+    ctx.save(); ctx.globalAlpha = a; drawHookRope(h.x, h.y, h.x + Math.cos(h.a) * len, h.y + Math.sin(h.a) * len, 0); ctx.restore();
   }
   if (me && me.al) drawPlayer(me, pred.x, pred.y, aimAngle(), true, now);   // nome/vida do próprio jogador são desenhados depois dos tetos (camada final), para nada cobrir
 
@@ -1810,6 +1845,21 @@ function drawName(x, y, name, id) {
   ctx.save(); ctx.font = '700 14px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
   ctx.strokeStyle = 'rgba(10,0,20,.95)'; ctx.fillStyle = jacketOf(id);   // nome na cor do personagem
   ctx.strokeText(name, x, y - 51); ctx.fillText(name, x, y - 51); ctx.restore();
+}
+// corda + garra do gancho do Shadow 4 (cor chapada, contorno preto, no mesmo estilo da pixel art)
+function drawHookRope(x0, y0, x1, y1, claw) {
+  const dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+  const ex = x1 - ux * (claw ? PR * 0.6 : 0), ey = y1 - uy * (claw ? PR * 0.6 : 0);   // a garra prende na borda do alvo
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = OL; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.strokeStyle = '#d9c6a0'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.strokeStyle = '#8b6a3a'; ctx.lineWidth = 1.2; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+  const nx = -uy, ny = ux, hx = ex + ux * 2, hy = ey + uy * 2;   // garra: três dentes
+  ctx.strokeStyle = OL; ctx.lineWidth = 6;
+  for (const k of [-1, 0, 1]) { ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(hx + nx * 9 * k - ux * 6 * Math.abs(k), hy + ny * 9 * k - uy * 6 * Math.abs(k)); ctx.stroke(); }
+  ctx.strokeStyle = '#c9d2dc'; ctx.lineWidth = 3;
+  for (const k of [-1, 0, 1]) { ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(hx + nx * 9 * k - ux * 6 * Math.abs(k), hy + ny * 9 * k - uy * 6 * Math.abs(k)); ctx.stroke(); }
+  ctx.restore();
 }
 function drawHpBar(x, y, hp, mine, mx = MAX_HP) {
   const k = Math.max(0, Math.min(1, hp / mx)), w = 44;
@@ -1995,8 +2045,8 @@ function updateVitals(me) {
   if (V.c.fk !== fk) { V.c.fk = fk; drawFace(V.face, me.sk, jacketOf(me.id)); }
   const hz = me.hz > 0 ? Math.round((1 - me.hz / healTimeOf(me.sk)) * 100) : -1;
   if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
-  const act = hasActive(me.sk); if (V.c.act !== act) { V.c.act = act; V.cdI.parentNode.style.display = act ? '' : 'none'; }   // só o gorila tem ativa
-  const acd = me.sq || 0, ready = acd <= 0, cd = ready ? 100 : Math.round((1 - acd / ACT_CD) * 100);
+  const act = hasActive(me.sk); if (V.c.act !== act) { V.c.act = act; V.cdI.parentNode.style.display = act ? '' : 'none'; }   // gorila (explosão) e Shadow 4 (gancho) têm ativa
+  const acd = me.sq || 0, ready = acd <= 0, cd = ready ? 100 : Math.round((1 - Math.min(1, acd / activeCdOf(me.sk))) * 100);
   if (V.c.cd !== cd) { V.c.cd = cd; V.cdI.style.width = cd + '%'; }
   if (V.c.rd !== ready) { V.c.rd = ready; V.el.classList.toggle('cooling', !ready); }
 }
