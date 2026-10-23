@@ -191,6 +191,7 @@ wss.on('connection', (ws) => {
       game.applyInput(c.p, {
         k: Number(m.k) | 0,
         a,
+        ad: m.ad == null ? undefined : Math.max(0, Math.min(2000, Number(m.ad) || 0)),   // distância da mira: alcance do gancho
         f: m.f ? 1 : 0,
         fp: m.fp ? 1 : 0,
         pk: m.pk ? 1 : 0,
@@ -199,6 +200,7 @@ wss.on('connection', (ws) => {
         tc: m.tc ? 1 : 0,                                // segurando o botão de arremesso (carga da lança)
         sw: m.sw ? 1 : 0,                                // scroll: alterna de arma
         sl: m.sl ? 1 : 0,                                // Espaço: ativa
+        em: m.em ? 1 : 0,                                // emote (dancinha)
         su: m.su ? 1 : 0,                                // botão de suicídio
         ss: Math.max(0, Math.min(2, Number(m.ss) | 0))   // teclas 1/2: escolhe o espaço
       }, Math.max(0, Math.min(0.05, dt)));

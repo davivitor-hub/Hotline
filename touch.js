@@ -25,7 +25,8 @@
     { id: 'th',  name: 'JOGAR',        label: 'JOGAR',    w: 56,  h: 56, fs: 0.62 },
     { id: 'pk',  name: 'PEGAR',        label: 'PEGAR',    w: 56,  h: 56, fs: 0.62 },
     { id: 'hl',  name: 'CURAR',        label: 'CURAR',    w: 56,  h: 56, fs: 0.62 },
-    { id: 'sw',  name: 'TROCAR ARMA',  label: 'TROCAR',   w: 56,  h: 56, fs: 0.62 }
+    { id: 'sw',  name: 'TROCAR ARMA',  label: 'TROCAR',   w: 56,  h: 56, fs: 0.62 },
+    { id: 'em',  name: 'DANÇAR',       label: 'DANÇAR',   w: 56,  h: 56, fs: 0.58 }
   ];
   const itemOf = id => ITEMS.find(i => i.id === id);
   // u = escala padrão da tela (celular pequeno ~0.85, celular grande ~1, tablet/PC até 1.6); s = ajuste do jogador (100% = padrão da tela)
@@ -65,7 +66,8 @@
     th: [() => { edge.th = true; keys.f = true; }, () => { keys.f = false; }],
     pk: [() => { edge.pk = true; }],
     hl: [() => { edge.hl = true; }],
-    sw: [() => { edge.sw = true; }]
+    sw: [() => { edge.sw = true; }],
+    em: [() => { edge.em = true; }]
   };
   for (const it of ITEMS) if (!it.stick) button(it.id, it.label, '', ...ACT[it.id]);
 
@@ -90,12 +92,13 @@
   function defaults() {
     const W_ = innerWidth, H_ = innerHeight, n = insets(), u = uScale(), m = 10 * u, g = 8 * u, b = 56 * u;
     const rx = W_ - n.r - m, by = H_ - n.b - m, c1 = rx - b / 2, c0 = c1 - b - g, cb = rx - 60 * u;
-    const y1 = by - b / 2, y2 = y1 - (b + g), y3 = y2 - (b + g);
+    const y1 = by - b / 2, y2 = y1 - (b + g), y3 = y2 - (b + g), y4 = y3 - (b + g);
     const px = {
       mv: [n.l + 112 * u, H_ - n.b - 146 * u], aim: [W_ - n.r - 226 * u, H_ - n.b - 146 * u],
       hl: [c0, y1], sw: [c1, y1],
       th: [c0, y2], pk: [c1, y2],
-      sl: [cb, y3]
+      sl: [cb, y3],
+      em: [c1, y4]
     };
     const d = {};
     for (const id in px) d[id] = { x: px[id][0] / W_, y: px[id][1] / H_, s: 1 };

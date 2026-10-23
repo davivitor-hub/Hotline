@@ -41,7 +41,7 @@ let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
 let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
-let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0, sl: false, su: false };
+let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0, sl: false, su: false, em: false };
 let suiHold = 0, suiArm = 0;   // suicídio: tempo segurando a tecla / confirmação do botão do menu de pausa
 const SUI_HOLD = 1.0;          // segundos segurando a tecla para se matar
 const roomMax = () => (snap && snap.cf ? snap.cf[2] : MAX_PLAYERS);   // vagas da sala (escolhidas na criação)
@@ -350,7 +350,7 @@ $('volRange').oninput = e => { cfg.vol = e.target.value / 100; saveCfg(); applyM
 // o id de cada ação é a sua tecla padrão; cfg.binds guarda só o que o jogador trocou
 const ACTIONS = [
   { id: 'w', label: 'Andar para cima' }, { id: 's', label: 'Andar para baixo' }, { id: 'a', label: 'Andar para a esquerda' }, { id: 'd', label: 'Andar para a direita' },
-  { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' },
+  { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' }, { id: 'g', label: 'Emote (dançar)' },
   { id: '1', label: 'Arma do espaço 1' }, { id: '2', label: 'Arma do espaço 2' },
   { id: 'shift', label: 'Soltar / estender a câmera' },
   { id: 'k', label: 'Suicídio (segurar)' },
@@ -927,7 +927,8 @@ function handleEvent(e, now) {
     case 'hookeq': sfx('swap', e.x, e.y); if (e.on && e.id === myId) addPop(e.x, e.y - 30, 'GANCHO NA MÃO', '#9fe6ff'); break;   // ATIVA do Shadow 4: saca / guarda o gancho
     case 'hook': {   // clique do Shadow 4: lança o gancho (errou = corda curta que some)
       sfx('swing', e.x, e.y); sfx('swap', e.x, e.y);
-      if (e.miss) fx.hooks.push({ x: e.x, y: e.y, a: e.a, t0: now });
+      if (e.miss) fx.hooks.push({ x: e.x, y: e.y, a: e.a, l: e.l > 0 ? e.l : 300, t0: now });
+      else if (e.wall) { addPop(e.x, e.y - 30, 'GANCHO!', '#9fe6ff'); addShake(e.id === myId ? 2 : 1); }
       else { addPop(e.x, e.y - 30, 'PUXA!', '#9fe6ff'); addShake(e.id === myId ? 3 : 1.5); }
       break;
     }
@@ -1027,6 +1028,7 @@ addEventListener('keydown', e => {
   if (id === ' ' && (() => { const m = myState(); return m && hasActive(m.sk); })()) edge.sl = true;   // ativa (gorila: explosão · Shadow 4: gancho)
   if (id === 'f') edge.th = true;   // arremessar
   if (id === 'q') edge.hl = true;
+  if (id === 'g') edge.em = true;   // emote: dançar
   if (id === '1') edge.ss = 1;
   if (id === '2') edge.ss = 2;
   if (id === 'm') { cfg.music = !cfg.music; applyMusic(); $('optMusic').checked = cfg.music; refreshTracks(); saveCfg(); }
@@ -1085,8 +1087,10 @@ function stepInput() {
       }
     }
   }
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
-  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = edge.su = false; edge.ss = 0;
+  // distância da mira (cursor) em px do mundo: é até onde o gancho vai. No toque não há cursor de verdade, então vale o alcance máximo.
+  const ad = IS_TOUCH ? HOOK_RANGE : Math.round(Math.hypot(mouse.x - (W / 2 + (pred.x - cam.x) * Z), mouse.y - (H / 2 + (pred.y - cam.y) * Z)) / Z);
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), ad, f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, em: edge.em ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = edge.su = edge.em = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   if (me) pred.skin = me.sk;
   const hooked = !!(me && me.hk);   // preso no gancho: o servidor move o boneco, a previsão só espera
@@ -1501,6 +1505,8 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   }
   ctx.rotate(ang);
   if (healing) ctx.scale(0.94, 0.94);   // agachadinho enquanto se cura
+  const dancing = !!p.em && !p.dn && !healing;   // emote: dancinha (tudo preso ao relógio, então a galera dança no mesmo ritmo)
+  if (dancing) { const bt = now / 230, pul = 1 + 0.05 * Math.abs(Math.sin(bt * 2)); ctx.rotate(Math.sin(bt) * 0.5); ctx.scale(pul, pul); }
   const swW = st.sw || 'FISTS', swSp = Math.min(1, (now - st.sw0) / swDur(p.w || 'FISTS')), swOn = swSp < 1;
   if (swOn && !p.dn && (!p.w || (WEAPONS[p.w] && WEAPONS[p.w].melee))) ctx.translate(swingLunge(swSp) * (p.w === 'SPEAR' ? 5 : p.w ? 8 : 6), 0);   // passada do corpo
   if (p.dn) {
@@ -1514,7 +1520,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   }
   // pernas estilo Hotline Miami: uma vai para frente e a outra para TRÁS, alternando; o pé que vem à frente levanta um pouco
   ctx.save(); ctx.rotate(angDiff(st.la, ang));
-  drawLegs(Math.sin(st.walk) * 10 * st.mv);
+  drawLegs(dancing ? Math.sin(now / 115) * 9 : Math.sin(st.walk) * 10 * st.mv);
   ctx.restore();
   const sp = swSp, swinging = swOn; let twist = 0;
   const wt = p.w, wd = wt ? WEAPONS[wt] : null, melee = !wt || wd.melee;
@@ -1530,6 +1536,13 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     ctx.restore();
     hand(11 + hb, 4.8); hand(11 + hb, -4.8);
     twist = Math.sin(now / 260) * 0.07;   // respiração
+  } else if (dancing) {
+    // dancinha: mãos para o alto alternando ("levanta o teto"), arma guardada no quadril, tronco requebrando
+    const a = Math.sin(now / 115), b2 = Math.abs(a);
+    if (wt) { ctx.save(); ctx.translate(-1, 12); ctx.rotate(2.5); ctx.scale(0.8, 0.8); drawWeaponSprite(wt); ctx.restore(); }
+    limb(0, 10, 9 + a * 9, 17 + b2 * 3, jacket); limb(0, -10, 9 - a * 9, -17 - b2 * 3, jacket);
+    hand(10 + a * 9, 17.5 + b2 * 3); hand(10 - a * 9, -17.5 - b2 * 3);
+    twist = a * 0.2;
   } else if (p.hm) {
     // gancho na mão (Shadow 4): segura o lançador com as duas mãos, apontado para a mira
     limb(0, 10, 14, 3, jacket); limb(0, -10, 21, -3, jacket);
@@ -1574,6 +1587,15 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.save(); ctx.translate(2.5, 0); drawHead(p.sk); ctx.restore();
   ctx.restore();
   ctx.restore();
+  if (dancing) {   // notas musicais subindo da cabeça
+    ctx.save(); ctx.translate(x, y); ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.7)';
+    const cols = ['#ff4fa8', '#4fe3ff', '#ffe14f'];
+    for (let i = 0; i < 3; i++) {
+      const t = (now / 1100 + i / 3) % 1, nx = Math.sin(i * 2.1 + t * 4) * 20, ny = -24 - t * 34;
+      ctx.globalAlpha = Math.sin(t * Math.PI); ctx.fillStyle = cols[i]; const ch = i % 2 ? '♪' : '♫'; ctx.strokeText(ch, nx, ny); ctx.fillText(ch, nx, ny);
+    }
+    ctx.restore();
+  }
 }
 // lançador de gancho do Shadow 4 (cores chapadas, mesmo estilo das armas)
 function drawHookGun() {
@@ -1765,13 +1787,18 @@ function render(now, dt) {
   // GANCHO do Shadow 4: corda do boneco até o alvo preso (e a corda curta de quem errou)
   for (const p of snap.pl) {
     if (!p.hk || !p.al) continue;
+    if (p.hk < 0) {   // preso em parede/objeto: a corda vai até o ponto de ancoragem
+      const A = p.id === myId ? { x: pred.x, y: pred.y } : (interpEnemy(p.id) || { x: p.x, y: p.y });
+      drawHookRope(A.x, A.y, p.hx, p.hy, 0);
+      continue;
+    }
     const tg = snap.pl.find(q => q.sl === p.hk - 1); if (!tg || !tg.al) continue;
     const pos = (q, mineRaw) => q.id === myId ? { x: pred.x, y: pred.y } : (mineRaw ? { x: q.x, y: q.y } : (interpEnemy(q.id) || { x: q.x, y: q.y }));
     const A = pos(p, false), B = pos(tg, p.id === myId);   // quando EU puxo, o alvo vem da posição do servidor para a corda não "sobrar"
     drawHookRope(A.x, A.y, B.x, B.y, 1);
   }
   for (const h of fx.hooks) {
-    const t = Math.min(1, (performance.now() - h.t0) / HOOK_FX_T), len = 300 * (t < 0.5 ? t * 2 : 1), a = 1 - t;
+    const t = Math.min(1, (performance.now() - h.t0) / HOOK_FX_T), len = (h.l || 300) * (t < 0.5 ? t * 2 : 1), a = 1 - t;
     ctx.save(); ctx.globalAlpha = a; drawHookRope(h.x, h.y, h.x + Math.cos(h.a) * len, h.y + Math.sin(h.a) * len, 0); ctx.restore();
   }
   if (me && me.al) drawPlayer(me, pred.x, pred.y, aimAngle(), true, now);   // nome/vida do próprio jogador são desenhados depois dos tetos (camada final), para nada cobrir
