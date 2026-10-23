@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, ACT_CD, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -19,7 +19,7 @@ if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'n
 const STEP = 1 / 60, TAU = Math.PI * 2;
 const BLAST_T = 450;   // ms que a onda de choque da ativa leva para abrir e sumir
 const SKINS = {
-  HERO: { c: '#d2ab33', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
+  HERO: { c: '#8b5e34', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
   MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }, GORILLA: { c: '#3e4049', n: 'Shadow 2' }, FISH: { c: '#3fc8ff', n: 'Peixe' }
 };
 
@@ -1014,7 +1014,7 @@ addEventListener('keydown', e => {
   if (canSpec()) { if (id === 'a') specStep(-1); else if (id === 'd') specStep(1); }
   keys[id] = true;
   if (id === 'e') edge.pk = true;
-  if (id === ' ') edge.sl = true;   // ativa
+  if (id === ' ' && (() => { const m = myState(); return m && hasActive(m.sk); })()) edge.sl = true;   // ativa (só o gorila)
   if (id === 'f') edge.th = true;   // arremessar
   if (id === 'q') edge.hl = true;
   if (id === '1') edge.ss = 1;
@@ -1319,11 +1319,11 @@ function drawLegs(stp, sliding) {
 }
 
 /* ---------- Shadow 4: pixel art do personagem (cores tiradas da arte original) ---------- */
-const HERO_PAL = {"O": "#000000", "a": "#030303", "b": "#c7a02a", "c": "#b69120", "d": "#d2ab33", "e": "#e1b373", "f": "#ffd89d", "g": "#634d2e", "h": "#a27c4a", "R": "#e0152f", "r": "#ff3b57", "Y": "#ffd23f", "y": "#e8a82a", "B": "#ff9a2b", "W": "#ffffff", "E": "#0b0710"};
-const HERO_FRONT = [".OOOO.", "aObcaO", "Odceca", "OcefeO", "OgffgO", "OffffO", "OffffO", "OehhfO"];   // rosto de frente (retrato do HUD) — igual à sua arte
-const HERO_HEAD = ["............", "...OOOOOO...", "..ObbbdbeO..", ".OcbcdbbffO.", ".OcbdbbbgfO.", "OccdbcbdffhO", "OcccbbdbffhO", ".OcbbdbbgfO.", ".OcbcbbbffO.", "..OdbbbdeO..", "...OOOOOO...", "............"];   // cabeça vista de cima, olhando para a direita
+const HERO_PAL = {"O": "#000000", "a": "#030303", "b": "#c7a02a", "c": "#b69120", "d": "#d2ab33", "e": "#e1b373", "f": "#ffd89d", "g": "#634d2e", "h": "#a27c4a", "R": "#e0152f", "r": "#ff3b57", "Y": "#ffd23f", "y": "#e8a82a", "B": "#ff9a2b", "W": "#ffffff", "E": "#0b0710", "n": "#5a3a1e", "m": "#8b5e34", "l": "#b98550", "k": "#efe0b8", "j": "#ffd23f", "Q": "#e8862a"};
+const HERO_FRONT = ["OO......OO", "OnOOOOOOnO", "OmmmmmmmmO", "OmjjkkjjmO", "OmjOQQOjmO", "OmmkkkkmmO", "OnmmmmmmnO", ".OnmmmmnO.", "..OOOOOO.."];   // coruja de frente (retrato do HUD)
+const HERO_HEAD = ["..OO........", ".OnnOOOOOO..", ".OnnmmmmmmO.", "OnnmmmkkjjkO", "OnnmmkkkjOkO", "OnnmmkkkkQQO", "OnnmmkkkkQQO", "OnnmmkkkjOkO", "OnnmmmkkjjkO", ".OnnmmmmmmO.", ".OnnOOOOOO..", "..OO........"];   // máscara de coruja vista de cima, olhando para a direita
 const ROOSTER_HEAD = ["............", "...OOOOOO...", "..OyYYYYyO..", ".OyYYYYyEWO.", ".OYRRRRYYYO.", "OcrRrRrRrBBO", "OcrRrRrRrBBO", ".OYRRRRYyYO.", ".OyYYYYyEWO.", "..OYYYyYYO..", "...OOOOOO...", "............"];   // máscara de galo vista de cima
-const HERO_SIDE = ["...OOOOOO...", "..ObbdbbbOO.", ".ObbbbbbbbfO", "ObcbbbbbbffO", "OcbbbbbbbffO", "OcbbbbbbbfgO", "ObbbbbbbffeO", ".ObbbbbfffhO", ".ObbbbbffheO", "...ObbbhhO..", "....OOOOO..."];   // cabeça de perfil (abertura)
+const HERO_SIDE = ["..On........", ".OnmOOOOO...", ".OnmmmmmmO..", "OnmmmmkkkkO.", "OnmmmmkjjkO.", "OnmmmmkjOkQO", "OnmmmmkkkQQO", "OnmmmmmkkkQO", ".OnmmmmmmmO.", "..OnmmmmmO..", "...OOOOOO..."];   // coruja de perfil (abertura)
 const isHeroSk = k => k === 'HERO' || k === 'ROOSTER';
 const pixCache = {};
 function pix(key, rows) {   // grade de letras -> canvas pixel art (cacheado)
@@ -1995,6 +1995,7 @@ function updateVitals(me) {
   if (V.c.fk !== fk) { V.c.fk = fk; drawFace(V.face, me.sk, jacketOf(me.id)); }
   const hz = me.hz > 0 ? Math.round((1 - me.hz / healTimeOf(me.sk)) * 100) : -1;
   if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
+  const act = hasActive(me.sk); if (V.c.act !== act) { V.c.act = act; V.cdI.parentNode.style.display = act ? '' : 'none'; }   // só o gorila tem ativa
   const acd = me.sq || 0, ready = acd <= 0, cd = ready ? 100 : Math.round((1 - acd / ACT_CD) * 100);
   if (V.c.cd !== cd) { V.c.cd = cd; V.cdI.style.width = cd + '%'; }
   if (V.c.rd !== ready) { V.c.rd = ready; V.el.classList.toggle('cooling', !ready); }

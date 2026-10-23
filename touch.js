@@ -354,6 +354,7 @@
     if (on !== wasOn) { wasOn = on; tc.classList.toggle('on', on); if (!on) releaseAll(); }
     document.body.classList.toggle('tcPlay', on);
     if (!on) return;
+    { const m0 = myState(), showSl = !!(m0 && hasActive(m0.sk)); if (nodes.sl && nodes.sl.dataset.vis !== String(showSl)) { nodes.sl.dataset.vis = String(showSl); nodes.sl.style.display = showSl ? '' : 'none'; } }   // ATIVA: só o gorila
     if (tapUntil && now > tapUntil) { tapUntil = 0; if (A.id == null) mouse.down = false; }
     // mira: começa olhando para onde o servidor posicionou o boneco na rodada e depois só o analógico direito muda
     if (round !== lastRd) { lastRd = round; tAim = null; }
