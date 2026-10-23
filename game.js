@@ -924,10 +924,11 @@ function handleEvent(e, now) {
       break;
     }
     case 'swap': sfx('swap', e.x, e.y); break;
-    case 'hook': {   // ATIVA do Shadow 4: lança o gancho (errou = corda curta que some)
+    case 'hookeq': sfx('swap', e.x, e.y); if (e.on && e.id === myId) addPop(e.x, e.y - 30, 'GANCHO NA MÃO', '#9fe6ff'); break;   // ATIVA do Shadow 4: saca / guarda o gancho
+    case 'hook': {   // clique do Shadow 4: lança o gancho (errou = corda curta que some)
       sfx('swing', e.x, e.y); sfx('swap', e.x, e.y);
       if (e.miss) fx.hooks.push({ x: e.x, y: e.y, a: e.a, t0: now });
-      else { addPop(e.x, e.y - 30, 'GANCHO', '#9fe6ff'); addShake(e.id === myId ? 3 : 1.5); }
+      else { addPop(e.x, e.y - 30, 'PUXA!', '#9fe6ff'); addShake(e.id === myId ? 3 : 1.5); }
       break;
     }
     case 'blast': {   // ATIVA: explosão em área em volta de quem sacrificou a vida
@@ -1073,9 +1074,9 @@ function stepInput() {
   }
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
   let aim = aimAngle();
-  if (IS_TOUCH && edge.sl && level) {   // celular: o gancho do Shadow 4 mira sozinho no adversário vivo mais perto que esteja à vista (difícil apontar o analógico com precisão)
+  if (IS_TOUCH && (mouse.down || edge.fp) && level) {   // celular: com o gancho na mão, o disparo mira sozinho no adversário vivo mais perto que esteja à vista (difícil apontar o analógico com precisão)
     const m0 = myState();
-    if (m0 && m0.al && hasHook(m0.sk)) {
+    if (m0 && m0.al && hasHook(m0.sk) && m0.hm) {
       let bd = HOOK_RANGE;
       for (const f of foesOf()) {
         if (!f.al) continue;
@@ -1529,6 +1530,11 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     ctx.restore();
     hand(11 + hb, 4.8); hand(11 + hb, -4.8);
     twist = Math.sin(now / 260) * 0.07;   // respiração
+  } else if (p.hm) {
+    // gancho na mão (Shadow 4): segura o lançador com as duas mãos, apontado para a mira
+    limb(0, 10, 14, 3, jacket); limb(0, -10, 21, -3, jacket);
+    ctx.save(); ctx.translate(9, -1); drawHookGun(); ctx.restore();
+    hand(14, 3); hand(21, -3);
   } else if (!wt) {
     // soco: a mão que bate puxa para trás, dispara para frente cruzando a mira e volta; a outra fica de guarda
     const side = st.punch, bump = swinging ? Math.sin(Math.min(1, Math.max(0, (sp - 0.18) / 0.82)) * Math.PI) : 0;
@@ -1568,6 +1574,15 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.save(); ctx.translate(2.5, 0); drawHead(p.sk); ctx.restore();
   ctx.restore();
   ctx.restore();
+}
+// lançador de gancho do Shadow 4 (cores chapadas, mesmo estilo das armas)
+function drawHookGun() {
+  part([-2, 2.4, 3.6, 2.4, 2.4, 9, -3, 9], '#1c1f27');                                        // cabo
+  part([-3, -3.2, 12, -3.2, 12, 2.6, -3, 2.6], MM); rr(-2, -3, 13, 1, ML);                     // corpo + brilho
+  rr(5, -0.6, 5, 1, '#9fe6ff');                                                               // faixa
+  ctx.strokeStyle = '#d9c6a0'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(1.5, -0.2, 3.2, 0, TAU); ctx.stroke();   // corda enrolada
+  rr(12, -1.6, 4, 3.2, MD);                                                                   // boca
+  part([16, -1.2, 20, -4.6, 21.4, -3.4, 18.6, -0.4], '#c9d2dc'); part([16, 1.2, 20, 4.6, 21.4, 3.4, 18.6, 0.4], '#c9d2dc'); part([16, -0.9, 23, -0.9, 23, 0.9, 16, 0.9], '#c9d2dc');   // garra
 }
 // arma do outro espaço do inventário, pendurada nas costas (alça + arma na diagonal, reduzida se for comprida)
 function drawBackWeapon(p) {
@@ -1817,6 +1832,11 @@ function render(now, dt) {
     // (nome e barra de vida do próprio jogador não são mais desenhados sobre o boneco: ficam só no painel de vitais)
     drawHealBar(pred.x, pred.y, me.hz, now, healTimeOf(me.sk));
     drawChargeBar(pred.x, pred.y, me.ch);
+    if (me.hm) {   // gancho na mão: mostra se está pronto ou em recarga
+      const cdl = me.sq || 0, t = cdl > 0 ? 'GANCHO ' + cdl.toFixed(1) + 's' : 'GANCHO · ' + (IS_TOUCH ? 'ATIRE' : 'CLIQUE');
+      ctx.save(); ctx.font = '700 12px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = cdl > 0 ? '#c9b3e0' : '#9fe6ff';
+      ctx.strokeText(t, pred.x, pred.y - 89); ctx.fillText(t, pred.x, pred.y - 89); ctx.restore();
+    }
     ctx.restore();
   }
   for (const q of fx.pops) {
