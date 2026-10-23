@@ -53,7 +53,7 @@
   const HEAL_SLOW = 0.3;   // multiplicador da velocidade de movimento enquanto cura
   // Passivas por personagem. GORILLA (Shadow 2): 200% de vida, cura 2% da própria vida em só 0,3 s e é o ÚNICO com a ATIVA (Espaço).
   // HERO (Shadow 4): anda 15% mais rápido, leva 25% menos dano de ARMAS, só empunha armas corpo a corpo, toda lâmina arremessada
-  // (faca/machete/katana) mata na hora e a ATIVA (Espaço) é um gancho que o puxa até o adversário.
+  // (faca/machete/katana) que acerta a LÂMINA tira 100% de dano (no cabo não) e a ATIVA (Espaço) equipa um GANCHO: com ele na mão, o clique esquerdo lança e puxa até o adversário.
   const SKIN_STATS = {
     GORILLA: { hpMul: 2, healPct: 2, healTime: 0.3, active: true },
     HERO: { speedMul: 1.15, spearChargeMul: 0.5, dmgTaken: 0.75, meleeOnly: true, bladeKill: true, hook: true, active: true }
@@ -70,11 +70,11 @@
   const hasActive = skin => !!(SKIN_STATS[skin] && SKIN_STATS[skin].active);                      // ativa (Espaço): gorila (explosão) e Shadow 4 (gancho)
   const healTimeOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healTime) || HEAL_TIME;       // segundos de cura
   const SWAP_TIME = 0.2;      // segundos para sacar a outra arma do inventário (2 espaços)
-  const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: mata na hora (senão acerta o cabo)
-  // Lâmina arremessada: só a MACHETE mata na hora (BLADE_CHANCE); faca e katana acertando a lâmina tiram só uma fatia da vida.
+  const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: 100% de dano (senão acerta o cabo)
+  // Lâmina arremessada: só a MACHETE tira 100% de dano (BLADE_CHANCE); faca e katana acertando a lâmina tiram só uma fatia da vida.
   // (a lança arremessada já chega a 100% quando carregada no máximo: SPEAR_THROW_MAX)
   const BLADE_KILL = { MACHETE: true };
-  const BLADE_DMG = { KNIFE: 35, KATANA: 50 };   // % de vida tirada pela lâmina de quem não mata na hora
+  const BLADE_DMG = { KNIFE: 35, KATANA: 50 };   // % de vida tirada pela lâmina de quem não tira 100%
   // Atordoamento (s) de quem leva uma arma arremessada: corpo a corpo não atordoa (só o taco), armas de fogo 1 s
   const THROW_DOWN = {
     KNIFE: 0, MACHETE: 0, KATANA: 0, SPEAR: 0,    // corpo a corpo: sem atordoamento
@@ -648,7 +648,7 @@
       this.players[p.slot] = null;
       if (this.count < MIN_PLAYERS) {
         // sem adversários: volta para a sala de espera
-        for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.healT = 0; q.actCd = 0; q.hook = null; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
+        for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.healT = 0; q.actCd = 0; q.hook = null; q.hookOn = false; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
         this.phase = this.autoStart ? 'waiting' : 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
       }
     }
@@ -660,7 +660,7 @@
       this.startMatch(); return true;
     }
     toLobby() {
-      for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.downT = 0; q.healT = 0; q.actCd = 0; q.hook = null; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
+      for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.downT = 0; q.healT = 0; q.actCd = 0; q.hook = null; q.hookOn = false; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
       this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1; this.tu = false; this.rt = 0;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
@@ -669,7 +669,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null;
+      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false;
     }
     startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
@@ -822,6 +822,7 @@
       if (p.cd <= 0 && (p.buf > 0 || p.fire)) { p.buf = 0; this.attack(p); }   // segurar o botão repete o ataque em TODAS as armas (inclusive corpo a corpo e mãos)
     }
     attack(p) {
+      if (p.hookOn) { this.fireHook(p); return; }   // gancho na mão: o clique lança o gancho em vez de bater/atirar
       const wd = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
       if (wd.melee) {
         p.cd = wd.cd; p.swing = 0.2;
@@ -857,7 +858,7 @@
     // Tira `pct`% da vida máxima. Se zerar, mata.
     hurt(v, by, pct, how, a) {
       if (!v.alive || this.phase !== 'live') return false;
-      if (how !== 'blade' && how !== 'blast' && how !== 'door') pct *= dmgTakenOf(v.skin);   // passiva: dano de ARMAS reduzido (hit kill de lâmina e explosão não)
+      if (how !== 'blast' && how !== 'door') pct *= dmgTakenOf(v.skin);   // passiva: dano de ARMAS reduzido (a explosão do Shadow 2 não)
       v.hp = Math.max(0, v.hp - MAX_HP * pct / 100);
       this.events.push({ t: 'hurt', id: v.id, x: v.x, y: v.y, a, hp: Math.round(v.hp), by: by ? by.id : null });
       if (v.hp <= 0) this.kill(v, by, how, a);
@@ -872,7 +873,7 @@
     }
     knockdown(p, dur, a) {
       if (!p.alive || p.down) return;
-      p.hook = null;
+      p.hook = null; p.hookOn = false;
       p.down = true; p.downT = dur; p.fire = false;
       this.dropWeapon(p, Math.cos(a) * 220, Math.sin(a) * 220);
       this.events.push({ t: 'down', id: p.id, x: p.x, y: p.y, a });
@@ -880,8 +881,13 @@
     // ATIVA: sacrifica 15% da vida ATUAL na hora e solta uma explosão em área. Dano = HP sacrificado x ACT_MULT
     // (100% no centro, 60% na borda). Precisa de linha de visão (parede protege). Não derruba, só machuca.
     useActive(p) {
-      if (!p || !hasActive(p.skin) || !p.alive || p.down || p.healT > 0 || p.charging || p.actCd > 0 || p.hook || this.phase !== 'live') return false;
-      if (hasHook(p.skin)) return this.useHook(p);   // Shadow 4: a ativa é o gancho
+      if (!p || !hasActive(p.skin) || !p.alive || p.down || p.healT > 0 || p.charging || p.hook || this.phase !== 'live') return false;
+      if (hasHook(p.skin)) {   // Shadow 4: a ativa saca/guarda o gancho (arma na mão); quem dispara é o clique
+        p.hookOn = !p.hookOn; p.fire = false; p.buf = 0; p.cd = Math.max(p.cd, 0.12);
+        this.events.push({ t: 'hookeq', id: p.id, x: p.x, y: p.y, on: p.hookOn ? 1 : 0 });
+        return true;
+      }
+      if (p.actCd > 0) return false;
       const cost = p.hp * ACT_COST;
       if (cost < 1) return false;
       p.hp -= cost; p.actCd = ACT_CD; p.fire = false; p.buf = 0;
@@ -913,11 +919,17 @@
       if (!best) {
         p.actCd = HOOK_MISS_CD;
         this.events.push({ t: 'hook', id: p.id, x: p.x, y: p.y, a: p.angle, miss: 1 });
-        return true;
+        return false;
       }
       p.hook = { id: best.id, t: HOOK_MAX_T }; p.actCd = HOOK_CD;
       this.events.push({ t: 'hook', id: p.id, x: p.x, y: p.y, a: Math.atan2(best.y - p.y, best.x - p.x), miss: 0 });
       return true;
+    }
+    // clique com o gancho na mão: em recarga só estala; prendeu = guarda o gancho (as mãos/arma voltam para bater); errou = continua na mão
+    fireHook(p) {
+      p.cd = 0.3;
+      if (p.actCd > 0) { p.cd = 0.5; this.events.push({ t: 'click', by: p.id, x: p.x, y: p.y }); return; }
+      if (this.useHook(p)) { p.hookOn = false; p.cd = 0.1; }
     }
     stepHook(p, dt) {
       const h = p.hook, o = h && this.byId(h.id);
@@ -948,7 +960,7 @@
     swapTo(p, idx) {
       if (idx !== 0 && idx !== 1) return false;
       if (idx === p.sel || p.swcd > 0 || !p.inv[idx]) return false;
-      p.sel = idx; p.swcd = SWAP_TIME; p.cd = Math.max(p.cd, SWAP_TIME);
+      p.hookOn = false; p.sel = idx; p.swcd = SWAP_TIME; p.cd = Math.max(p.cd, SWAP_TIME);
       p.buf = 0; p.fire = false; p.charging = false; p.chg = 0;
       this.events.push({ t: 'swap', by: p.id, w: p.inv[idx].type, x: p.x, y: p.y });
       return true;
@@ -962,7 +974,7 @@
     }
     heal(p) {
       if (!this.healOn || !p.alive || p.down || p.healT > 0 || p.hp >= maxHpOf(p.skin)) return false;
-      p.healT = healTimeOf(p.skin); p.fire = false; p.buf = 0; p.charging = false; p.chg = 0;
+      p.hookOn = false; p.healT = healTimeOf(p.skin); p.fire = false; p.buf = 0; p.charging = false; p.chg = 0;
       this.events.push({ t: 'hstart', id: p.id, x: p.x, y: p.y });
       return true;
     }
@@ -978,7 +990,7 @@
       const target = (p.inv[p.sel] && !p.inv[1 - p.sel]) ? 1 - p.sel : p.sel;
       const old = p.inv[target];
       p.inv[target] = { type: best.type, ammo: best.ammo }; p.sel = target; p.charging = false; p.chg = 0;
-      this.items.splice(this.items.indexOf(best), 1);
+      this.items.splice(this.items.indexOf(best), 1); p.hookOn = false;
       if (old) this.addItem(old.type, p.x, p.y, 0, 0, old.ammo);
       this.events.push({ t: 'pick', by: p.id, w: best.type, x: p.x, y: p.y });
       return true;
@@ -986,6 +998,7 @@
     // Arremessar: a lança precisa ser CARREGADA (segura o botão, solta para lançar); as outras armas saem na hora.
     startThrow(p) {
       if (!p.weapon) return;
+      p.hookOn = false;
       if (WEAPONS[p.weapon.type].jav) { p.charging = true; p.chg = 0; p.fire = false; }
       else this.throwWeapon(p);
     }
@@ -997,7 +1010,7 @@
       const sp = (jav ? 900 + 600 * charge : 820) * throwFactor(type);   // alcance depende do peso da arma
       const it = this.addItem(type, sx, sy, Math.cos(a) * sp, Math.sin(a) * sp, p.weapon.ammo);
       it.thrown = true; it.owner = p.id; it.t = jav ? 0.45 + 0.45 * charge : 0.45; it.spin = jav ? 0 : 22; it.pow = charge;
-      if (jav) it.rot = a;                       // a lança voa reta, com a ponta para frente
+      if (jav || bladeKills(p.skin)) it.rot = a;   // a lança voa reta, com a ponta para frente; a lâmina do Shadow 4 sai com a ponta pra frente (e vai girando)
       p.weapon = null; p.charging = false; p.chg = 0; p.cd = Math.max(p.cd, 0.25);
       this.events.push({ t: 'throw', by: p.id, x: p.x, y: p.y });
     }
@@ -1151,12 +1164,13 @@
                 const wd = WEAPONS[it.type], ang = Math.atan2(it.vy, it.vx);
                 let pct = THROW_DMG, how = 'throw', bl = 0, cb = 0, pw = 0;
                 const thrower = this.byId(it.owner);
-                if (wd.blade && thrower && bladeKills(thrower.skin)) {   // Shadow 4: faca/machete/katana arremessadas SEMPRE acertam a lâmina e matam na hora (mesmo o gorila, de vida dobrada)
-                  pct = Math.max(100, maxHpOf(p.skin) / MAX_HP * 100); how = 'blade'; bl = 1;
+                if (wd.blade && thrower && bladeKills(thrower.skin)) {   // Shadow 4: vale a ponta que bate primeiro — a arma gira no ar; ponta (lâmina) na frente = 100% de dano; cabo na frente = pancada comum de 10%
+                  if (Math.cos(angDiff(it.rot, ang)) > 0) { pct = 100; how = 'blade'; bl = 1; }
+                  else cb = 1;
                 } else if (wd.blade) {                // pontiaguda arremessada: sorte decide se acerta a LÂMINA (morte) ou o CABO (pancada comum)
                   if (Math.random() < BLADE_CHANCE) {
-                    if (BLADE_KILL[it.type]) { pct = 100; how = 'blade'; bl = 1; }       // só a machete é hit kill
-                    else pct = BLADE_DMG[it.type] || THROW_DMG;                           // faca/katana: lâmina machuca, não mata na hora
+                    if (BLADE_KILL[it.type]) { pct = 100; how = 'blade'; bl = 1; }       // só a machete: 100% de dano
+                    else pct = BLADE_DMG[it.type] || THROW_DMG;                           // faca/katana: lâmina machuca, fatia da vida
                   } else cb = 1;
                 } else if (wd.jav) {                  // lança: dano cresce com o tempo que o jogador segurou
                   pct = Math.round(SPEAR_THROW_MIN + (SPEAR_THROW_MAX - SPEAR_THROW_MIN) * (it.pow || 0)); how = 'spear'; pw = pct;
@@ -1193,7 +1207,7 @@
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / spearChargeOf(p.skin)).toFixed(2) : -1,
-          sq: +p.actCd.toFixed(2), hk: p.hook ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : 0   // hk = slot+1 de quem está preso no gancho (0 = sem gancho)
+          sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, hk: p.hook ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : 0   // hk = slot+1 de quem está preso no gancho (0 = sem gancho)
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
@@ -1325,8 +1339,13 @@
       // bot se cura quando a vida baixa de 40%, sem inimigo à vista e com intervalo entre curas
       const hl = me.hp <= maxHpOf(me.skin) * 0.4 && !los && this.hlCd <= 0 ? 1 : 0;
       if (hl) this.hlCd = 6;
-      // Shadow 4 (bot): usa o gancho para fechar a distância quando vê o alvo
-      const sl = hasHook(me.skin) && los && !en.down && me.actCd <= 0 && dist > 220 && dist < HOOK_RANGE - 40 && err < 0.25 ? 1 : 0;
+      // Shadow 4 (bot): saca o gancho para fechar a distância, clica para lançar e guarda quando já está perto
+      let sl = 0;
+      if (hasHook(me.skin)) {
+        const can = los && !en.down && me.actCd <= 0 && dist > 220 && dist < HOOK_RANGE - 40 && err < 0.25;
+        if (me.hookOn) { if (can) { if (me.cd <= 0) fp = 1; } else { sl = 1; fp = 0; } }
+        else if (can) sl = 1;
+      }
       g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th, hl, sw, sl }, dt);
     }
   }
