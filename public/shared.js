@@ -172,6 +172,12 @@
     const e = ITEM_EXT[type] || [8, 30], c = Math.cos(rot), s = Math.sin(rot);
     return segDist(px, py, ix - c * e[0], iy - s * e[0], ix + c * e[1], iy + s * e[1]);
   }
+  // Item em cima de uma MESA: é um ponto (a garrafa está em pé) e dá pra alcançar por cima da mesa (desconta TABLE_REACH da distância)
+  const TABLE_REACH = 56;
+  function itemDistOn(L, type, ix, iy, rot, px, py) {
+    if (L && L.onTable(ix, iy)) return Math.max(0, Math.hypot(px - ix, py - iy) - TABLE_REACH);
+    return itemDist(type, ix, iy, rot, px, py);
+  }
   const pick = a => a[Math.floor(Math.random() * a.length)];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -258,7 +264,6 @@
     m.furn(11, 7, 1, 2, 'bookshelf');
     m.furn(11, 17, 1, 1, 'plant'); m.furn(20, 8, 1, 1, 'plant');
     m.spawn(4, 5); m.spawn(17, 3); m.spawn(4, 12); m.spawn(3, 16);
-    m.bottle(12, 2); m.bottle(19, 3);                  // garrafas de vinho na cozinha (e nas espelhadas)
     m.weapon(3, 7, 'M'); m.weapon(2, 16, 'M');
     m.weapon(8, 3, 'G'); m.weapon(12, 6, 'G');
     m.weapon(8, 16, 'R'); m.weapon(13, 10, 'R');
@@ -341,6 +346,8 @@
     m.furn(6, 24, 1, 4, 'hedge'); m.furn(3, 27, 2, 1, 'bench'); m.furn(25, 26, 2, 1, 'bench'); m.furn(8, 22, 3, 1, 'flowers');
     // entrada de carros
     m.furn(38, 24, 2, 3, 'car', { col: '#d0463c' }); m.furn(41, 22, 1, 4, 'hedge'); m.furn(43, 24, 2, 1, 'stall');
+    // GARRAFAS DE VINHO: em pé em cima das mesas da casa (mesa da cozinha, mesa da sala, mesinha de centro e mesa do escritório)
+    m.bottle(30.5, 11.5); m.bottle(25.5, 9.5); m.bottle(21.5, 14.5); m.bottle(30.5, 19);
     // nascimentos: PARES distantes (0-1 noroeste/sudeste, 2-3 nordeste/sudoeste, 4-5 fundos/frente, 6-7 oeste/leste)
     m.spawn(10, 5); m.spawn(37, 25);
     m.spawn(41, 6); m.spawn(4, 25);
@@ -614,6 +621,8 @@
       if (this.rnd.size && this.rnd.has(ty * this.W + tx)) for (const c of this.circ) if (Math.hypot(px - c.x, py - c.y) < c.r) return true;
       return false;
     }
+    // item parado em cima de um móvel sólido (mesa): é o caso das garrafas de vinho do mapa
+    onTable(px, py) { const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE); return ty >= 0 && ty < this.H && tx >= 0 && tx < this.W && this.g[ty][tx] === 3; }
     waterAt(px, py) { const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE); return tx >= 0 && ty >= 0 && tx < this.W && ty < this.H && this.g[ty][tx] === 4; }
     // ---- portas com física: a folha gira em torno da dobradiça (phi = ângulo, w = velocidade angular).
     // Fechada = "travada" (tile sólido). Destravada = folha solta que balança, empurra e pode ser fechada de novo.
@@ -805,7 +814,7 @@
         this.addItem(type, (x + 0.5) * TILE + jx, (y + 0.5) * TILE + jy);
         this.addItem(type, (L.W - x - 0.5) * TILE - jx, (L.H - y - 0.5) * TILE - jy);
       }
-      for (const [x, y] of (L.m.bottles || [])) this.addItem('WINE', (x + 0.5) * TILE, (y + 0.5) * TILE);   // garrafas de vinho do mapa (só a CASA define)
+      for (const [x, y] of (L.m.bottles || [])) this.addItem('WINE', (x + 0.5) * TILE, (y + 0.5) * TILE);   // garrafas de vinho do mapa (só a CASA COM QUINTAL define)
       this.phase = 'countdown'; this.timer = 2.8;
       this.events.push({ t: 'round' });
     }
@@ -1146,8 +1155,8 @@
       let best = null, bd = PICK_R;
       for (const it of this.items) {
         if (it.thrown || !canHold(p.skin, it.type)) continue;   // Shadow 4 só pega corpo a corpo
-        const d = itemDist(it.type, it.x, it.y, it.rot, p.x, p.y);
-        if (d < bd && this.level.los(p.x, p.y, it.x, it.y)) { bd = d; best = it; }   // não pega arma do outro lado da parede
+        const d = itemDistOn(this.level, it.type, it.x, it.y, it.rot, p.x, p.y);
+        if (d < bd && (this.level.onTable(it.x, it.y) || this.level.los(p.x, p.y, it.x, it.y))) { bd = d; best = it; }   // item na mesa: o próprio móvel não conta como parede   // não pega arma do outro lado da parede
       }
       if (!best) return false;
       // mão ocupada e o outro espaço livre -> guarda no espaço livre e já saca a nova; os dois cheios -> troca com a da mão
@@ -1332,11 +1341,13 @@
               if (!p || !p.alive || p.id === it.owner) continue;
               if (Math.hypot(p.x - it.x, p.y - it.y) < PR + 10) {
                 const wd = WEAPONS[it.type], ang = Math.atan2(it.vy, it.vx);
-                let pct = THROW_DMG, how = 'throw', bl = 0, cb = 0, pw = 0;
+                let pct = THROW_DMG, how = 'throw', bl = 0, cb = 0, pw = 0, gl = 0;
                 const thrower = this.byId(it.owner);
                 if (wd.blade && thrower && bladeKills(thrower.skin)) {   // Shadow 4: vale a ponta que bate primeiro — a arma gira no ar; ponta (lâmina) na frente = 100% de dano; cabo na frente = pancada comum de 10%
                   if (Math.cos(angDiff(it.rot, ang)) > 0) { pct = Math.max(100, BLADE_PCT[it.type] || 0); how = 'blade'; bl = 1; }   // 100% (machete/faca/katana) · machado mantém 150%
                   else cb = 1;
+                } else if (it.type === 'BROKEN' && thrower && bladeKills(thrower.skin)) {   // CORUJA: só a garrafa QUEBRADA arremessada tira 100% (a inteira é pancada comum)
+                  pct = 100; how = 'blade'; bl = 1; gl = 1;
                 } else if (wd.blade) {                // pontiaguda arremessada: sorte decide se acerta a LÂMINA (morte) ou o CABO (pancada comum)
                   if (Math.random() < bladeChanceOf(it.type)) {
                     if (BLADE_PCT[it.type]) { pct = BLADE_PCT[it.type]; how = 'blade'; bl = 1; }   // machete 70% · machado 150%
@@ -1347,7 +1358,7 @@
                 }
                 this.hurt(p, this.byId(it.owner), pct, how, ang);
                 { const td = it.type in THROW_DOWN ? THROW_DOWN[it.type] : 1; if (!bl && td > 0 && p.alive && !p.down) this.knockdown(p, td, ang); }
-                this.events.push({ t: 'thit', x: it.x, y: it.y, bl, cb, pw });
+                this.events.push({ t: 'thit', x: it.x, y: it.y, bl, cb, pw, gl });
                 stop = true; it.vx *= -0.1; it.vy *= -0.1; break;
               }
             }
@@ -1450,7 +1461,7 @@
         let bd = 1e9;
         for (const it of g.items) {
           const iw = WEAPONS[it.type];
-          if (it.thrown || (!iw.melee && it.ammo <= 0) || !canHold(me.skin, it.type)) continue;
+          if (it.thrown || (!iw.melee && it.ammo <= 0) || !canHold(me.skin, it.type) || g.level.onTable(it.x, it.y)) continue;   // item em cima de mesa o bot ignora (não dá pra chegar andando)
           const d = Math.hypot(it.x - me.x, it.y - me.y), gunB = iw.melee ? 0 : 140, sc = d - gunB;
           if ((!armed || (gunB > 0 && d < 220)) && sc < bd) { bd = sc; item = it; }
         }
@@ -1520,5 +1531,5 @@
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });

@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, itemDistOn, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -1010,7 +1010,8 @@ function handleEvent(e, now) {
     case 'slam': sfx('door', e.x, e.y); addShake(2.5); break;
     case 'thit':
       sfx(e.bl ? 'kill' : 'hit', e.x, e.y); addShake(e.bl ? 7 : 3);
-      if (e.bl) addPop(e.x, e.y - 22, 'LÂMINA!', '#ff2e4d');
+      if (e.gl) addPop(e.x, e.y - 22, 'GARRAFA! 100%', '#ff2e4d');
+      else if (e.bl) addPop(e.x, e.y - 22, 'LÂMINA!', '#ff2e4d');
       else if (e.cb) addPop(e.x, e.y - 22, 'CABO', '#ffe600');
       else if (e.pw) addPop(e.x, e.y - 22, 'LANÇA ' + e.pw + '%', e.pw >= 80 ? '#ff2e4d' : '#ffe600');
       break;
@@ -1180,6 +1181,23 @@ function part(pts, fill) {
 function ring(x, y, rx, ry, fill) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 0.8; ctx.stroke(); }
 const WD = '#6b4a2a', WL = '#8b6238';   // madeira
 const MD = '#262a34', MM = '#3b4150', ML = '#69728a';   // metal escuro / médio / claro
+// Garrafa de vinho em pé em cima de uma mesa, vista de cima: sombra no tampo, ombro de vidro, gargalo, lacre vermelho e um reflexo.
+function drawBottleOnTable(x, y, type) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(3.5, 4.5, 11, 10, 0, 0, TAU); ctx.fill();   // sombra no tampo
+  ctx.lineWidth = 1.4; ctx.strokeStyle = '#10241a';
+  ctx.fillStyle = '#24472d'; ctx.beginPath(); ctx.arc(0, 0, 10, 0, TAU); ctx.fill(); ctx.stroke();               // corpo
+  ctx.fillStyle = '#2f5c3a'; ctx.beginPath(); ctx.arc(0, 0, 7, 0, TAU); ctx.fill();                              // ombro
+  if (type === 'BROKEN') {   // quebrada: gargalo irregular com cacos
+    ctx.fillStyle = '#cfe9d8'; ctx.beginPath(); ctx.moveTo(-6, -2); ctx.lineTo(-2, -7); ctx.lineTo(1, -3); ctx.lineTo(5, -6); ctx.lineTo(6, 0); ctx.lineTo(3, 5); ctx.lineTo(-2, 3); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill();
+  } else {
+    ctx.fillStyle = '#1f3a26'; ctx.beginPath(); ctx.arc(0, 0, 4.2, 0, TAU); ctx.fill(); ctx.stroke();            // gargalo
+    ctx.fillStyle = '#8b1a2f'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, TAU); ctx.fill();                           // lacre
+    ctx.fillStyle = '#d9a8b0'; ctx.beginPath(); ctx.arc(0, 0, 1.1, 0, TAU); ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(0, 0, 8, Math.PI * 1.15, Math.PI * 1.5); ctx.stroke();   // reflexo do vidro
+  ctx.restore();
+}
 function drawWeaponSprite(type) {
   const w = WEAPONS[type];
   switch (type) {
@@ -1368,8 +1386,51 @@ function scrFlush() {
   let last = null; for (const i of scrB.n) { const c = scrB.a[i]; if (c !== last) { scrQ.fillStyle = c; last = c; } scrQ.fillRect(i % SCN, (i / SCN) | 0, 1, 1); }
   scrB.clear(); blitSpr(scrCv, SCO, SCO);
 }
+// distância² e lado (para sombreado) de um ponto até um segmento — usado para pintar braço/perna do Shadow 4 em duas cores
+const segInfo = (px, py, ax, ay, bx, by) => {
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2));
+  const ex = px - (ax + dx * t), ey = py - (ay + dy * t);
+  return { d: ex * ex + ey * ey, t, side: (ex * dy - ey * dx) / Math.sqrt(L2) };
+};
+// SHADOW 4 — braço do sprite: sai do ombro, o COTOVELO vai para fora do corpo e o antebraço segue até a mão.
+// Braço (ombro→cotovelo) em ciano, antebraço (cotovelo→mão) em branco, tudo com contorno preto de 1px.
+function heroArm(x1, y1, x2, y2) {
+  const sg = y1 < 0 ? -1 : 1, len = Math.hypot(x2 - x1, y2 - y1);
+  const out = Math.max(3, Math.min(9.5, 10 - (len - 10) * 0.4));                                          // braço esticado = cotovelo menos aberto
+  const ex = x1 + (x2 - x1) * 0.42, ey = y1 + (y2 - y1) * 0.42 + sg * out;   // cotovelo para FORA do ombro (a manga ciano fica à mostra)
+  const P = v => v / PU + SCO, ax = P(x1), ay = P(y1), bx = P(ex), by = P(ey), cx = P(x2), cy = P(y2);
+  scrB.paint(mkUnion([mkSeg(ax, ay, bx, by, 2.3), mkSeg(bx, by, cx, cy, 2.0)]), (x, y) => {
+    const px = x + .5, py = y + .5, A = segInfo(px, py, ax, ay, bx, by), B = segInfo(px, py, bx, by, cx, cy);
+    if (A.d < B.d + 1.4) return A.side > 0.9 ? '#2c8fab' : A.side < -1.1 ? '#8fe6f4' : '#4fc7e0';   // manga ciano
+    if (B.t > 0.82) return '#e3e9ee';                                                                   // punho
+    return B.side > 0.8 ? '#c3ccd5' : '#ffffff';                                                        // antebraço branco (sombra embaixo)
+  });
+  scrFlush();
+}
+// SHADOW 4 — pernas do sprite: calça ciano com realce branco no meio e tênis branco GRANDE no fim da perna (bem à frente ou bem atrás, conforme a passada)
+function heroLegs(stp) {
+  for (const [s, o] of [[-1, stp], [1, -stp]]) {
+    const hx = -1, hy = s * 4.2, ex = -4 + o * 1.9, ey = s * 5.2, ux = ex >= hx ? 1 : -1;   // quadril -> tornozelo
+    const P = v => v / PU + SCO, ax = P(hx), ay = P(hy), bx = P(ex), by = P(ey);
+    scrB.paint(mkSeg(ax, ay, bx, by, 3.3), (x, y) => {
+      const I = segInfo(x + .5, y + .5, ax, ay, bx, by), d = I.side * s * ux;
+      if (I.t > 0.8) return '#bff3fb';                         // barra da calça perto do tênis
+      if (Math.abs(d) < 0.9 && I.t > 0.2 && I.t < 0.75) return '#ffffff';   // realce branco da calça
+      return d > 1.4 ? '#2c8fab' : d < -1.4 ? '#8fe6f4' : '#4fc7e0';
+    });
+    const cx = P(ex + ux * 3.4), cy = P(ey), rx = 4 / PU, ry = 3.1 / PU;   // tênis branco, tamanho médio
+    scrB.paint(mkEll(cx, cy, rx, ry), (x, y) => {
+      const yy = y + .5 - cy;
+      if (yy > ry * 0.62) return '#9aa6b0';                    // sola
+      if (yy > ry * 0.1) return '#d3dae0';                     // sombra
+      return (x + .5 - cx) * ux > rx * 0.45 ? '#e8edf1' : '#ffffff';   // bico + cabedal
+    });
+  }
+  scrFlush();
+}
 // braço: manga (jaqueta ou pele no Shadow 4) com sombra num lado, punho e contorno preto
 function limb(x1, y1, x2, y2, jacket) {
+  heroArm(x1, y1, x2, y2); return;   // mesmo braço para TODOS os personagens
   const ax = x1 / PU + SCO, ay = y1 / PU + SCO, bx = x2 / PU + SCO, by = y2 / PU + SCO, dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1, L2 = L * L;
   const base = curHero ? '#d8ab87' : jacket, dk = curHero ? '#b68b69' : shade(jacket, .76), lt = curHero ? '#e6bf9b' : shade(jacket, 1.2);
   const cf = curHero ? '#44211b' : '#efe6d0', cf2 = curHero ? '#341813' : '#cfc6a8';
@@ -1388,18 +1449,21 @@ function handSpr(hero) {
 }
 function hand(x, y) {
   const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(handSpr(curHero), Math.round(x / PU) * PU - 3 * PU, Math.round(y / PU) * PU - 3 * PU, 6 * PU, 6 * PU); ctx.imageSmoothingEnabled = sm;
+  ctx.drawImage(handSpr(true), Math.round(x / PU) * PU - 3 * PU, Math.round(y / PU) * PU - 3 * PU, 6 * PU, 6 * PU); ctx.imageSmoothingEnabled = sm;
 }
 // pernas estilo Hotline Miami: jeans + tênis branco com faixa vermelha (stp = quanto cada perna vai à frente/atrás)
 function drawLegs(stp, sliding) {
-  const jn = curHero ? '#202d38' : JEANS, jd = curHero ? '#141c25' : shade(JEANS, .7);
+  heroLegs(stp); return;   // mesmas pernas para TODOS os personagens
+  // perna reta e grossa (calça clara com realce em cima e sombra embaixo) e, na ponta dela, um pé branco pequeno
+  const jn = curHero ? '#69d6e8' : JEANS, jd = curHero ? '#3a97ad' : shade(JEANS, .7), jl = curHero ? '#b4f2fb' : shade(JEANS, 1.25);
   for (const [s, o] of [[-1, stp], [1, -stp]]) {
-    const fxp = 1.5 + o * 1.5, lift = 1 + Math.max(0, o) / 10 * 0.2;
-    const ax = -1 / PU + SCO, ay = s * 3.6 / PU + SCO, bx = (fxp - 2) / PU + SCO, by = s * 5.2 / PU + SCO;
-    scrB.paint(mkSeg(ax, ay, bx, by, 1.95), (x, y) => ((y + .5 - ay) * s > 0.6 ? jd : jn));
-    const cx = (fxp + 2.5) / PU + SCO, cy = s * 5.2 / PU + SCO, rx = 5.6 * lift / PU, ry = 4 * lift / PU;
-    scrB.paint(mkEll(cx, cy, rx, ry), (x, y) => (y + .5 > cy + ry * 0.35 ? '#cfc9bd' : '#f4f1ea'));
-    for (let i = -1; i <= 1; i++) scrB.set(Math.floor(cx) + i, Math.floor(cy), '#d62a45');   // faixa do tênis
+    const fxp = 1.5 + o * 2.0, lift = 1 + Math.max(0, o) / 10 * 0.2;
+    const hx = -1, hy = s * 4, ex = fxp - 1, ey = s * 4.6;                 // quadril -> ponta da perna
+    const ay = hy / PU + SCO;
+    scrB.paint(mkSeg(hx / PU + SCO, ay, ex / PU + SCO, ey / PU + SCO, 3.7), (x, y) => { const d = (y + .5 - ay) * s; return d > 1.5 ? jd : d < -1.3 ? jl : jn; });   // perna
+    const cx = (ex + 2.2) / PU + SCO, cy = (ey - s * 0.8) / PU + SCO, rx = 3.1 * lift / PU, ry = 2.5 * lift / PU;   // pé: pequeno, um pouco para dentro
+    scrB.paint(mkEll(cx, cy, rx, ry), (x, y) => (y + .5 > cy + ry * 0.35 ? '#cfc9bd' : '#ffffff'));
+    scrB.set(Math.floor(cx), Math.floor(cy), '#d62a45');                    // detalhe do tênis
   }
   scrFlush();
 }
@@ -1634,11 +1698,20 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     }
   } else {
     const back = st.recoil * 4;
+    if (wt === 'PISTOL' || wt === 'REVOLVER') {
+      // arma pequena: UMA mão só. O braço de tiro estica reto até o cabo; a outra mão fica recolhida junto ao corpo
+      const K = 0.8, GY = 2.2, px = wt === 'PISTOL' ? 21 : 19, gx = px + (wt === 'PISTOL' ? 1.5 : -2) * K, gy = 5.7 * K + 0.3 + GY;   // arma menor (80%) e braço mais comprido; a mão fica no cabo
+      limb(1.5, -11.5, 9.5, -8.5, jacket); hand(11, -8.5);                   // mão livre recolhida, junto do ombro
+      limb(1.5, 11.5, gx - back, gy, jacket);                                // braço de tiro: nasce no OMBRO e segue quase reto para frente
+      ctx.save(); ctx.translate(px - back, GY); ctx.scale(K, K); drawWeaponSprite(wt); ctx.restore();
+      hand(gx - back, gy);
+    } else {
     const fx2 = { PISTOL: 15, REVOLVER: 15, SMG: 24, RIFLE: 26, SHOTGUN: 28, SNIPER: 32, MINIGUN: 28 }[wt] || 22, small = wt === 'PISTOL' || wt === 'REVOLVER';
     const fy = small ? -2 : -3, by = wt === 'MINIGUN' ? 6 : 3;
-    limb(0, 10, 15 - back, by, jacket); limb(0, -10, fx2 - back, fy, jacket);
+    limb(1.5, 11.5, 15 - back, by, jacket); limb(1.5, -11.5, fx2 - back, fy, jacket);   // braços nascem nos ombros
     ctx.save(); ctx.translate(8 - back, 0); drawWeaponSprite(wt); ctx.restore();
     hand(15 - back, by); hand(fx2 - back, fy);
+    }
   }
   ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
   drawBody(p.sk, jacket, false);
@@ -1794,9 +1867,15 @@ function render(now, dt) {
   for (const it of snap.it) {
     const [, x, y, type, , rot, thrown] = it;
     if (!inView(x, y, 140)) continue;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
-    ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; ctx.scale(CS * 1.05, CS * 1.05); if (thrown && type === 'SPEAR') ctx.translate(-55, 0); drawWeaponSprite(type); ctx.restore();
-    if (!thrown && me && me.al && canHold(me.sk, type)) { const d = itemDist(type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
+    const onTable = !thrown && level.onTable(x, y);
+    if (onTable && (type === 'WINE' || type === 'BROKEN')) drawBottleOnTable(x, y, type);   // garrafa em pé em cima da mesa (objeto da casa, sem cara de arma)
+    else {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+      if (type === 'WINE' || type === 'BROKEN') { ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 5; ctx.shadowOffsetY = 2; }   // garrafa no chão: sombra suave, sem brilho colorido de arma
+      else { ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; }
+      ctx.scale(CS * 1.05, CS * 1.05); if (thrown && type === 'SPEAR') ctx.translate(-55, 0); drawWeaponSprite(type); ctx.restore();
+    }
+    if (!thrown && me && me.al && canHold(me.sk, type)) { const d = itemDistOn(level, type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
   }
   if (near) {
     const t = (WEAPONS[near[3]].name + (near[4] ? ' · ' + near[4] : '')).toUpperCase();
