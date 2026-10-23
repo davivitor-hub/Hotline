@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_CD, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, ACT_CD, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, PICK_R, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -17,10 +17,10 @@ const SERVER_URL = SAME_ORIGIN ? (location.protocol === 'https:' ? 'wss://' : 'w
 if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'no-cors' }); } catch { } }
 
 const STEP = 1 / 60, TAU = Math.PI * 2;
+const BLAST_T = 450;   // ms que a onda de choque da ativa leva para abrir e sumir
 const SKINS = {
   HERO: { c: '#d2ab33', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#ff8a2b', n: 'Tigre' }, BEAR: { c: '#a9794f', n: 'Urso' },
-  MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }, HIPPO: { c: '#a99bb8', n: 'Hipopótamo' }, FISH: { c: '#3fc8ff', n: 'Peixe' },
-  DRAGON: { c: '#ffcf3a', n: 'Dragão Dourado', secret: true }
+  MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }, GORILLA: { c: '#3e4049', n: 'Shadow 2' }, FISH: { c: '#3fc8ff', n: 'Peixe' }
 };
 
 /* --------------------------------------------------------------- CONFIG */
@@ -31,14 +31,15 @@ function saveCfg() { try { localStorage.setItem('7shadows', JSON.stringify(cfg))
 const clampN = (v, a, b, d) => (Number.isFinite(+v) ? Math.max(a, Math.min(b, +v)) : d);
 cfg.shakeAmt = clampN(cfg.shakeAmt, 0.1, 1.5, 1); cfg.zoom = clampN(cfg.zoom, 0.7, 1.4, 1); cfg.sfxVol = clampN(cfg.sfxVol, 0, 1, 1);
 cfg.kick = cfg.kick !== false; cfg.ping = cfg.ping !== false;
-if (!SKINS[cfg.skin] || (SKINS[cfg.skin].secret && !cfg.secret)) cfg.skin = 'HERO';
+if (cfg.skin === 'HIPPO') cfg.skin = 'GORILLA';   // o hipopótamo virou o gorila Shadow 2
+if (!SKINS[cfg.skin]) cfg.skin = 'HERO';   // skin salva que não existe mais volta para o padrão
 
 /* ---------------------------------------------------------------- ESTADO */
 const cv = $('game'); let ctx = cv.getContext('2d', { alpha: false });   // let: os ícones do inventário desenham as armas num canvas temporário
 let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
-let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false, pslide = { t: 0, a: 0, cd: 0 };   // pslide = estado previsto da rasteira (Shift)
+let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
 let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, th: false, hl: false, sw: false, ss: 0, sl: false, su: false };
 let suiHold = 0, suiArm = 0;   // suicídio: tempo segurando a tecla / confirmação do botão do menu de pausa
 const SUI_HOLD = 1.0;          // segundos segurando a tecla para se matar
@@ -46,7 +47,7 @@ const roomMax = () => (snap && snap.cf ? snap.cf[2] : MAX_PLAYERS);   // vagas d
 const roomWin = () => (snap && snap.cf ? snap.cf[0] : 5);            // rodadas para vencer
 const fmtDur = s => (s % 60 === 0 ? (s / 60) + ' min' : s + ' s');
 let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
-let fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
+let fx = { parts: [], lights: [], slashes: [], blasts: [], corpses: [], pops: [], flash: 0, red: 0 };
 // predição dos MEUS tiros (online): o tiro aparece na hora do clique; quando o do servidor chega, ele é escondido para não duplicar
 let pbul = [], pshots = [], hiddenB = new Set(), knownB = new Set(), gotShot = 0, pcd = 0, pbuf = 0;
 let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [];   // roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
@@ -227,9 +228,8 @@ const skinsEl = $('skins');
 function buildSkins() {
   skinsEl.textContent = '';
   for (const k in SKINS) {
-    if (SKINS[k].secret && !cfg.secret) continue;   // personagem secreto: só aparece depois de desbloqueado
     const b = document.createElement('button');
-    b.className = 'skin' + (SKINS[k].secret ? ' legend' : ''); b.dataset.skin = k; b.type = 'button';
+    b.className = 'skin'; b.dataset.skin = k; b.type = 'button';
     b.innerHTML = `<i style="background:${SKINS[k].c}"></i>${SKINS[k].n}`;
     b.onclick = () => { cfg.skin = k; saveCfg(); refreshSkins(); };
     skinsEl.appendChild(b);
@@ -349,9 +349,9 @@ $('volRange').oninput = e => { cfg.vol = e.target.value / 100; saveCfg(); applyM
 // o id de cada ação é a sua tecla padrão; cfg.binds guarda só o que o jogador trocou
 const ACTIONS = [
   { id: 'w', label: 'Andar para cima' }, { id: 's', label: 'Andar para baixo' }, { id: 'a', label: 'Andar para a esquerda' }, { id: 'd', label: 'Andar para a direita' },
-  { id: ' ', label: 'Rasteira' }, { id: 'e', label: 'Pegar arma' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' },
+  { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' },
   { id: '1', label: 'Arma do espaço 1' }, { id: '2', label: 'Arma do espaço 2' },
-  { id: 'shift', label: 'Soltar / estender a câmera' }, { id: 'c', label: 'Travar mira (Dragão Dourado)' },
+  { id: 'shift', label: 'Soltar / estender a câmera' },
   { id: 'k', label: 'Suicídio (segurar)' },
   { id: 'm', label: 'Mutar música' }, { id: 'n', label: 'Trocar de música' }
 ];
@@ -509,7 +509,7 @@ let colorMap = {};
 const jacketOf = (id) => colorMap[id] || '#ff2e97';
 
 function resetFx() {
-  fx = { parts: [], lights: [], slashes: [], corpses: [], pops: [], flash: 0, red: 0 };
+  fx = { parts: [], lights: [], slashes: [], blasts: [], corpses: [], pops: [], flash: 0, red: 0 };
   pbul = []; pshots = []; hiddenB.clear(); knownB = new Set(); gotShot = 0; pcd = 0; pbuf = 0;
   if (dctx && decal) dctx.clearRect(0, 0, decal.width, decal.height);
 }
@@ -857,7 +857,7 @@ function buildStatic() {
   decal = document.createElement('canvas'); decal.width = W * TILE; decal.height = H * TILE; dctx = decal.getContext('2d');
 }
 function newRound(s) {
-  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx(); pslide = { t: 0, a: 0, cd: 0 };
+  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx();
   if (s.map) { level = new Level(s.map); buildStatic(); } else { level = null; levelCv = null; roofCv = null; roofA = []; }
 }
 function onSnapshot(s) {
@@ -884,9 +884,8 @@ function onSnapshot(s) {
   const me = s.pl.find(p => p.id === myId);
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
-    const t = { x: me.x, y: me.y, skin: me.sk }, S = { t: me.sd || 0, a: me.sa || 0, cd: me.sq || 0 };
-    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMotion(level, t, S, p.k, p.a, p.sl, p.dt, p.sm, p.can);
-    pslide = S;
+    const t = { x: me.x, y: me.y, skin: me.sk };
+    if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt, p.sm);
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
     if (first || err > 40) { pred.x = t.x; pred.y = t.y; first = false; }
     else { pred.x += (t.x - pred.x) * 0.35; pred.y += (t.y - pred.y) * 0.35; }
@@ -922,14 +921,14 @@ function handleEvent(e, now) {
       break;
     }
     case 'swap': sfx('swap', e.x, e.y); break;
-    case 'slide': {   // começou a rasteira: poeira para trás
-      sfx('swing', e.x, e.y);
-      for (let i = 0; i < 10; i++) { const a = e.a + Math.PI + (Math.random() - .5) * 1.5, sp = 120 + Math.random() * 180; fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.3, sz: 4, col: '#d9cfb4' }); }
-      break;
-    }
-    case 'trip': {    // rasteira acertou
-      sfx('down', e.x, e.y); addShake(e.by === myId || e.id === myId ? 7 : 3); addPop(e.x, e.y - 24, 'RASTEIRA!', '#e2a93b');
-      for (let i = 0; i < 10; i++) fx.parts.push({ k: 's', x: e.x, y: e.y, vx: (Math.random() - .5) * 300, vy: (Math.random() - .5) * 300, life: 0.25, sz: 4, col: '#fff6a0' });
+    case 'blast': {   // ATIVA: explosão em área em volta de quem sacrificou a vida
+      sfx('kill', e.x, e.y); sfx('door', e.x, e.y);
+      fx.blasts.push({ x: e.x, y: e.y, r: e.r, t0: now });
+      fx.lights.push({ x: e.x, y: e.y, t: 0.35, r: e.r * 1.6, c: '255,70,50' });
+      for (let i = 0; i < 28; i++) { const a = Math.random() * TAU, sp = 160 + Math.random() * 380; fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.28 + Math.random() * 0.2, sz: 4, col: Math.random() < 0.5 ? '#ff6a3c' : '#ffd27a' }); }
+      addPop(e.x, e.y - 30, 'ATIVA ' + e.d, '#ff4a3c');
+      addShake(e.id === myId ? 11 : 6);
+      if (e.id === myId) fx.red = Math.max(fx.red, 0.3);
       break;
     }
     case 'swing': {
@@ -941,7 +940,7 @@ function handleEvent(e, now) {
     case 'kill': {
       sfx('kill', e.x, e.y);
       if (e.how === 'suicide') addPop(e.x, e.y - 22, 'SUICÍDIO', '#ff2e4d');
-      const big = e.how === 'exec' || e.how === 'blade';
+      const big = e.how === 'exec' || e.how === 'blade' || e.how === 'blast';
       addBlood(e.x, e.y, e.a, big ? 80 : 50, big ? 420 : 330);
       bloodPool(e.x, e.y, e.a, big);
       fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId, col: jacketOf(e.id, e.id === myId) });
@@ -1015,7 +1014,7 @@ addEventListener('keydown', e => {
   if (canSpec()) { if (id === 'a') specStep(-1); else if (id === 'd') specStep(1); }
   keys[id] = true;
   if (id === 'e') edge.pk = true;
-  if (id === ' ') edge.sl = true;   // rasteira
+  if (id === ' ') edge.sl = true;   // ativa
   if (id === 'f') edge.th = true;   // arremessar
   if (id === 'q') edge.hl = true;
   if (id === '1') edge.ss = 1;
@@ -1045,45 +1044,7 @@ cv.addEventListener('wheel', e => {
 }, { passive: false });
 
 const mouseAngle = () => Math.atan2(mouse.y - (H / 2 + (pred.y - cam.y) * Z), mouse.x - (W / 2 + (pred.x - cam.x) * Z));
-// Dragão Dourado: mira automática. Trava no inimigo vivo mais próximo (prefere quem está à vista) e adianta o tiro.
-function enemyVel(id) {
-  const n = buf.length; if (n < 2) return { x: 0, y: 0 };
-  const a = buf[n - 2], b = buf[n - 1], pa = a.pl.find(q => q.id === id), pb = b.pl.find(q => q.id === id), dt = (b.t - a.t) / 1000;
-  if (!pa || !pb || dt < 0.001) return { x: 0, y: 0 };
-  const vx = (pb.x - pa.x) / dt, vy = (pb.y - pa.y) / dt, l = Math.hypot(vx, vy), m = l > 260 ? 260 / l : 1;
-  return { x: vx * m, y: vy * m };
-}
-// Dragão Dourado: segure ESPAÇO para travar a mira no inimigo vivo mais próximo (prefere quem está à vista).
-// Sem ESPAÇO a mira é o mouse normal. Usa a skin escolhida localmente, então funciona também online.
-const isDragon = () => cfg.skin === 'DRAGON' && !!cfg.secret;
-// SHIFT (com ESPAÇO apertado) troca o alvo da mira: passa pro próximo inimigo vivo, na ordem dos slots. Soltar o ESPAÇO volta ao automático.
-let lockId = null;
-function nearestFoe() {
-  let best = null, bs = Infinity;
-  for (const f of foesOf()) {
-    if (!f.al) continue;
-    const d = Math.hypot(f.x - pred.x, f.y - pred.y), sc = d + (level.los(pred.x, pred.y, f.x, f.y) ? 0 : 1600);
-    if (sc < bs) { bs = sc; best = f; }
-  }
-  return best;
-}
-function aimBotPoint(me) {
-  if (!keys['c']) lockId = null;
-  if (!me || !me.al || !isDragon() || !keys['c'] || !level) return null;
-  let best = lockId ? foesOf().find(f => f.id === lockId && f.al) : null;
-  if (!best) { lockId = null; best = nearestFoe(); }
-  if (!best) return null;
-  // posição desenhada do inimigo (interpolada): é nela que a mira fica centralizada
-  const ie = interpEnemy(best.id) || { x: best.x, y: best.y };
-  const wd = me.w ? WEAPONS[me.w] : null, v = enemyVel(best.id), d = Math.hypot(best.x - pred.x, best.y - pred.y);
-  // adianta o tiro: tempo de voo + ida e volta da rede (online), pois o servidor decide o acerto
-  const t = wd && !wd.melee ? Math.min(0.8, d / wd.speed + (mode === 'online' ? pingMs / 1000 : 0)) : 0;
-  return { x: best.x + v.x * t, y: best.y + v.y * t, dx: ie.x, dy: ie.y, nm: best.nm };
-}
-function aimAngle() {
-  const t = aimBotPoint(myState());
-  return t ? Math.atan2(t.y - pred.y, t.x - pred.x) : mouseAngle();
-}
+function aimAngle() { return mouseAngle(); }
 
 function doStep() {
   if (mode === 'local' && local) {
@@ -1105,10 +1066,9 @@ function stepInput() {
   const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aimAngle().toFixed(3), f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
   edge.fp = edge.pk = edge.th = edge.hl = edge.sw = edge.sl = edge.su = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
-  const can = !!me && snap.ph === 'live' && me.al && !me.dn && !(me.hz > 0) && !(me.ch >= 0);   // mesmas regras do servidor para iniciar a rasteira
   if (me) pred.skin = me.sk;
-  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMotion(level, pred, pslide, k, inp.a, inp.sl, STEP, sm, can);
-  pending.push({ seq: inp.seq, dt: STEP, k, sm, a: inp.a, sl: inp.sl, can }); if (pending.length > 120) pending.shift();
+  if (me && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP, sm);
+  pending.push({ seq: inp.seq, dt: STEP, k, sm }); if (pending.length > 120) pending.shift();
   predictShots(inp);
   sendInput(inp);
 }
@@ -1232,9 +1192,13 @@ function drawWeaponSprite(type) {
 }
 /* ---------- personagem estilo Hotline Miami: jaqueta, jeans, tênis e máscara de animal ---------- */
 const OL = 'rgba(12,4,18,.92)', SKIN_TONE = '#f0c39a', JEANS = '#34508f', HAIR = '#3a2415';
-function shade(hex, f) {
-  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255, k = c => Math.max(0, Math.min(255, Math.round(c * f)));
-  return `rgb(${k(r)},${k(g)},${k(b)})`;
+const shadeMemo = new Map();
+function shade(col, f) {   // aceita '#rrggbb' ou 'rgb(r,g,b)'; resultado em cache (é chamado várias vezes por quadro)
+  const key = col + '|' + f; let v = shadeMemo.get(key); if (v) return v;
+  let r, g, b; const m = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(col || '');
+  if (m) { r = +m[1]; g = +m[2]; b = +m[3]; } else { const n = parseInt(String(col || '#808080').slice(1), 16) || 0; r = n >> 16; g = (n >> 8) & 255; b = n & 255; }
+  const k = c => Math.max(0, Math.min(255, Math.round(c * f)));
+  v = `rgb(${k(r)},${k(g)},${k(b)})`; if (shadeMemo.size > 600) shadeMemo.clear(); shadeMemo.set(key, v); return v;
 }
 function shape(pts, fill, lw = 1.8) {
   ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]); ctx.closePath();
@@ -1244,15 +1208,115 @@ function blob(x, y, rx, ry, fill, lw = 1.8) {
   ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fillStyle = fill; ctx.fill();
   if (lw) { ctx.strokeStyle = OL; ctx.lineWidth = lw; ctx.stroke(); }
 }
-// braço com manga da jaqueta, punho claro e mão
-function limb(x1, y1, x2, y2, jacket) {
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = OL; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-  ctx.strokeStyle = curHero ? '#d8ab87' : jacket; ctx.lineWidth = 5.4; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();   // Shadow 4: braço de pele
-  const cx = x1 + (x2 - x1) * 0.62, cy = y1 + (y2 - y1) * 0.62;
-  ctx.strokeStyle = curHero ? '#44211b' : '#efe6d0'; ctx.lineWidth = 5.6; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x1 + (x2 - x1) * 0.78, y1 + (y2 - y1) * 0.78); ctx.stroke();   // punho
+/* ---------- PIXEL ART ----------
+   Tudo no personagem é desenhado numa grade de pixels (1 pixel = PU unidades locais), com contorno preto de 1px,
+   cores chapadas em 3 tons e SEM suavização — o mesmo estilo da sua arte do Shadow 4.
+   Peças fixas (tronco, cabeça, mão) viram sprites em cache; peças animadas (braços e pernas) são rasterizadas a cada quadro. */
+const PU = 1.5, INK = '#000';
+class PxBuf {
+  constructor(w, h) { this.w = w; this.h = h; this.a = new Array(w * h).fill(null); this.n = []; }
+  set(x, y, c) { if (x < 0 || y < 0 || x >= this.w || y >= this.h) return; const i = y * this.w + x; if (this.a[i] === null) this.n.push(i); this.a[i] = c; }
+  clear() { for (const i of this.n) this.a[i] = null; this.n.length = 0; }
+  // contorno de 1px em volta da máscara + preenchimento (cor fixa ou função (x,y) => cor)
+  paint(m, fill, ol = INK) {
+    const x0 = Math.floor(m.b[0]) - 1, y0 = Math.floor(m.b[1]) - 1, x1 = Math.ceil(m.b[2]) + 1, y1 = Math.ceil(m.b[3]) + 1, w = x1 - x0 + 1;
+    const ins = new Uint8Array(w * (y1 - y0 + 1));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) ins[(y - y0) * w + (x - x0)] = m.f(x, y) ? 1 : 0;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = (y - y0) * w + (x - x0);
+      if (ins[i]) { const c = typeof fill === 'function' ? fill(x, y) : fill; if (c) this.set(x, y, c); }
+      else if (ol && ((x > x0 && ins[i - 1]) || (x < x1 && ins[i + 1]) || (y > y0 && ins[i - w]) || (y < y1 && ins[i + w]))) this.set(x, y, ol);
+    }
+  }
+  canvas() {
+    const c = document.createElement('canvas'); c.width = this.w; c.height = this.h; const q = c.getContext('2d');
+    for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) { const v = this.a[y * this.w + x]; if (v) { q.fillStyle = v; q.fillRect(x, y, 1, 1); } }
+    return c;
+  }
 }
-const hand = (x, y) => blob(x, y, 3.6, 3.4, SKIN_TONE, 1.6);
+const mkEll = (cx, cy, rx, ry) => ({ b: [cx - rx, cy - ry, cx + rx, cy + ry], f: (x, y) => { const dx = (x + .5 - cx) / rx, dy = (y + .5 - cy) / ry; return dx * dx + dy * dy <= 1; } });
+const mkSeg = (ax, ay, bx, by, r) => {
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+  return { b: [Math.min(ax, bx) - r, Math.min(ay, by) - r, Math.max(ax, bx) + r, Math.max(ay, by) + r], f: (x, y) => {
+    const px = x + .5 - ax, py = y + .5 - ay, t = L2 ? Math.max(0, Math.min(1, (px * dx + py * dy) / L2)) : 0, ex = px - dx * t, ey = py - dy * t; return ex * ex + ey * ey <= r * r;
+  } };
+};
+const mkPoly = (p) => {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (let i = 0; i < p.length; i += 2) { x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]); }
+  return { b: [x0, y0, x1, y1], f: (x, y) => {
+    const px = x + .5, py = y + .5; let ins = false;
+    for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) if ((p[i + 1] > py) !== (p[j + 1] > py) && px < (p[j] - p[i]) * (py - p[i + 1]) / (p[j + 1] - p[i + 1]) + p[i]) ins = !ins;
+    return ins;
+  } };
+};
+const mkUnion = (ms) => ({ b: [Math.min(...ms.map(m => m.b[0])), Math.min(...ms.map(m => m.b[1])), Math.max(...ms.map(m => m.b[2])), Math.max(...ms.map(m => m.b[3]))], f: (x, y) => ms.some(m => m.f(x, y)) });
+// sprite desenhado em "unidades de projeto" (as mesmas do desenho vetorial antigo): (ox,oy) = célula da origem, kx/ky = escala projeto -> unidades locais
+class Spr extends PxBuf {
+  constructor(w, h, ox, oy, kx, ky = kx) { super(w, h); this.ox = ox; this.oy = oy; this.kx = kx; this.ky = ky; }
+  X(x) { return this.ox + x * this.kx / PU; } Y(y) { return this.oy + y * this.ky / PU; }
+  // fill pode ser cor, função, ou {c,d,l}: cor base + tom escuro nas costas + brilho no topo
+  shaded(f, m, cx, cy, rx, ry) { return (x, y) => { const nx = (x + .5 - cx) / rx, ny = (y + .5 - cy) / ry; return nx < -0.5 ? f.d : (ny < -0.45 && ny > -0.9 && Math.abs(nx - 0.1) < 0.55) ? f.l : f.c; }; }
+  e(x, y, rx, ry, fill, ol = INK) {
+    const cx = this.X(x), cy = this.Y(y), a = rx * this.kx / PU, b = ry * this.ky / PU;
+    this.paint(mkEll(cx, cy, a, b), fill && fill.c ? this.shaded(fill, null, cx, cy, a, b) : fill, ol);
+  }
+  u(list, fill, ol = INK) { this.paint(mkUnion(list.map(([x, y, rx, ry]) => mkEll(this.X(x), this.Y(y), rx * this.kx / PU, ry * this.ky / PU))), fill, ol); }
+  p(pts, fill, ol = INK) { this.paint(mkPoly(pts.map((v, i) => i & 1 ? this.Y(v) : this.X(v))), fill, ol); }
+  l(x1, y1, x2, y2, fill, w = 1.2) { this.paint(mkSeg(this.X(x1), this.Y(y1), this.X(x2), this.Y(y2), Math.max(0.62, w * this.kx / PU / 2)), fill, null); }
+  d(x, y, fill) { this.set(Math.floor(this.X(x)), Math.floor(this.Y(y)), fill); }
+  arc(cx, cy, r, a0, a1, fill) { for (let i = 0; i <= 10; i++) { const a = a0 + (a1 - a0) * i / 10; this.d(cx + Math.cos(a) * r, cy + Math.sin(a) * r, fill); } }
+  curve(x0, y0, x1, y1, x2, y2, fill) { for (let i = 0; i <= 14; i++) { const t = i / 14, u = 1 - t; this.d(u * u * x0 + 2 * u * t * x1 + t * t * x2, u * u * y0 + 2 * u * t * y1 + t * t * y2, fill); } }
+  // repinta (só o que já é cor, sem contorno) as células cujo ponto de projeto passa no teste
+  tint(test, fn) { for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) { const i = y * this.w + x, c = this.a[i]; if (c && c !== INK && test((x + .5 - this.ox) * PU / this.kx, (y + .5 - this.oy) * PU / this.ky)) this.a[i] = fn(c); } }
+}
+const sprCache = new Map();
+function cached(key, build) { let v = sprCache.get(key); if (!v) { if (sprCache.size > 300) sprCache.clear(); v = build(); sprCache.set(key, v); } return v; }
+function blitSpr(cv, ox, oy) { const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false; ctx.drawImage(cv, -ox * PU, -oy * PU, cv.width * PU, cv.height * PU); ctx.imageSmoothingEnabled = sm; }
+
+// área de trabalho para as peças animadas (braços e pernas): rasteriza, desenha de uma vez com vizinho-mais-próximo
+const SCN = 72, SCO = 36, scrCv = document.createElement('canvas'); scrCv.width = scrCv.height = SCN;
+const scrQ = scrCv.getContext('2d'), scrB = new PxBuf(SCN, SCN);
+function scrFlush() {
+  scrQ.clearRect(0, 0, SCN, SCN);
+  let last = null; for (const i of scrB.n) { const c = scrB.a[i]; if (c !== last) { scrQ.fillStyle = c; last = c; } scrQ.fillRect(i % SCN, (i / SCN) | 0, 1, 1); }
+  scrB.clear(); blitSpr(scrCv, SCO, SCO);
+}
+// braço: manga (jaqueta ou pele no Shadow 4) com sombra num lado, punho e contorno preto
+function limb(x1, y1, x2, y2, jacket) {
+  const ax = x1 / PU + SCO, ay = y1 / PU + SCO, bx = x2 / PU + SCO, by = y2 / PU + SCO, dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1, L2 = L * L;
+  const base = curHero ? '#d8ab87' : jacket, dk = curHero ? '#b68b69' : shade(jacket, .76), lt = curHero ? '#e6bf9b' : shade(jacket, 1.2);
+  const cf = curHero ? '#44211b' : '#efe6d0', cf2 = curHero ? '#341813' : '#cfc6a8';
+  scrB.paint(mkSeg(ax, ay, bx, by, 1.95), (x, y) => {
+    const px = x + .5 - ax, py = y + .5 - ay, t = (px * dx + py * dy) / L2, side = (px * dy - py * dx) / L;
+    if (t > 0.6 && t < 0.82) return side > 0.5 ? cf2 : cf;   // punho
+    return side > 0.7 ? dk : side < -0.9 ? lt : base;
+  });
+  scrFlush();
+}
+function handSpr(hero) {
+  return cached('hand|' + hero, () => {
+    const S = new PxBuf(6, 6), base = hero ? '#ffd79f' : '#f0c39a', dk = hero ? '#e1b373' : '#d8a57a';
+    S.paint(mkEll(3, 3, 2, 2), (x, y) => (x + y >= 6 ? dk : base)); return S.canvas();
+  });
+}
+function hand(x, y) {
+  const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(handSpr(curHero), Math.round(x / PU) * PU - 3 * PU, Math.round(y / PU) * PU - 3 * PU, 6 * PU, 6 * PU); ctx.imageSmoothingEnabled = sm;
+}
+// pernas estilo Hotline Miami: jeans + tênis branco com faixa vermelha (stp = quanto cada perna vai à frente/atrás)
+function drawLegs(stp, sliding) {
+  const jn = curHero ? '#202d38' : JEANS, jd = curHero ? '#141c25' : shade(JEANS, .7);
+  for (const [s, o] of [[-1, stp], [1, -stp]]) {
+    const fxp = 1.5 + o * 1.5, lift = 1 + Math.max(0, o) / 10 * 0.2;
+    const ax = -1 / PU + SCO, ay = s * 3.6 / PU + SCO, bx = (fxp - 2) / PU + SCO, by = s * 5.2 / PU + SCO;
+    scrB.paint(mkSeg(ax, ay, bx, by, 1.95), (x, y) => ((y + .5 - ay) * s > 0.6 ? jd : jn));
+    const cx = (fxp + 2.5) / PU + SCO, cy = s * 5.2 / PU + SCO, rx = 5.6 * lift / PU, ry = 4 * lift / PU;
+    scrB.paint(mkEll(cx, cy, rx, ry), (x, y) => (y + .5 > cy + ry * 0.35 ? '#cfc9bd' : '#f4f1ea'));
+    for (let i = -1; i <= 1; i++) scrB.set(Math.floor(cx) + i, Math.floor(cy), '#d62a45');   // faixa do tênis
+  }
+  scrFlush();
+}
 
 /* ---------- Shadow 4: pixel art do personagem (cores tiradas da arte original) ---------- */
 const HERO_PAL = {"O": "#000000", "a": "#030303", "b": "#c7a02a", "c": "#b69120", "d": "#d2ab33", "e": "#e1b373", "f": "#ffd89d", "g": "#634d2e", "h": "#a27c4a", "R": "#e0152f", "r": "#ff3b57", "Y": "#ffd23f", "y": "#e8a82a", "B": "#ff9a2b", "W": "#ffffff", "E": "#0b0710"};
@@ -1268,9 +1332,9 @@ function pix(key, rows) {   // grade de letras -> canvas pixel art (cacheado)
   rows.forEach((row, y) => { for (let x = 0; x < row.length; x++) { const ch = row[x]; if (ch !== '.' && HERO_PAL[ch]) { q.fillStyle = HERO_PAL[ch]; q.fillRect(x, y, 1, 1); } } });
   return (pixCache[key] = c);
 }
-function drawPixelHead(key, rows, s = 1.8) {   // desenha sem suavização, mesmo girando
+function drawPixelHead(key, rows, s = 1.44) {   // desenha sem suavização, mesmo girando
   const c = pix(key, rows), sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(c, -c.width * s / 2 + 1.2, -c.height * s / 2, c.width * s, c.height * s);
+  ctx.drawImage(c, -c.width * s / 2 + 1, -c.height * s / 2, c.width * s, c.height * s);
   ctx.imageSmoothingEnabled = sm;
 }
 function heroJacket(col) {   // jaqueta marrom da arte, puxada um pouco para a cor do jogador (para distinguir quem é quem)
@@ -1279,89 +1343,86 @@ function heroJacket(col) {   // jaqueta marrom da arte, puxada um pouco para a c
   return `rgb(${k(n >> 16, 0x44)},${k((n >> 8) & 255, 0x21)},${k(n & 255, 0x1b)})`;
 }
 let curHero = false;   // o personagem que está sendo desenhado é o Shadow 4 (braços de pele, jeans escuro)
+
+/* ---------- máscaras de animal em pixel art (mesmos desenhos de antes, agora rasterizados numa grade de pixels) ---------- */
+const HEAD_N = 30, HEAD_C = 15;
+function animalHead(skin) {
+  return cached('head|' + skin, () => {
+    const c = (SKINS[skin] || SKINS.HERO).c, k = skin === 'GORILLA' ? 0.95 : 0.8, S = new Spr(HEAD_N, HEAD_N, HEAD_C, HEAD_C, k);
+    const body = { c, d: shade(c, 0.7), l: shade(c, 1.22) };
+    S.e(-2.4, 0, 9.6, 10.4, { c: HAIR, d: shade(HAIR, 0.7), l: shade(HAIR, 1.3) });   // cabelo aparecendo atrás da máscara
+    // orelhas (atrás da máscara)
+    if (skin === 'BEAR' || skin === 'MONKEY') { const r = skin === 'BEAR' ? 4.4 : 5.2; for (const s of [-1, 1]) { S.e(-1.5, s * (skin === 'BEAR' ? 10.6 : 11), r + 0.4, r + 0.4, c); S.e(-1, s * (skin === 'BEAR' ? 10.6 : 11), r * 0.5, r * 0.5, skin === 'BEAR' ? '#d9b48c' : '#f3c6d6', null); } }
+    if (skin === 'TIGER') for (const s of [-1, 1]) { S.p([-1.5, s * 5.5, -6, s * 13, 3, s * 9], c); S.p([-2, s * 7.5, -4.6, s * 11.2, 1, s * 9], '#2a1200', null); }
+    if (skin === 'FISH') for (const s of [-1, 1]) { S.p([-1, s * 6, -9, s * 14, -4, s * 5.5], '#ff9a3c'); S.p([-2, s * 7, -7, s * 11.5, -4, s * 6.5], '#ffd08a', null); }
+    if (skin === 'GORILLA') for (const s of [-1, 1]) { S.e(-2.2, s * 10.4, 2.8, 3.2, c); S.e(-2.1, s * 10.4, 1.3, 1.6, shade(c, 0.55), null); }   // orelhinhas escuras coladas na cabeça
+    if (skin === 'WOLF') for (const s of [-1, 1]) { S.p([0, s * 5, -4, s * 14, 5, s * 8.5], c); S.p([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', null); }
+    S.e(0, 0, 9.6, 9.8, body);   // máscara
+    if (skin === 'TIGER') {
+      for (const [a, b, c2, d] of [[-7, -4.6, -2, -2.8], [-7.4, -0.8, -2, 0], [-7, 4.6, -2, 2.8], [-3, -8.2, 0, -6.2], [-3, 8.2, 0, 6.2]]) S.l(a, b, c2, d, '#2a1200', 2);
+      S.e(6.6, 0, 3.8, 3.9, '#fff0d8'); S.p([9.2, -1.6, 11.6, 0, 9.2, 1.6], '#ff6f9a', null);
+    }
+    if (skin === 'BEAR') { S.e(7.2, 0, 4.4, 3.6, '#d9b48c'); S.e(10.6, 0, 1.8, 1.5, '#120808', null); S.l(10.4, 1.4, 10.4, 3.4, '#3a2418', 1); }
+    if (skin === 'MONKEY') {
+      S.u([[5.4, -2.2, 3.4, 3.2], [5.4, 2.2, 3.4, 3.2], [8, 0, 3.2, 3.6]], '#ecdcff'); S.arc(8.2, 0, 2.2, -1, 1, '#6a3c8c');
+      S.d(10, -1, '#2a1030'); S.d(10, 1, '#2a1030');
+    }
+    if (skin === 'WOLF') {
+      S.p([3, -3.8, 15.2, -1.8, 15.2, 1.8, 3, 3.8], '#e8f0f8'); S.e(15, 0, 1.9, 1.7, '#0c0c12', null); S.l(10, 0, 14, 0, '#8a97a8', 1);
+      for (const s of [-1, 1]) S.p([-2, s * 9, -7, s * 11.2, -4, s * 7.4], '#dfe8f2');   // tufos de pelo
+    }
+    if (skin === 'FISH') {
+      S.p([-9, 0, -14.5, -5.5, -12, 0, -14.5, 5.5], '#ff9a3c');   // cauda
+      S.e(-1, 0, 3.8, 6.4, '#9fe6ff', null);                       // barriga clara
+      for (let i = 0; i < 3; i++) S.arc(-6 + i * 3.4, 0, 3.6, -1.1, 1.1, '#00466e');   // escamas
+      S.e(8.8, 0, 3.0, 3.0, shade(c, 1.1)); S.e(11, 0, 1.5, 1.8, '#ff6f9a');
+    }
+    if (skin === 'GORILLA') {
+      S.e(-3.4, 0, 5.8, 2.8, shade(c, 1.4), null);                // crista no topo da cabeça (mais clara)
+      S.e(7.4, 0, 4.8, 6.2, '#625c68');                           // focinho largo e achatado, cinza claro
+      S.e(4.6, 0, 1.7, 7.6, shade(c, 0.5), null);                 // sobrancelha pesada
+      S.d(10.6, -2.6, '#15121a'); S.d(10.6, 2.6, '#15121a'); S.d(10.0, -2.6, '#15121a'); S.d(10.0, 2.6, '#15121a');   // narinas
+      S.curve(6.4, -5.4, 11, 0, 6.4, 5.4, '#2a1c30');             // boca
+    }
+    // olhos: buracos escuros com olhar branco (bem separados, para não virarem uma barra só)
+    for (const s of [-1, 1]) {
+      S.e(3.0, s * 5.5, 2.2, 2.5, '#0b0710', null);
+      S.e(3.7, s * 5.5, 1.1, 1.5, '#fff', null); S.d(4.3, s * 5.5, '#000');
+    }
+    return S.canvas();
+  });
+}
 function drawHead(skin) {
   if (skin === 'HERO') { drawPixelHead('hero', HERO_HEAD); return; }
   if (skin === 'ROOSTER') { drawPixelHead('roost', ROOSTER_HEAD); return; }
-  const c = (SKINS[skin] || SKINS.HERO).c, dk = shade(c, 0.62), lt = shade(c, 1.22);
-  blob(-2.4, 0, 9.6, 10.4, HAIR, 1.8);                          // cabelo aparecendo atrás da máscara
-  // orelhas (atrás da máscara)
-  if (skin === 'BEAR' || skin === 'MONKEY') {
-    const r = skin === 'BEAR' ? 4.4 : 5.2;
-    for (const s of [-1, 1]) { blob(-1.5, s * 9.2, r, r, c); blob(-1, s * 9.2, r * 0.5, r * 0.5, skin === 'BEAR' ? '#d9b48c' : '#f3c6d6', 0); }
-  }
-  if (skin === 'TIGER') for (const s of [-1, 1]) { shape([-1.5, s * 5.5, -6, s * 13, 3, s * 9], c); shape([-2, s * 7.5, -4.6, s * 11.2, 1, s * 9], '#2a1200', 0.01); }
-  if (skin === 'DRAGON') for (const s of [-1, 1]) { shape([0, s * 6, -8, s * 9, -16, s * 16, -9, s * 5.4], '#fff2b8', 1.6); shape([-1, s * 7, -7, s * 9.4, -12, s * 13.4, -7, s * 7], '#e8a82a', 0.01); }
-  if (skin === 'FISH') for (const s of [-1, 1]) { shape([-1, s * 6, -9, s * 14, -4, s * 5.5], '#ff9a3c', 1.4); shape([-2, s * 7, -7, s * 11.5, -4, s * 6.5], '#ffd08a', 0.01); }   // barbatanas
-  if (skin === 'HIPPO') for (const s of [-1, 1]) { blob(-2.5, s * 9.6, 3.6, 3.2, c); blob(-2.3, s * 9.6, 1.8, 1.5, '#e8a3b8', 0); }
-  if (skin === 'WOLF') for (const s of [-1, 1]) { shape([0, s * 5, -4, s * 14, 5, s * 8.5], c); shape([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', 0.01); }
-  // máscara
-  blob(0, 0, 9.6, 9.8, c, 2.1);
-  ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, 9.4, 9.6, 0, 0, TAU); ctx.clip();
-  ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(-8, 0, 8, 12, 0, 0, TAU); ctx.fill();        // sombra atrás
-  ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(1, -6, 6, 3, -0.3, 0, TAU); ctx.fill(); // brilho
-  ctx.restore();
-  if (skin === 'TIGER') {
-    ctx.strokeStyle = '#2a1200'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath();
-    ctx.moveTo(-7, -4.6); ctx.lineTo(-2, -2.8); ctx.moveTo(-7.4, -0.8); ctx.lineTo(-2, 0); ctx.moveTo(-7, 4.6); ctx.lineTo(-2, 2.8);
-    ctx.moveTo(-3, -8.2); ctx.lineTo(0, -6.2); ctx.moveTo(-3, 8.2); ctx.lineTo(0, 6.2); ctx.stroke();
-    blob(6.4, 0, 3.8, 5.2, '#fff0d8', 1.2); shape([9.2, -1.6, 11.6, 0, 9.2, 1.6], '#ff6f9a', 1);
-    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 0.9; ctx.beginPath(); ctx.moveTo(9, -2); ctx.lineTo(13.5, -4.2); ctx.moveTo(9, 2); ctx.lineTo(13.5, 4.2); ctx.moveTo(9, 0); ctx.lineTo(14, 0); ctx.stroke();
-  }
-  if (skin === 'BEAR') { blob(7, 0, 4.4, 4.6, '#d9b48c', 1.4); blob(10.4, 0, 1.8, 1.5, '#120808', 0); ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10.4, 1.4); ctx.lineTo(10.4, 3); ctx.stroke(); }
-  if (skin === 'MONKEY') {
-    blob(4.8, -2.8, 3.8, 4, '#ecdcff', 1.2); blob(4.8, 2.8, 3.8, 4, '#ecdcff', 1.2); blob(7.6, 0, 3.4, 4.2, '#ecdcff', 1.2);
-    ctx.strokeStyle = 'rgba(60,20,80,.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(8.2, 0, 2.2, -1, 1); ctx.stroke(); blob(10, -1, .7, .7, '#2a1030', 0); blob(10, 1, .7, .7, '#2a1030', 0);
-  }
-  if (skin === 'WOLF') {
-    shape([2, -4.8, 15.2, -1.8, 15.2, 1.8, 2, 4.8], '#e8f0f8', 1.6); blob(15, 0, 1.9, 1.7, '#0c0c12', 0);
-    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(14, 0); ctx.stroke();
-    for (const s of [-1, 1]) shape([-2, s * 9, -7, s * 11.2, -4, s * 7.4], '#dfe8f2', 1);   // tufos de pelo
-  }
-  if (skin === 'FISH') {
-    shape([-9, 0, -14.5, -5.5, -12, 0, -14.5, 5.5], '#ff9a3c', 1.4);   // cauda
-    blob(-1, 0, 3.8, 6.4, '#9fe6ff', 0);                                // barriga clara
-    ctx.strokeStyle = 'rgba(0,70,110,.55)'; ctx.lineWidth = 1; ctx.beginPath();
-    for (let i = 0; i < 3; i++) ctx.arc(-6 + i * 3.4, 0, 3.6, -1.1, 1.1);
-    ctx.stroke();                                                       // escamas
-    blob(8.6, 0, 3.2, 3.6, shade(c, 1.1), 1.2); blob(11, 0, 1.5, 1.8, '#ff6f9a', 1);   // boca de peixe
-  }
-  if (skin === 'HIPPO') {
-    blob(7.4, 0, 5.6, 8.2, shade(c, 1.12), 1.6);                                  // focinho largo e achatado
-    blob(10.6, -3.3, 1.2, 1.1, '#2a1830', 0); blob(10.6, 3.3, 1.2, 1.1, '#2a1830', 0);   // narinas
-    ctx.strokeStyle = 'rgba(40,20,50,.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(6, -6); ctx.quadraticCurveTo(11.5, 0, 6, 6); ctx.stroke();   // boca
-    blob(2.4, -6.2, 1.5, 1.5, '#e8a3b8', 0); blob(2.4, 6.2, 1.5, 1.5, '#e8a3b8', 0);   // bochechas rosadas
-  }
-  if (skin === 'DRAGON') {
-    for (let i = 0; i < 4; i++) shape([-8 + i * 3.2, 0, -6.2 + i * 3.2, -2.2, -4.4 + i * 3.2, 0, -6.2 + i * 3.2, 2.2], i & 1 ? '#ff9a1f' : '#ff6a1a', 1);   // crista de escamas
-    blob(7.2, 0, 4.4, 4.8, shade(c, 0.92), 1.4); blob(10.4, -1.6, 1, 1, '#2a1200', 0); blob(10.4, 1.6, 1, 1, '#2a1200', 0);                     // focinho
-    shape([8.6, -3.6, 10.6, -4.4, 10, -2.6], '#fff', 0.8); shape([8.6, 3.6, 10.6, 4.4, 10, 2.6], '#fff', 0.8);                                   // presas
-    ctx.strokeStyle = 'rgba(120,60,0,.55)'; ctx.lineWidth = 0.9; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-4 + i * 3.2, 0, 3.6, -1.2, 1.2); ctx.stroke(); }   // escamas
-  }
-  // olhos: buracos escuros com olhar branco
-  for (const s of [-1, 1]) { blob(3.8, s * 3.7, 2.7, 3, '#0b0710', 0); blob(4.4, s * 3.7, 1.6, 2, '#fff', 0); blob(5, s * 3.7, 0.95, 1.2, '#000', 0); }
-  if (skin === 'DRAGON') for (const s of [-1, 1]) { blob(4.4, s * 3.7, 1.7, 2.2, '#ff5a1f', 0); blob(5, s * 3.7, 0.6, 1.5, '#200800', 0); }
+  blitSpr(animalHead(SKINS[skin] ? skin : 'HERO'), HEAD_C, HEAD_C);
 }
-// tronco visto de cima: ombros largos, jaqueta com gola, costura e listra nas costas
+
+/* ---------- tronco visto de cima em pixel art: ombros largos, jaqueta com gola, costura e listra nas costas ---------- */
+const BODY_W = 48, BODY_H = 52, BODY_OX = 24, BODY_OY = 26;
+function bodySprite(skin, jacket, flat) {
+  return cached('body|' + skin + '|' + jacket + '|' + (flat ? 1 : 0), () => {
+    const hero = isHeroSk(skin), gor = skin === 'GORILLA', S = new Spr(BODY_W, BODY_H, BODY_OX, BODY_OY, gor ? 1.18 : 1, gor ? 1.32 : 1);   // gorila: ombros bem largos e corpão
+    const jk = { c: jacket, d: shade(jacket, 0.78), l: shade(jacket, 1.2) };
+    if (flat) {
+      for (const s of [-1, 1]) { S.e(-12, s * 5.2, 7, 3.8, hero ? '#202d38' : JEANS); S.e(-18.5, s * 5.2, 3.6, 3, '#f4f1ea'); }   // pernas e tênis de quem caiu
+      S.e(0, 0, 11.5, 15.5, jk); S.e(-1, 0, 6, 11, shade(jacket, 0.8), null);
+      S.arc(-8, 0, 11, -0.9, 0.9, shade(jacket, 1.3));
+      return S.canvas();
+    }
+    S.e(0, 0, 9.4, 15.4, jk);
+    for (const s of [-1, 1]) S.e(0.5, s * 12, 5.6, 5.4, { c: shade(jacket, 0.88), d: shade(jacket, 0.68), l: jacket });   // ombros
+    const inTorso = (x, y) => (x / 8.6) ** 2 + (y / 14.8) ** 2 <= 1;
+    S.tint((x, y) => inTorso(x, y) && x < -3 && x > -10, c => shade(c, 0.8));                                                      // sombra das costas
+    S.tint((x, y) => inTorso(x, y) && Math.abs(x + 5.2) <= 0.9 && Math.abs(y) < 14, () => (hero ? '#d89643' : '#efe6d0'));          // listra da jaqueta nas costas
+    S.tint((x, y) => Math.abs(y) < 0.75 && x > -8 && x < 2, c => shade(c, 0.6));                                                    // costura central
+    S.e(3.4, 0, 3, 6, hero ? { c: '#2d826b', d: '#1c735c', l: '#308b72' } : { c: '#efe6d0', d: '#cfc6a8', l: '#fffaf0' });         // gola
+    return S.canvas();
+  });
+}
 function drawBody(skin, jacket, flat) {
   if (isHeroSk(skin)) jacket = heroJacket(jacket);
-  if (skin === 'HIPPO') { ctx.save(); ctx.scale(1.18, 1.32); drawBodyBase(skin, jacket, flat); ctx.restore(); }   // hipopótamo: bem mais gordo
-  else drawBodyBase(skin, jacket, flat);
-}
-function drawBodyBase(skin, jacket, flat) {
-  if (flat) {
-    for (const s of [-1, 1]) { blob(-12, s * 5.2, 7, 3.8, isHeroSk(skin) ? '#202d38' : JEANS, 1.6); blob(-18.5, s * 5.2, 3.6, 3, '#f4f1ea', 1.4); }   // pernas e tênis de quem caiu
-    blob(0, 0, 11.5, 15.5, jacket, 2); blob(-1, 0, 6, 11, shade(jacket, 0.8), 0);
-    ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(-8, 0, 11, -0.9, 0.9); ctx.stroke(); return;
-  }
-  blob(0, 0, 9.4, 15.4, jacket, 2);
-  for (const s of [-1, 1]) blob(0.5, s * 12, 5.6, 5.4, shade(jacket, 0.88), 1.6);               // ombros
-  ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, 8.6, 14.8, 0, 0, TAU); ctx.clip();
-  ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fillRect(-10, -16, 7, 32);                                  // sombra das costas
-  ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(1, -7, 6, 3, -0.2, 0, TAU); ctx.fill();
-  ctx.strokeStyle = isHeroSk(skin) ? '#d89643' : '#efe6d0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-5.2, -14); ctx.lineTo(-5.2, 14); ctx.stroke();   // listra da jaqueta nas costas
-  ctx.restore();
-  ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(2, 0); ctx.stroke();      // costura central
-  blob(3.4, 0, 3, 6, isHeroSk(skin) ? '#2d826b' : '#efe6d0', 1.4);                                                                                              // gola
+  blitSpr(bodySprite(skin, jacket, flat), BODY_OX, BODY_OY);
 }
 
 /* ---------- animação do golpe corpo a corpo (estilo Hotline Miami) ----------
@@ -1393,8 +1454,6 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   if (moved > 0.25 && moved < 40) { st.la += angDiff(Math.atan2(y - st.ly, x - st.lx), st.la) * 0.35; st.mv += (1 - st.mv) * 0.3; }
   else { st.la += angDiff(ang, st.la) * 0.12; st.mv *= 0.78; }
   st.walk += Math.min(moved, 8) * 0.17; st.lx = x; st.ly = y;
-  const sliding = isMe ? (pslide.t > 0 && p.al !== 0) : p.sd > 0, sAng = isMe ? pslide.a : p.sa;
-  if (sliding) { st.la = sAng; st.mv = 1; if (!paused && Math.random() < 0.7) fx.parts.push({ k: 's', x: x - Math.cos(sAng) * 14, y: y - Math.sin(sAng) * 14, vx: -Math.cos(sAng) * 60 + (Math.random() - .5) * 90, vy: -Math.sin(sAng) * 60 + (Math.random() - .5) * 90, life: 0.22, sz: 3, col: '#cfc6a8' }); }
   st.recoil = Math.max(0, st.recoil - 0.12);
   const jacket = jacketOf(p.id, isMe); curHero = isHeroSk(p.sk);
   ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
@@ -1404,14 +1463,9 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     for (let i = 0; i < 3; i++) { const t = ((now / 650 + i / 3) % 1); ctx.globalAlpha = (1 - t) * 0.7; ctx.strokeStyle = '#e8fbff'; ctx.beginPath(); ctx.ellipse(0, 4, 12 + t * 17, 9 + t * 12, 0, 0, TAU); ctx.stroke(); }
     ctx.restore();
   } else { ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill(); }
-  if (p.sk === 'DRAGON' && !p.dn) {   // aura dourada pulsante do personagem lendário
-    const pu = 0.75 + 0.25 * Math.sin(now / 260); ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    const ag = ctx.createRadialGradient(0, 0, 6, 0, 0, 36); ag.addColorStop(0, `rgba(255,200,60,${0.38 * pu})`); ag.addColorStop(1, 'rgba(255,200,60,0)');
-    ctx.fillStyle = ag; ctx.beginPath(); ctx.arc(0, 0, 36, 0, TAU); ctx.fill(); ctx.restore();
-  }
   const healing = p.hz > 0 && !p.dn;
   if (healing) {   // aura verde pulsante + cruzes subindo (por baixo do boneco)
-    const pu = 0.5 + 0.5 * Math.sin(now / 130), pr = 1 - Math.max(0, Math.min(1, p.hz / HEAL_TIME));
+    const pu = 0.5 + 0.5 * Math.sin(now / 130), pr = 1 - Math.max(0, Math.min(1, p.hz / healTimeOf(p.sk)));
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
     const hg = ctx.createRadialGradient(0, 0, 4, 0, 0, 34); hg.addColorStop(0, `rgba(60,255,150,${0.28 + 0.2 * pu})`); hg.addColorStop(1, 'rgba(60,255,150,0)');
     ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(0, 0, 34, 0, TAU); ctx.fill(); ctx.restore();
@@ -1422,14 +1476,8 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     }
     ctx.restore();
   }
-  if (sliding) {   // riscos de velocidade atrás de quem desliza
-    ctx.save(); ctx.rotate(sAng); ctx.strokeStyle = 'rgba(235,228,205,.55)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-    for (const [oy, len] of [[-9, 24], [0, 34], [9, 20]]) { ctx.beginPath(); ctx.moveTo(-14, oy); ctx.lineTo(-14 - len, oy); ctx.stroke(); }
-    ctx.restore();
-  }
   ctx.rotate(ang);
   if (healing) ctx.scale(0.94, 0.94);   // agachadinho enquanto se cura
-  if (sliding) ctx.scale(1.08, 0.86);   // corpo baixo e esticado na rasteira
   const swW = st.sw || 'FISTS', swSp = Math.min(1, (now - st.sw0) / swDur(p.w || 'FISTS')), swOn = swSp < 1;
   if (swOn && !p.dn && (!p.w || (WEAPONS[p.w] && WEAPONS[p.w].melee))) ctx.translate(swingLunge(swSp) * (p.w === 'SPEAR' ? 5 : p.w ? 8 : 6), 0);   // passada do corpo
   if (p.dn) {
@@ -1442,14 +1490,8 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     ctx.restore(); return;
   }
   // pernas estilo Hotline Miami: uma vai para frente e a outra para TRÁS, alternando; o pé que vem à frente levanta um pouco
-  ctx.save(); ctx.rotate(angDiff(st.la, ang)); ctx.lineCap = 'round';
-  const stp = sliding ? 10 : Math.sin(st.walk) * 10 * st.mv;   // na rasteira: uma perna esticada à frente, a outra atrás
-  for (const [s, o] of [[-1, stp], [1, -stp]]) {
-    const fxp = 1.5 + o * 1.5, lift = 1 + Math.max(0, o) / 10 * 0.2;
-    ctx.strokeStyle = OL; ctx.lineWidth = 8.4; ctx.beginPath(); ctx.moveTo(-1, s * 3.6); ctx.lineTo(fxp - 2, s * 5.2); ctx.stroke();
-    ctx.strokeStyle = curHero ? '#202d38' : JEANS; ctx.lineWidth = 5.8; ctx.beginPath(); ctx.moveTo(-1, s * 3.6); ctx.lineTo(fxp - 2, s * 5.2); ctx.stroke();
-    blob(fxp + 2.5, s * 5.2, 5.6 * lift, 4 * lift, '#f4f1ea', 1.6); ctx.fillStyle = '#d62a45'; ctx.fillRect(fxp + 0, s * 5.2 - 0.7, 4.8, 1.4);   // tênis + faixa
-  }
+  ctx.save(); ctx.rotate(angDiff(st.la, ang));
+  drawLegs(Math.sin(st.walk) * 10 * st.mv);
   ctx.restore();
   const sp = swSp, swinging = swOn; let twist = 0;
   const wt = p.w, wd = wt ? WEAPONS[wt] : null, melee = !wt || wd.melee;
@@ -1501,7 +1543,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
   drawBody(p.sk, jacket, false);
   drawBackWeapon(p);   // a outra arma do inventário fica nas costas
-  ctx.save(); ctx.translate(2.5, 0); ctx.scale(p.sk === 'HIPPO' ? 0.92 : 0.8, p.sk === 'HIPPO' ? 0.92 : 0.8); drawHead(p.sk); ctx.restore();
+  ctx.save(); ctx.translate(2.5, 0); drawHead(p.sk); ctx.restore();
   ctx.restore();
   ctx.restore();
 }
@@ -1553,6 +1595,7 @@ function updateFx(dt) {
   if (fx.parts.length > 700) fx.parts.splice(0, fx.parts.length - 700);   // teto de partículas
   for (const l of fx.lights) l.t -= d; fx.lights = fx.lights.filter(l => l.t > 0);
   fx.slashes = fx.slashes.filter(s => performance.now() - s.t0 < swDur(s.w) + 40);
+  fx.blasts = fx.blasts.filter(b => performance.now() - b.t0 < BLAST_T);
   if (pbul.length && level) {
     const foes = foesOf().filter(f => f.al).map(f => interpEnemy(f.id) || f);
     for (const b of pbul) {
@@ -1612,9 +1655,7 @@ function render(now, dt) {
   // câmera
   const look = keys.shift ? 0.85 : 0.33, maxL = keys.shift ? 520 : 290;   // SHIFT: solta/estende a câmera
   const spec = me && !me.al ? specTarget() : null;   // espectando alguém?
-  const lkc = me && me.al ? aimBotPoint(me) : null;
-  const camLock = lkc && !keys.shift;   // com SHIFT a câmera fica solta (segue o mouse), mesmo com a mira travada
-  let ox = camLock ? (lkc.dx - pred.x) * 0.5 : (mouse.x - W / 2) / Z * look, oy = camLock ? (lkc.dy - pred.y) * 0.5 : (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
+  let ox = (mouse.x - W / 2) / Z * look, oy = (mouse.y - H / 2) / Z * look; const ol = Math.hypot(ox, oy);
   if (ol > maxL) { ox *= maxL / ol; oy *= maxL / ol; }
   let tx = pred.x + ox, ty = pred.y + oy;
   if (spec) { const ie = interpEnemy(spec.id) || { x: spec.x, y: spec.y }; tx = ie.x; ty = ie.y; }
@@ -1681,7 +1722,7 @@ function render(now, dt) {
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
     if (!inView(ie.x, ie.y, 160) && !(spec && f.id === spec.id)) continue;
     if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
-    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? MAX_HP, false); drawName(ie.x, ie.y, f.nm, f.id);   // barras de cura e de carga da lança só aparecem para o próprio jogador
+    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? maxHpOf(f.sk), false, maxHpOf(f.sk)); drawName(ie.x, ie.y, f.nm, f.id);   // barras de cura e de carga da lança só aparecem para o próprio jogador
   }
   if (me && me.al) drawPlayer(me, pred.x, pred.y, aimAngle(), true, now);   // nome/vida do próprio jogador são desenhados depois dos tetos (camada final), para nada cobrir
 
@@ -1690,6 +1731,15 @@ function render(now, dt) {
     if (p.k === 'b') { ctx.fillStyle = '#b3122f'; circle(p.x, p.y, p.sz); }
     else if (p.k === 's') { ctx.strokeStyle = p.col; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 0.02, p.y - p.vy * 0.02); ctx.stroke(); }
     else if (p.k === 'c') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = '#ffd86b'; ctx.fillRect(-2, -1, 4, 2); ctx.restore(); }
+  }
+  for (const b of fx.blasts) {   // ATIVA: onda de choque que se abre e some
+    const t = Math.min(1, (performance.now() - b.t0) / BLAST_T), r = b.r * (0.25 + 0.75 * (1 - Math.pow(1 - t, 3))), a = 1 - t;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(b.x, b.y, r * 0.2, b.x, b.y, r); g.addColorStop(0, `rgba(255,120,60,${0.4 * a})`); g.addColorStop(1, 'rgba(255,60,40,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, TAU); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = `rgba(255,230,190,${0.9 * a})`; ctx.lineWidth = 6 * a + 1;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, TAU); ctx.stroke();
+    ctx.restore();
   }
   for (const s of fx.slashes) {
     const wd = WEAPONS[s.w];
@@ -1730,7 +1780,7 @@ function render(now, dt) {
     ctx.save();
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
     // (nome e barra de vida do próprio jogador não são mais desenhados sobre o boneco: ficam só no painel de vitais)
-    drawHealBar(pred.x, pred.y, me.hz, now);
+    drawHealBar(pred.x, pred.y, me.hz, now, healTimeOf(me.sk));
     drawChargeBar(pred.x, pred.y, me.ch);
     ctx.restore();
   }
@@ -1761,16 +1811,16 @@ function drawName(x, y, name, id) {
   ctx.strokeStyle = 'rgba(10,0,20,.95)'; ctx.fillStyle = jacketOf(id);   // nome na cor do personagem
   ctx.strokeText(name, x, y - 51); ctx.fillText(name, x, y - 51); ctx.restore();
 }
-function drawHpBar(x, y, hp, mine) {
-  const k = Math.max(0, Math.min(1, hp / MAX_HP)), w = 44;
+function drawHpBar(x, y, hp, mine, mx = MAX_HP) {
+  const k = Math.max(0, Math.min(1, hp / mx)), w = 44;
   ctx.fillStyle = 'rgba(8,9,8,.88)'; ctx.fillRect(x - w / 2 - 1.5, y - 49, w + 3, 7);
   ctx.fillStyle = k > 0.3 ? (mine ? '#93aa5c' : '#c4372c') : '#e2a93b'; ctx.fillRect(x - w / 2, y - 47.5, w * k, 4);
   ctx.fillStyle = 'rgba(8,9,8,.9)'; for (let i = 1; i < 4; i++) ctx.fillRect(x - w / 2 + w * i / 4 - 0.5, y - 47.5, 1, 4);
 }
 // barra de cura: barra verde carregando acima da cabeça
-function drawHealBar(x, y, hz, now) {
+function drawHealBar(x, y, hz, now, ht = HEAL_TIME) {
   if (!(hz > 0)) return;
-  const k = Math.max(0, Math.min(1, 1 - hz / HEAL_TIME)), w = 56;
+  const k = Math.max(0, Math.min(1, 1 - hz / ht)), w = 56;
   ctx.save();
   ctx.fillStyle = 'rgba(10,0,20,.9)'; ctx.fillRect(x - w / 2 - 2, y - 84, w + 4, 11);
   ctx.fillStyle = '#7dff8a'; ctx.fillRect(x - w / 2, y - 82, w * k, 7);
@@ -1791,9 +1841,8 @@ function drawChargeBar(x, y, ch) {
 }
 function drawCrosshair(me) {
   const wt = me.w, wd = wt ? WEAPONS[wt] : null, empty = wd && !wd.melee && me.am <= 0;
-  const lk = aimBotPoint(me); let cx = mouse.x, cy = mouse.y;
-  if (lk) { cx = W / 2 + (lk.dx - cam.x) * Z; cy = H / 2 + (lk.dy - cam.y) * Z; }   // ESPAÇO: mira centrada no inimigo
-  ctx.save(); ctx.translate(cx, cy); if (lk) ctx.rotate(performance.now() / 900);
+  const cx = mouse.x, cy = mouse.y;
+  ctx.save(); ctx.translate(cx, cy);
   const col = empty ? '#c4372c' : '#e8e6d8'; ctx.lineCap = 'butt';
   for (const lw of [4, 1.6]) {   // mira tática: quatro traços com vão no centro + ponto
     ctx.strokeStyle = lw === 4 ? 'rgba(0,0,0,.6)' : col; ctx.lineWidth = lw; ctx.beginPath();
@@ -1801,7 +1850,6 @@ function drawCrosshair(me) {
     ctx.stroke();
   }
   ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, 1.7, 0, TAU); ctx.fill(); ctx.restore();
-  if (lk && lk.nm) { ctx.save(); ctx.font = '700 13px Rajdhani, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = '#e2a93b'; ctx.strokeText(lk.nm, cx, cy + 30); ctx.fillText(lk.nm, cx, cy + 30); ctx.restore(); }
 }
 
 /* -------------------------------------------------------------------- HUD */
@@ -1897,7 +1945,7 @@ function updateInv(me) {
     E.ammo.classList.toggle('low', gun && s[1] <= Math.ceil(wd.ammo * 0.25));
   }
 }
-// painel de vitais (canto inferior esquerdo): vida segmentada, cura e recarga da rasteira
+// painel de vitais (canto inferior esquerdo): vida segmentada, cura e recarga da ativa
 let vit = null;
 function ensureVitals() {
   if (vit) return vit;
@@ -1925,7 +1973,7 @@ function drawFace(cvs, skin, jacket) {
       const c = pix('front', HERO_FRONT), s = Math.max(1, Math.floor(Math.min((cvs.width - 6) / c.width, (cvs.height - 10) / c.height)));
       ctx.imageSmoothingEnabled = false; ctx.drawImage(c, Math.round((cvs.width - c.width * s) / 2), 3, c.width * s, c.height * s);
     } else {
-      ctx.setTransform(3.9, 0, 0, 3.9, cvs.width / 2, cvs.height / 2 + 4); ctx.rotate(-Math.PI / 2);
+      ctx.setTransform(4.9, 0, 0, 4.9, cvs.width / 2, cvs.height / 2 + 4); ctx.rotate(-Math.PI / 2);
       ctx.translate(-5, 0);
       drawHead(SKINS[skin] ? skin : 'HERO');
     }
@@ -1937,15 +1985,17 @@ function updateVitals(me) {
   const show = !!me && me.al && snap.ph !== 'lobby';
   if (V.c.show !== show) { V.c.show = show; V.el.classList.toggle('hidden', !show); }
   if (!show) return;
-  const pct = Math.max(0, Math.round((me.hp ?? MAX_HP) / MAX_HP * 100)), st = pct <= 30 ? 'low' : pct <= 60 ? 'mid' : 'ok';
-  if (V.c.pct !== pct) { V.c.pct = pct; V.fill.style.width = pct + '%'; V.ghost.style.width = pct + '%'; V.num.textContent = pct; }
+  const mh = maxHpOf(me.sk), hpv = me.hp ?? mh;
+  const pct = Math.max(0, Math.round(hpv / mh * 100)), num = Math.max(0, Math.round(hpv / MAX_HP * 100)), st = pct <= 30 ? 'low' : pct <= 60 ? 'mid' : 'ok';   // barra relativa à vida do personagem; número em % da vida base (gorila começa em 200)
+  if (V.c.pct !== pct) { V.c.pct = pct; V.fill.style.width = pct + '%'; V.ghost.style.width = pct + '%'; }
+  if (V.c.num !== num) { V.c.num = num; V.num.textContent = num; }
   if (V.c.st !== st) { V.c.st = st; V.el.classList.remove('ok', 'mid', 'low'); V.el.classList.add(st); V.tag.textContent = st === 'low' ? 'CRÍTICO' : st === 'mid' ? 'FERIDO' : 'EM PÉ'; }
   const nm = me.nm || ''; if (V.c.nm !== nm) { V.c.nm = nm; V.name.textContent = nm; }
   const fk = (me.sk || 'HERO') + '|' + jacketOf(me.id);   // retrato da máscara: redesenha só quando muda
   if (V.c.fk !== fk) { V.c.fk = fk; drawFace(V.face, me.sk, jacketOf(me.id)); }
-  const hz = me.hz > 0 ? Math.round((1 - me.hz / HEAL_TIME) * 100) : -1;
+  const hz = me.hz > 0 ? Math.round((1 - me.hz / healTimeOf(me.sk)) * 100) : -1;
   if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
-  const ready = pslide.cd <= 0, cd = ready ? 100 : Math.round((1 - pslide.cd / SLIDE_CD) * 100);
+  const acd = me.sq || 0, ready = acd <= 0, cd = ready ? 100 : Math.round((1 - acd / ACT_CD) * 100);
   if (V.c.cd !== cd) { V.c.cd = cd; V.cdI.style.width = cd + '%'; }
   if (V.c.rd !== ready) { V.c.rd = ready; V.el.classList.toggle('cooling', !ready); }
 }
@@ -2214,75 +2264,9 @@ let introSkipAt = 0;
 $('introSkip').onclick = () => { introSkipAt = performance.now(); endIntro(); };
 introLast = performance.now(); requestAnimationFrame(introFrame);
 
-/* ------------------------------------------------ MENU: música e personagem secreto */
+/* ------------------------------------------------ MENU: música */
 $('btnMusic').onclick = () => showTab('music');
 $('btnMusicBack').onclick = () => showTab('play');
-
-// explosão de partículas douradas ao desbloquear
-const mfx = $('menuFx'), mctx = mfx.getContext('2d');
-let mfW = 0, mfH = 0, bursts = [], mfRun = false, mfLast = 0;
-function mfResize() { mfW = mfx.width = innerWidth; mfH = mfx.height = innerHeight; }
-addEventListener('resize', mfResize); mfResize();
-function menuBurst() {
-  const cx = mfW / 2, cy = mfH * 0.4;
-  for (let i = 0; i < 140; i++) { const a = Math.random() * TAU, sp = 90 + Math.random() * 520; bursts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1.2 + Math.random() * 1.2, max: 2.4, r: 1.5 + Math.random() * 3, col: Math.random() < 0.5 ? '255,230,0' : Math.random() < 0.5 ? '255,46,151' : '0,229,255' }); }
-  if (!mfRun) { mfRun = true; mfLast = performance.now(); requestAnimationFrame(menuBurstLoop); }
-}
-function menuBurstLoop(now) {
-  const dt = Math.min(0.05, (now - mfLast) / 1000); mfLast = now;
-  mctx.clearRect(0, 0, mfW, mfH); mctx.globalCompositeOperation = 'lighter';
-  for (const b of bursts) {
-    b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 220 * dt; b.vx *= Math.pow(0.35, dt);
-    // dois círculos (halo + núcleo) no lugar de um gradiente radial novo por partícula a cada quadro
-    const a = Math.max(0, b.life / b.max);
-    mctx.fillStyle = `rgba(${b.col},${a * 0.22})`; mctx.beginPath(); mctx.arc(b.x, b.y, b.r * 3.2, 0, TAU); mctx.fill();
-    mctx.fillStyle = `rgba(${b.col},${a * 0.9})`; mctx.beginPath(); mctx.arc(b.x, b.y, b.r * 1.1, 0, TAU); mctx.fill();
-  }
-  mctx.globalCompositeOperation = 'source-over';
-  bursts = bursts.filter(b => b.life > 0);
-  if (bursts.length) requestAnimationFrame(menuBurstLoop); else { mfRun = false; mctx.clearRect(0, 0, mfW, mfH); }
-}
-
-// Sequência secreta no menu: W, A, S, D e depois ESPAÇO
-const SECRET = ['w', 'a', 's', 'd', ' '];
-let secIdx = 0, secAt = 0, swallowSpace = false, unlockTimer = 0;
-function secDots() { [...$('seqDots').children].forEach((d, i) => d.classList.toggle('on', i < secIdx)); }
-function unlockSecret() {
-  cfg.secret = true; cfg.skin = 'DRAGON'; saveCfg(); buildSkins();
-  initAudio(); sfx('unlock'); menuBurst();
-  const u = $('unlock'); u.classList.remove('show'); void u.offsetWidth; u.classList.add('show');
-  clearTimeout(unlockTimer); unlockTimer = setTimeout(() => u.classList.remove('show'), 4500);
-}
-addEventListener('keydown', e => {
-  if (mode || introOn || $('menu').classList.contains('hidden') || e.repeat) return;
-  const tg = e.target && e.target.tagName;
-  if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
-  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key, now = performance.now();
-  if (now - secAt > 2500) secIdx = 0;
-  secAt = now;
-  if (k === SECRET[secIdx]) secIdx++; else secIdx = k === SECRET[0] ? 1 : 0;
-  secDots();
-  if (secIdx === SECRET.length) {
-    secIdx = 0; if (e.key === ' ') { e.preventDefault(); swallowSpace = true; }
-    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    setTimeout(secDots, 700); unlockSecret();
-  }
-});
-addEventListener('keyup', e => { if (swallowSpace && e.key === ' ') { e.preventDefault(); swallowSpace = false; } });
-
-// Celular (sem teclado): toque 7 vezes seguidas no "7" do título para liberar o Dragão Dourado
-{
-  const t1 = document.querySelector('#menu h1 .t1');
-  let taps = 0, tapAt = 0;
-  if (t1) t1.addEventListener('pointerdown', () => {
-    if (mode || introOn) return;
-    const now = performance.now();
-    if (now - tapAt > 1200) taps = 0;
-    tapAt = now; taps++;
-    secIdx = Math.min(SECRET.length - 1, taps - 1); secDots();   // acende os pontinhos conforme toca
-    if (taps >= 7) { taps = 0; secIdx = 0; setTimeout(secDots, 700); unlockSecret(); }
-  });
-}
 
 // Esc: só pausa quando o menu inicial NÃO está aberto
 addEventListener('keydown', e => {

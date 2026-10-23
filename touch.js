@@ -3,7 +3,7 @@
    7 SHADOWS — controles de toque (celular / tablet)
    Esquerda: analógico de movimento · Direita: analógico de mira (empurrar = atirar)
    A MIRA só muda com o analógico direito: andar não mexe nela.
-   Botões: rasteira, pegar, jogar, curar, trocar arma · slots do inventário tocáveis
+   Botões: ativa, pegar, jogar, curar, trocar arma · slots do inventário tocáveis
    Tela "Ajustar controles": arrastar cada controle, tamanho, opacidade e analógico fixo/flutuante.
    Usa as variáveis globais do game.js (keys, mouse, edge, pred, cam, Z, W, H, cfg…).
    ========================================================================== */
@@ -21,12 +21,11 @@
   const ITEMS = [
     { id: 'mv',  name: 'MOVER',        label: 'MOVER',    stick: true },
     { id: 'aim', name: 'MIRAR / ATIRAR', label: 'MIRAR',  stick: true, aim: true },
-    { id: 'sl',  name: 'RASTEIRA',     label: 'RASTEIRA', w: 120, h: 56, fs: 0.78 },
+    { id: 'sl',  name: 'ATIVA',        label: 'ATIVA',    w: 96,  h: 56, fs: 0.78 },
     { id: 'th',  name: 'JOGAR',        label: 'JOGAR',    w: 56,  h: 56, fs: 0.62 },
     { id: 'pk',  name: 'PEGAR',        label: 'PEGAR',    w: 56,  h: 56, fs: 0.62 },
     { id: 'hl',  name: 'CURAR',        label: 'CURAR',    w: 56,  h: 56, fs: 0.62 },
-    { id: 'sw',  name: 'TROCAR ARMA',  label: 'TROCAR',   w: 56,  h: 56, fs: 0.62 },
-    { id: 'lk',  name: 'TRAVAR MIRA (Dragão)', label: 'MIRA', w: 120, h: 44, fs: 0.62 }
+    { id: 'sw',  name: 'TROCAR ARMA',  label: 'TROCAR',   w: 56,  h: 56, fs: 0.62 }
   ];
   const itemOf = id => ITEMS.find(i => i.id === id);
   // u = escala padrão da tela (celular pequeno ~0.85, celular grande ~1, tablet/PC até 1.6); s = ajuste do jogador (100% = padrão da tela)
@@ -66,11 +65,9 @@
     th: [() => { edge.th = true; keys.f = true; }, () => { keys.f = false; }],
     pk: [() => { edge.pk = true; }],
     hl: [() => { edge.hl = true; }],
-    sw: [() => { edge.sw = true; }],
-    lk: [() => { keys.c = true; }, () => { keys.c = false; }]   // Dragão Dourado: travar mira
+    sw: [() => { edge.sw = true; }]
   };
-  for (const it of ITEMS) if (!it.stick) button(it.id, it.label, it.id === 'lk' ? 'lock' : '', ...ACT[it.id]);
-  const bLock = nodes.lk;
+  for (const it of ITEMS) if (!it.stick) button(it.id, it.label, '', ...ACT[it.id]);
 
   // pausa e tela cheia
   const bPause = mk('button', 'tc-sys', top, '<b>II</b>'); bPause.type = 'button'; bPause.setAttribute('aria-label', 'Pausar');
@@ -98,7 +95,7 @@
       mv: [n.l + 112 * u, H_ - n.b - 146 * u], aim: [W_ - n.r - 226 * u, H_ - n.b - 146 * u],
       hl: [c0, y1], sw: [c1, y1],
       th: [c0, y2], pk: [c1, y2],
-      sl: [cb, y3], lk: [cb, y3 - 28 * u - g - 22 * u]
+      sl: [cb, y3]
     };
     const d = {};
     for (const id in px) d[id] = { x: px[id][0] / W_, y: px[id][1] / H_, s: 1 };
@@ -342,7 +339,7 @@
   let wasOn = false;
   function releaseAll() {
     endMove(); if (A.id != null) { A.id = null; baseR.classList.remove('on'); ghostR.style.opacity = ''; }
-    A.firing = false; mouse.down = false; keys.f = false; keys.c = false;
+    A.firing = false; mouse.down = false; keys.f = false;
     for (const k in holds) delete holds[k];
     tc.querySelectorAll('.tc-btn.on').forEach(b => b.classList.remove('on'));
   }
@@ -357,7 +354,6 @@
     if (on !== wasOn) { wasOn = on; tc.classList.toggle('on', on); if (!on) releaseAll(); }
     document.body.classList.toggle('tcPlay', on);
     if (!on) return;
-    bLock.classList.toggle('hidden', !isDragon());
     if (tapUntil && now > tapUntil) { tapUntil = 0; if (A.id == null) mouse.down = false; }
     // mira: começa olhando para onde o servidor posicionou o boneco na rodada e depois só o analógico direito muda
     if (round !== lastRd) { lastRd = round; tAim = null; }

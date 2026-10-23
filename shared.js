@@ -28,8 +28,11 @@
       heal: !(o.heal === false || o.heal === 0)
     };
   }
-  /* ===== RASTEIRA (Shift): desliza para frente em alta velocidade; quem for tocado cai no chão (a arma da mão cai junto) ===== */
-  const SLIDE_TIME = 0.32, SLIDE_SPEED = 900, SLIDE_CD = 1.2, SLIDE_TRIP = 1.1;
+  /* ===== ATIVA (Espaço): gasta NA HORA 15% da vida ATUAL e solta uma explosão em área; o dano depende do HP sacrificado ===== */
+  const ACT_COST = 0.15;     // fração da vida ATUAL sacrificada (não pode matar quem usa: sempre sobra 85%)
+  const ACT_MULT = 1.5;      // dano causado = HP sacrificado x ACT_MULT (no centro; cai até 60% na borda)
+  const ACT_RADIUS = 170;    // raio da explosão (px)
+  const ACT_CD = 3;          // recarga (s)
 
   /* ===== VIDA E DANO (tudo em % da vida máxima) ===== */
   const MAX_HP = 5000;     // vida máxima = 100%
@@ -39,6 +42,11 @@
   const HEAL_PCT = 20;     // % da vida máxima que a cura devolve
   const HEAL_TIME = 1.5;   // segundos de cura (o boneco anda devagar); a cura é ilimitada e pode ser cancelada
   const HEAL_SLOW = 0.3;   // multiplicador da velocidade de movimento enquanto cura
+  // Passivas por personagem. GORILLA (Shadow 2): 200% de vida e cura 10% da própria vida em só 0,3 s.
+  const SKIN_STATS = { GORILLA: { hpMul: 2, healPct: 10, healTime: 0.3 } };
+  const maxHpOf = skin => MAX_HP * ((SKIN_STATS[skin] && SKIN_STATS[skin].hpMul) || 1);          // vida máxima do personagem
+  const healPctOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healPct) || HEAL_PCT;          // % da PRÓPRIA vida máxima que a cura devolve
+  const healTimeOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healTime) || HEAL_TIME;       // segundos de cura
   const SWAP_TIME = 0.2;      // segundos para sacar a outra arma do inventário (2 espaços)
   const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: mata na hora (senão acerta o cabo)
   // Lâmina arremessada: só a MACHETE mata na hora (BLADE_CHANCE); faca e katana acertando a lâmina tiram só uma fatia da vida.
@@ -576,25 +584,6 @@
     return { dx, dy };
   }
 
-  // Movimento completo: andar + RASTEIRA. S = { t: tempo restante, a: ângulo, cd: recarga }. Roda igual no servidor e na previsão do cliente.
-  // can = pode iniciar a rasteira agora (partida rolando, sem curar/carregar). Retorna { dx, dy, slide } do deslocamento (para as portas) ou null.
-  function stepMotion(level, p, S, k, aim, wantSlide, dt, sm, can) {
-    if (S.cd > 0) S.cd = Math.max(0, S.cd - dt);
-    if (wantSlide && can && S.t <= 0 && S.cd <= 0) {
-      let dx = ((k & 8) ? 1 : 0) - ((k & 2) ? 1 : 0), dy = ((k & 4) ? 1 : 0) - ((k & 1) ? 1 : 0);
-      if (!dx && !dy) { dx = Math.cos(aim); dy = Math.sin(aim); }
-      S.a = Math.round(Math.atan2(dy, dx) * 1000) / 1000; S.t = SLIDE_TIME; S.cd = SLIDE_CD;
-    }
-    if (S.t > 0) {
-      const dd = Math.min(dt, S.t), f = S.t / SLIDE_TIME, dist = SLIDE_SPEED * (0.3 + 0.7 * f) * dd;   // começa rápido e vai freando
-      const cx = Math.cos(S.a), cy = Math.sin(S.a), n = Math.max(1, Math.ceil(dist / 6));
-      for (let i = 0; i < n; i++) { p.x += cx * dist / n; p.y += cy * dist / n; level.push(p, PR); }
-      S.t = Math.max(0, S.t - dd);
-      return { dx: cx, dy: cy, slide: true };
-    }
-    return stepMove(level, p, k, dt, sm);
-  }
-
   /* ----------------------------------------------------------------- JOGO */
   class Game {
     // autoStart: true => começa sozinho com 2+ jogadores (treino); false => sala com botão Iniciar (online)
@@ -613,8 +602,8 @@
     addPlayer(id, name, skin) {
       const slot = this.players.findIndex(q => !q);
       if (slot < 0 || slot >= this.maxPlayers) return null;   // sala cheia (limite escolhido na criação)
-      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'HERO', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: MAX_HP,
-        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, slide: { t: 0, a: 0, cd: 0 } };
+      const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'HERO', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: maxHpOf(skin || 'HERO'),
+        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, actCd: 0 };
       // inventário de 2 espaços: `weapon` continua sendo a arma NA MÃO (o espaço selecionado), então todo o resto do código funciona igual
       Object.defineProperty(p, 'weapon', { get() { return this.inv[this.sel]; }, set(v) { this.inv[this.sel] = v; }, enumerable: false, configurable: true });
       this.players[slot] = p;
@@ -636,7 +625,7 @@
       this.players[p.slot] = null;
       if (this.count < MIN_PLAYERS) {
         // sem adversários: volta para a sala de espera
-        for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
+        for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.healT = 0; q.actCd = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; }
         this.phase = this.autoStart ? 'waiting' : 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1;
       }
     }
@@ -648,7 +637,7 @@
       this.startMatch(); return true;
     }
     toLobby() {
-      for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = MAX_HP; q.down = false; q.downT = 0; q.healT = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
+      for (const q of this.players) if (q) { q.score = 0; q.kills = 0; q.alive = true; q.hp = maxHpOf(q.skin); q.down = false; q.downT = 0; q.healT = 0; q.actCd = 0; q.inv = [null, null]; q.sel = 0; q.swcd = 0; q.fire = false; }
       this.phase = 'lobby'; this.level = null; this.bullets = []; this.items = []; this.round = 0; this.mapIdx = -1; this.winner = -1; this.tu = false; this.rt = 0;
     }
     nextSpawn() { return this.players.reduce((m, q) => (q && q.spawnIdx > m ? q.spawnIdx : m), -1) + 1; }
@@ -657,7 +646,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = MAX_HP; p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.slide = { t: 0, a: 0, cd: 0 };
+      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0;
     }
     startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
@@ -712,15 +701,14 @@
         else if (inp.ss) this.swapTo(p, (inp.ss | 0) - 1);  // teclas 1 / 2: escolhe o espaço direto
         if (inp.th) this.startThrow(p);
         if (inp.hl && !healCanceled) this.heal(p);
+        if (inp.sl) this.useActive(p);                      // ATIVA (Espaço)
       }
       if (canMove(this.phase, p.alive, p.down, p.healT > 0)) {
         const dd = Math.min(dt, 0.05, p.budget);
         if (dd > 0) {
           p.budget -= dd;
-          const t0 = p.slide.t, can = this.phase === 'live' && !(p.healT > 0) && !p.charging;
-          const r = stepMotion(this.level, p, p.slide, inp.k | 0, p.angle, !!inp.sl, dd, p.healT > 0 ? HEAL_SLOW : 1, can);
-          if (p.slide.t > t0) this.events.push({ t: 'slide', id: p.id, x: p.x, y: p.y, a: p.slide.a });
-          if (r) { this.tryDoors(p, r.dx, r.dy); this.doorContact(p, dd); if (r.slide) this.slideHit(p); }
+          const r = stepMove(this.level, p, inp.k | 0, dd, p.healT > 0 ? HEAL_SLOW : 1);
+          if (r) { this.tryDoors(p, r.dx, r.dy); this.doorContact(p, dd); }
         }
       }
       if ((inp.fp || inp.f) && !(p.healT > 0)) this.tryFire(p);   // o tiro sai na hora que o clique chega, sem esperar o próximo tick
@@ -729,7 +717,7 @@
     tick(dt) {
       for (const p of this.players) {
         if (!p) continue;
-        p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; p.budget = Math.min(0.3, p.budget + dt);
+        p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; if (p.actCd > 0) p.actCd = Math.max(0, p.actCd - dt); p.budget = Math.min(0.3, p.budget + dt);
         if (p.charging) {   // lança: enquanto segura o botão de arremesso a força sobe; soltou = arremessa
           if (!p.alive || p.down || p.healT > 0 || !p.weapon || p.weapon.type !== 'SPEAR' || this.phase !== 'live') { p.charging = false; p.chg = 0; }
           else {
@@ -745,7 +733,8 @@
             p.healT -= dt;
             if (p.healT <= 0) {
               p.healT = 0;
-              p.hp = Math.min(MAX_HP, p.hp + MAX_HP * HEAL_PCT / 100);
+              const mh = maxHpOf(p.skin);
+              p.hp = Math.min(mh, p.hp + mh * healPctOf(p.skin) / 100);
               this.events.push({ t: 'heal', id: p.id, x: p.x, y: p.y, hp: Math.round(p.hp) });
             }
           }
@@ -803,7 +792,7 @@
 
     // dispara se der (cooldown pronto + clique guardado ou botão segurado; todas as armas são automáticas). Chamado a cada tick E logo quando a entrada chega (menos atraso).
     tryFire(p) {
-      if (!p || !p.alive || p.down || p.healT > 0 || p.charging || p.slide.t > 0 || this.phase !== 'live') return;
+      if (!p || !p.alive || p.down || p.healT > 0 || p.charging || this.phase !== 'live') return;
       const w = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
       if (p.cd <= 0 && (p.buf > 0 || p.fire)) { p.buf = 0; this.attack(p); }   // segurar o botão repete o ataque em TODAS as armas (inclusive corpo a corpo e mãos)
     }
@@ -850,29 +839,34 @@
     }
     kill(v, by, how, a) {
       if (!v.alive || this.phase !== 'live') return;
-      v.alive = false; v.down = false; v.fire = false; v.charging = false; v.slide.t = 0;
+      v.alive = false; v.down = false; v.fire = false; v.charging = false;
       if (by && by !== v) by.kills = (by.kills | 0) + 1;
       this.dropAll(v, Math.cos(a) * 120, Math.sin(a) * 120);
       this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin });
     }
     knockdown(p, dur, a) {
       if (!p.alive || p.down) return;
-      p.down = true; p.downT = dur; p.fire = false; p.slide.t = 0;
+      p.down = true; p.downT = dur; p.fire = false;
       this.dropWeapon(p, Math.cos(a) * 220, Math.sin(a) * 220);
       this.events.push({ t: 'down', id: p.id, x: p.x, y: p.y, a });
     }
-    // rasteira: encostou em alguém em pé -> derruba (fica caído e solta a arma) e a rasteira termina
-    slideHit(p) {
-      const S = p.slide; if (S.t <= 0) return;
+    // ATIVA: sacrifica 15% da vida ATUAL na hora e solta uma explosão em área. Dano = HP sacrificado x ACT_MULT
+    // (100% no centro, 60% na borda). Precisa de linha de visão (parede protege). Não derruba, só machuca.
+    useActive(p) {
+      if (!p || !p.alive || p.down || p.healT > 0 || p.charging || p.actCd > 0 || this.phase !== 'live') return false;
+      const cost = p.hp * ACT_COST;
+      if (cost < 1) return false;
+      p.hp -= cost; p.actCd = ACT_CD; p.fire = false; p.buf = 0;
+      const pct = cost * ACT_MULT / MAX_HP * 100;   // dano em % da vida máxima base (o mesmo formato do hurt)
+      this.events.push({ t: 'blast', id: p.id, x: p.x, y: p.y, r: ACT_RADIUS, hp: Math.round(p.hp), d: Math.round(cost * ACT_MULT) });
       for (const o of this.players) {
-        if (!o || o === p || !o.alive || o.down) continue;
-        if (Math.hypot(o.x - p.x, o.y - p.y) < PR * 2 + 4) {
-          const a = Math.atan2(o.y - p.y, o.x - p.x);
-          this.knockdown(o, SLIDE_TRIP, a);
-          this.events.push({ t: 'trip', by: p.id, id: o.id, x: o.x, y: o.y, a });
-          S.t = 0; return;
-        }
+        if (!o || o === p || !o.alive) continue;
+        const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
+        if (d > ACT_RADIUS + PR || !this.level.los(p.x, p.y, o.x, o.y)) continue;
+        const f = 0.6 + 0.4 * (1 - Math.min(1, d / ACT_RADIUS));
+        this.hurt(o, p, pct * f, 'blast', Math.atan2(dy, dx));
       }
+      return true;
     }
     dropWeapon(p, vx = 0, vy = 0) {
       if (!p.weapon) return;
@@ -905,8 +899,8 @@
       return true;
     }
     heal(p) {
-      if (!this.healOn || !p.alive || p.down || p.healT > 0 || p.hp >= MAX_HP) return false;
-      p.healT = HEAL_TIME; p.fire = false; p.buf = 0; p.charging = false; p.chg = 0;
+      if (!this.healOn || !p.alive || p.down || p.healT > 0 || p.hp >= maxHpOf(p.skin)) return false;
+      p.healT = healTimeOf(p.skin); p.fire = false; p.buf = 0; p.charging = false; p.chg = 0;
       this.events.push({ t: 'hstart', id: p.id, x: p.x, y: p.y });
       return true;
     }
@@ -1134,7 +1128,7 @@
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / SPEAR_CHARGE).toFixed(2) : -1,
-          sd: +p.slide.t.toFixed(2), sa: p.slide.a, sq: +p.slide.cd.toFixed(2)
+          sq: +p.actCd.toFixed(2)
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
@@ -1264,11 +1258,11 @@
       let k = 0;
       if (mx > 0.3) k |= 8; if (mx < -0.3) k |= 2; if (my > 0.3) k |= 4; if (my < -0.3) k |= 1;
       // bot se cura quando a vida baixa de 40%, sem inimigo à vista e com intervalo entre curas
-      const hl = me.hp <= MAX_HP * 0.4 && !los && this.hlCd <= 0 ? 1 : 0;
+      const hl = me.hp <= maxHpOf(me.skin) * 0.4 && !los && this.hlCd <= 0 ? 1 : 0;
       if (hl) this.hlCd = 6;
       g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th, hl, sw }, dt);
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, stepMotion, SLIDE_TIME, SLIDE_SPEED, SLIDE_CD, SLIDE_TRIP, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });

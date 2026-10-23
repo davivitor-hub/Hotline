@@ -33,7 +33,7 @@ const MIME = {
 const rooms = new Map();
 const MAX_ROOMS = Math.max(1, Number(process.env.MAX_ROOMS) || 40);
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sem 0/O/1/I para não confundir
-const SKINS = ['HERO', 'ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'HIPPO', 'FISH', 'DRAGON'];
+const SKINS = ['HERO', 'ROOSTER', 'TIGER', 'BEAR', 'MONKEY', 'WOLF', 'GORILLA', 'FISH'];
 
 if (!S || typeof S.Game !== 'function') {
   throw new Error('public/shared.js não exporta Game corretamente. Verifique o arquivo compartilhado.');
@@ -158,7 +158,7 @@ wss.on('connection', (ws) => {
       }
       if (room.game.count >= room.game.maxPlayers) return send(ws, { type: 'full' });
 
-      const skin = SKINS.includes(m.skin) ? m.skin : 'HERO';
+      const skin = SKINS.includes(m.skin) ? m.skin : (m.skin === 'HIPPO' ? 'GORILLA' : 'HERO');   // HIPPO = nome antigo do gorila
       const name = String(m.name || 'JOGADOR').replace(/[<>]/g, '').slice(0, 14);
       c.p = room.game.addPlayer(c.id, name, skin);
 
@@ -198,7 +198,7 @@ wss.on('connection', (ws) => {
         hl: m.hl ? 1 : 0,
         tc: m.tc ? 1 : 0,                                // segurando o botão de arremesso (carga da lança)
         sw: m.sw ? 1 : 0,                                // scroll: alterna de arma
-        sl: m.sl ? 1 : 0,                                // Shift: rasteira
+        sl: m.sl ? 1 : 0,                                // Espaço: ativa
         su: m.su ? 1 : 0,                                // botão de suicídio
         ss: Math.max(0, Math.min(2, Number(m.ss) | 0))   // teclas 1/2: escolhe o espaço
       }, Math.max(0, Math.min(0.05, dt)));
