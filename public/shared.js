@@ -42,10 +42,11 @@
   const HEAL_PCT = 20;     // % da vida máxima que a cura devolve
   const HEAL_TIME = 1.5;   // segundos de cura (o boneco anda devagar); a cura é ilimitada e pode ser cancelada
   const HEAL_SLOW = 0.3;   // multiplicador da velocidade de movimento enquanto cura
-  // Passivas por personagem. GORILLA (Shadow 2): 200% de vida e cura 10% da própria vida em só 0,3 s.
-  const SKIN_STATS = { GORILLA: { hpMul: 2, healPct: 10, healTime: 0.3 } };
+  // Passivas por personagem. GORILLA (Shadow 2): 200% de vida, cura 2% da própria vida em só 0,3 s e é o ÚNICO com a ATIVA (Espaço).
+  const SKIN_STATS = { GORILLA: { hpMul: 2, healPct: 2, healTime: 0.3, active: true } };
   const maxHpOf = skin => MAX_HP * ((SKIN_STATS[skin] && SKIN_STATS[skin].hpMul) || 1);          // vida máxima do personagem
   const healPctOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healPct) || HEAL_PCT;          // % da PRÓPRIA vida máxima que a cura devolve
+  const hasActive = skin => !!(SKIN_STATS[skin] && SKIN_STATS[skin].active);                      // só o gorila tem a habilidade ativa (Espaço)
   const healTimeOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healTime) || HEAL_TIME;       // segundos de cura
   const SWAP_TIME = 0.2;      // segundos para sacar a outra arma do inventário (2 espaços)
   const BLADE_CHANCE = 0.5;   // chance de a LÂMINA acertar quando faca/machete/katana são arremessadas: mata na hora (senão acerta o cabo)
@@ -853,7 +854,7 @@
     // ATIVA: sacrifica 15% da vida ATUAL na hora e solta uma explosão em área. Dano = HP sacrificado x ACT_MULT
     // (100% no centro, 60% na borda). Precisa de linha de visão (parede protege). Não derruba, só machuca.
     useActive(p) {
-      if (!p || !p.alive || p.down || p.healT > 0 || p.charging || p.actCd > 0 || this.phase !== 'live') return false;
+      if (!p || !hasActive(p.skin) || !p.alive || p.down || p.healT > 0 || p.charging || p.actCd > 0 || this.phase !== 'live') return false;
       const cost = p.hp * ACT_COST;
       if (cost < 1) return false;
       p.hp -= cost; p.actCd = ACT_CD; p.fire = false; p.buf = 0;
@@ -1264,5 +1265,5 @@
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, PICK_R, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });
