@@ -42,6 +42,10 @@
   const HOOK_STOP = PR * 2 + 8;   // distância em que para (colado no alvo, ao alcance das mãos)
   const HOOK_CD = 4;         // recarga quando o gancho prende (s)
   const HOOK_MISS_CD = 0.8;  // recarga quando erra (ninguém na mira)
+  const EMOTE_TIME = 4;      // duração da dancinha (s); qualquer ação, movimento ou dano encerra
+  const HOOK_STUN = 0.3;     // atordoamento (s) de quem o gancho agarra
+  const HOOK_WALL_STOP = PR + 4;   // distância do centro à parede/objeto em que a puxada para (corpo encostado)
+  const HOOK_WALL_MIN = 56;  // parede mais perto que isso não vale como ponto de ancoragem
 
   /* ===== VIDA E DANO (tudo em % da vida máxima) ===== */
   const MAX_HP = 5000;     // vida máxima = 100%
@@ -626,7 +630,7 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0 || slot >= this.maxPlayers) return null;   // sala cheia (limite escolhido na criação)
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'HERO', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: maxHpOf(skin || 'HERO'),
-        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, actCd: 0 };
+        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, actCd: 0, aimD: HOOK_RANGE, emT: 0, emCd: 0 };
       // inventário de 2 espaços: `weapon` continua sendo a arma NA MÃO (o espaço selecionado), então todo o resto do código funciona igual
       Object.defineProperty(p, 'weapon', { get() { return this.inv[this.sel]; }, set(v) { this.inv[this.sel] = v; }, enumerable: false, configurable: true });
       this.players[slot] = p;
@@ -669,7 +673,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false;
+      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false; p.emT = 0; p.emCd = 0;
     }
     startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
@@ -713,8 +717,12 @@
       if (!p || !inp || !this.level) return;
       if (inp.su && this.suicide(p)) return;   // botão de suicídio
       if (Number.isFinite(inp.a)) p.angle = inp.a;
+      if (Number.isFinite(inp.ad)) p.aimD = Math.max(0, Math.min(2000, inp.ad));   // distância da mira (cursor) até o boneco: alcance do gancho
       p.fire = !!inp.f; p.tc = !!inp.tc;
       if (inp.fp) p.buf = 0.16;
+      // EMOTE: qualquer movimento ou ação encerra a dancinha; a tecla de emote liga/desliga (só parado)
+      if (p.emT > 0 && (((inp.k | 0) & 15) || inp.f || inp.fp || inp.pk || inp.th || inp.hl || inp.sw || inp.ss || inp.sl || inp.su)) p.emT = 0;
+      if (inp.em && p.emCd <= 0 && !((inp.k | 0) & 15)) this.emote(p);
       // cancelar a cura: apertar cura de novo, atacar, arremessar, pegar arma ou trocar de arma (não recebe a vida)
       let healCanceled = false;
       if (p.healT > 0 && this.phase === 'live' && (inp.hl || inp.fp || inp.th || inp.pk || inp.sw || inp.ss)) { this.cancelHeal(p); healCanceled = true; }
@@ -740,7 +748,7 @@
     tick(dt) {
       for (const p of this.players) {
         if (!p) continue;
-        p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; if (p.actCd > 0) p.actCd = Math.max(0, p.actCd - dt); p.budget = Math.min(0.3, p.budget + dt);
+        p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; if (p.actCd > 0) p.actCd = Math.max(0, p.actCd - dt); if (p.emCd > 0) p.emCd -= dt; p.budget = Math.min(0.3, p.budget + dt);
         if (p.charging) {   // lança: enquanto segura o botão de arremesso a força sobe; soltou = arremessa
           if (!p.alive || p.down || p.healT > 0 || !p.weapon || p.weapon.type !== 'SPEAR' || this.phase !== 'live') { p.charging = false; p.chg = 0; }
           else {
@@ -751,6 +759,7 @@
         if (p.alive && !p.inv[p.sel] && p.inv[1 - p.sel]) p.sel = 1 - p.sel;   // largou/arremessou/perdeu a arma da mão: saca a outra sozinho
         if (p.hook && (!p.alive || p.down || this.phase !== 'live')) p.hook = null;   // morreu/caiu/acabou a rodada: solta o gancho
         if (p.down) { p.downT -= dt; if (p.downT <= 0) p.down = false; }
+        if (p.emT > 0) { p.emT -= dt; if (!canMove(this.phase, p.alive, p.down, p.healT > 0) || p.hook || p.charging) p.emT = 0; }   // dançando só vivo, em pé e livre
         if (p.healT > 0) {
           if (!p.alive || p.down || this.phase !== 'live') p.healT = 0;
           else {
@@ -858,6 +867,7 @@
     // Tira `pct`% da vida máxima. Se zerar, mata.
     hurt(v, by, pct, how, a) {
       if (!v.alive || this.phase !== 'live') return false;
+      v.emT = 0;   // tomou dano: para de dançar
       if (how !== 'blast' && how !== 'door') pct *= dmgTakenOf(v.skin);   // passiva: dano de ARMAS reduzido (a explosão do Shadow 2 não)
       v.hp = Math.max(0, v.hp - MAX_HP * pct / 100);
       this.events.push({ t: 'hurt', id: v.id, x: v.x, y: v.y, a, hp: Math.round(v.hp), by: by ? by.id : null });
@@ -877,6 +887,13 @@
       p.down = true; p.downT = dur; p.fire = false;
       this.dropWeapon(p, Math.cos(a) * 220, Math.sin(a) * 220);
       this.events.push({ t: 'down', id: p.id, x: p.x, y: p.y, a });
+    }
+    // EMOTE: liga/desliga a dancinha (puramente visual; o estado vai no snapshot como `em`)
+    emote(p) {
+      p.emCd = 0.4;
+      if (p.emT > 0) { p.emT = 0; return; }
+      if (!canMove(this.phase, p.alive, p.down, false) || p.hook || p.healT > 0 || p.charging) return;
+      p.emT = EMOTE_TIME; p.fire = false; p.buf = 0;
     }
     // ATIVA: sacrifica 15% da vida ATUAL na hora e solta uma explosão em área. Dano = HP sacrificado x ACT_MULT
     // (100% no centro, 60% na borda). Precisa de linha de visão (parede protege). Não derruba, só machuca.
@@ -902,28 +919,48 @@
       }
       return true;
     }
-    // GANCHO (Shadow 4): prende no adversário vivo mais perto da mira (com linha de visão) e se puxa até ele. Sem alvo = erra e a recarga é curta.
+    // GANCHO (Shadow 4): a corda sai reta na direção da mira e vai até a distância do cursor (no máximo HOOK_RANGE).
+    // Pega o primeiro que cruzar o caminho: adversário vivo (atordoa HOOK_STUN s e se puxa até ele) ou parede/objeto/porta (se puxa até lá).
+    // Sem nada no caminho = erra e a recarga é curta.
     useHook(p) {
-      let best = null, bs = Infinity;
+      const lv = this.level, cx = Math.cos(p.angle), cy = Math.sin(p.angle);
+      const maxD = Math.max(HOOK_MIN, Math.min(HOOK_RANGE, p.aimD == null ? HOOK_RANGE : p.aimD));
+      // 1) primeiro obstáculo (parede, móvel redondo, porta destravada) no caminho da corda
+      let wallD = Infinity;
+      for (let d = 4; d <= maxD; d += 4) {
+        const x = p.x + cx * d, y = p.y + cy * d;
+        if (lv.solidAt(x, y) || lv.doorAt(x, y, 1)) {
+          let lo = d - 4, hi = d;
+          for (let i = 0; i < 4; i++) { const m = (lo + hi) / 2; if (lv.solidAt(p.x + cx * m, p.y + cy * m) || lv.doorAt(p.x + cx * m, p.y + cy * m, 1)) hi = m; else lo = m; }
+          wallD = lo; break;
+        }
+      }
+      // 2) adversário vivo mais perto sobre a corda (e antes do obstáculo)
+      let best = null, bd = Infinity;
       for (const o of this.players) {
         if (!o || o === p || !o.alive) continue;
-        const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
-        if (d > HOOK_RANGE || d < HOOK_MIN) continue;
-        const da = Math.abs(angDiff(Math.atan2(dy, dx), p.angle));
-        if (da > HOOK_CONE + Math.asin(Math.min(1, PR / Math.max(d, 1)))) continue;
-        if (!this.level.los(p.x, p.y, o.x, o.y)) continue;
-        const sc = da * 400 + d;   // prefere quem está mais na linha da mira
-        if (sc < bs) { bs = sc; best = o; }
+        const dx = o.x - p.x, dy = o.y - p.y, along = dx * cx + dy * cy, perp = Math.abs(dx * cy - dy * cx);
+        if (along < HOOK_MIN || along - PR * 0.5 > maxD || perp > PR + 4) continue;
+        if (along - PR * 0.5 > wallD) continue;   // tem parede na frente dele
+        if (along < bd) { bd = along; best = o; }
       }
       p.fire = false; p.buf = 0;
-      if (!best) {
-        p.actCd = HOOK_MISS_CD;
-        this.events.push({ t: 'hook', id: p.id, x: p.x, y: p.y, a: p.angle, miss: 1 });
-        return false;
+      if (best) {
+        this.knockdown(best, HOOK_STUN, p.angle);
+        if (best.down && best.downT < HOOK_STUN) best.downT = HOOK_STUN;
+        p.hook = { id: best.id, t: HOOK_MAX_T }; p.actCd = HOOK_CD;
+        this.events.push({ t: 'hook', id: p.id, x: p.x, y: p.y, a: Math.atan2(best.y - p.y, best.x - p.x), miss: 0 });
+        return true;
       }
-      p.hook = { id: best.id, t: HOOK_MAX_T }; p.actCd = HOOK_CD;
-      this.events.push({ t: 'hook', id: p.id, x: p.x, y: p.y, a: Math.atan2(best.y - p.y, best.x - p.x), miss: 0 });
-      return true;
+      if (wallD < Infinity && wallD >= HOOK_WALL_MIN) {
+        const ax = p.x + cx * wallD, ay = p.y + cy * wallD;
+        p.hook = { id: null, ax, ay, t: HOOK_MAX_T }; p.actCd = HOOK_CD;
+        this.events.push({ t: 'hook', id: p.id, x: p.x, y: p.y, a: p.angle, miss: 0, wall: 1, ex: Math.round(ax), ey: Math.round(ay) });
+        return true;
+      }
+      p.actCd = HOOK_MISS_CD;
+      this.events.push({ t: 'hook', id: p.id, x: p.x, y: p.y, a: p.angle, miss: 1, l: Math.round(Math.min(maxD, wallD)) });
+      return false;
     }
     // clique com o gancho na mão: em recarga só estala; prendeu = guarda o gancho (as mãos/arma voltam para bater); errou = continua na mão
     fireHook(p) {
@@ -932,12 +969,19 @@
       if (this.useHook(p)) { p.hookOn = false; p.cd = 0.1; }
     }
     stepHook(p, dt) {
-      const h = p.hook, o = h && this.byId(h.id);
-      if (!h || !o || !o.alive || !p.alive || p.down) { p.hook = null; return; }
+      const h = p.hook;
+      if (!h || !p.alive || p.down) { p.hook = null; return; }
+      const o = h.id ? this.byId(h.id) : null;
+      if (h.id && (!o || !o.alive)) { p.hook = null; return; }
       h.t -= dt;
-      const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
-      if (d <= HOOK_STOP || h.t <= 0 || !this.level.los(p.x, p.y, o.x, o.y)) { p.hook = null; return; }   // chegou, acabou o tempo ou a corda enroscou na parede
-      const step = Math.min(HOOK_SPEED * dt, d - HOOK_STOP), ux = dx / d, uy = dy / d, n = Math.max(1, Math.ceil(step / 6)), bx = p.x, by = p.y;
+      const tx = o ? o.x : h.ax, ty = o ? o.y : h.ay, stop = o ? HOOK_STOP : HOOK_WALL_STOP;
+      const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
+      if (d <= stop) {   // chegou: o alvo fica atordoado mais um pouco para dar tempo do golpe
+        if (o && o.down && o.downT < HOOK_STUN) o.downT = HOOK_STUN;
+        p.hook = null; return;
+      }
+      if (h.t <= 0 || (o && !this.level.los(p.x, p.y, o.x, o.y))) { p.hook = null; return; }   // acabou o tempo ou a corda enroscou na parede
+      const step = Math.min(HOOK_SPEED * dt, d - stop), ux = dx / d, uy = dy / d, n = Math.max(1, Math.ceil(step / 6)), bx = p.x, by = p.y;
       for (let i = 0; i < n; i++) { p.x += ux * step / n; p.y += uy * step / n; this.level.push(p, PR); }
       if (Math.hypot(p.x - bx, p.y - by) < step * 0.25) p.hook = null;   // bateu em algo e não saiu do lugar
       else this.doorContact(p, dt);
@@ -1207,7 +1251,7 @@
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / spearChargeOf(p.skin)).toFixed(2) : -1,
-          sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, hk: p.hook ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : 0   // hk = slot+1 de quem está preso no gancho (0 = sem gancho)
+          em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
@@ -1342,11 +1386,11 @@
       // Shadow 4 (bot): saca o gancho para fechar a distância, clica para lançar e guarda quando já está perto
       let sl = 0;
       if (hasHook(me.skin)) {
-        const can = los && !en.down && me.actCd <= 0 && dist > 220 && dist < HOOK_RANGE - 40 && err < 0.25;
+        const can = los && !en.down && me.actCd <= 0 && dist > 220 && dist < HOOK_RANGE - 40 && err < 0.06;
         if (me.hookOn) { if (can) { if (me.cd <= 0) fp = 1; } else { sl = 1; fp = 0; } }
         else if (can) sl = 1;
       }
-      g.applyInput(me, { k, a: this.ang, f: fire, fp, pk, th, hl, sw, sl }, dt);
+      g.applyInput(me, { k, a: this.ang, ad: en.alive ? dist : HOOK_RANGE, f: fire, fp, pk, th, hl, sw, sl }, dt);
     }
   }
 
