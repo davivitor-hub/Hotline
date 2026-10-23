@@ -195,6 +195,7 @@ wss.on('connection', (ws) => {
         f: m.f ? 1 : 0,
         fp: m.fp ? 1 : 0,
         pk: m.pk ? 1 : 0,
+        it: m.it ? 1 : 0,
         th: m.th ? 1 : 0,
         hl: m.hl ? 1 : 0,
         tc: m.tc ? 1 : 0,                                // segurando o botão de arremesso (carga da lança)
