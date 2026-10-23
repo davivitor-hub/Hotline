@@ -20,7 +20,7 @@ const STEP = 1 / 60, TAU = Math.PI * 2;
 const HOOK_FX_T = 260;   // ms que o gancho que errou leva para sumir
 const BLAST_T = 450;   // ms que a onda de choque da ativa leva para abrir e sumir
 const SKINS = {
-  HERO: { c: '#8b5e34', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#c9a36b', n: 'Shadow 7' }, BEAR: { c: '#a9794f', n: 'Urso' },
+  HERO: { c: '#8b5e34', n: 'Shadow 4' }, ROOSTER: { c: '#ffd23f', n: 'Galo' }, TIGER: { c: '#34343f', n: 'Shadow 7' }, BEAR: { c: '#a9794f', n: 'Urso' },
   MONKEY: { c: '#b28cff', n: 'Macaco' }, WOLF: { c: '#9fb4c8', n: 'Lobo' }, GORILLA: { c: '#3e4049', n: 'Shadow 2' }, FISH: { c: '#3fc8ff', n: 'Peixe' }
 };
 
@@ -1493,18 +1493,19 @@ function animalHead(skin) {
     S.e(-2.4, 0, 9.6, 10.4, { c: HAIR, d: shade(HAIR, 0.7), l: shade(HAIR, 1.3) });   // cabelo aparecendo atrás da máscara
     // orelhas (atrás da máscara)
     if (skin === 'BEAR' || skin === 'MONKEY') { const r = skin === 'BEAR' ? 4.4 : 5.2; for (const s of [-1, 1]) { S.e(-1.5, s * (skin === 'BEAR' ? 10.6 : 11), r + 0.4, r + 0.4, c); S.e(-1, s * (skin === 'BEAR' ? 10.6 : 11), r * 0.5, r * 0.5, skin === 'BEAR' ? '#d9b48c' : '#f3c6d6', null); } }
-    if (skin === 'TIGER') for (const s of [-1, 1]) { S.e(-2, s * 9.2, 3.6, 3.9, c); S.e(-1.4, s * 9.4, 1.9, 2.2, '#4a3426', null); S.e(-0.6, s * 9.4, 1.0, 1.2, '#e8b9a8', null); }   // PUMA: orelhas pequenas e redondas
+    if (skin === 'TIGER') for (const s of [-1, 1]) { S.e(-2, s * 9.2, 3.6, 3.9, c); S.e(-1.4, s * 9.4, 1.9, 2.2, '#15151b', null); S.e(-0.6, s * 9.4, 1.0, 1.2, '#6b4a5a', null); }   // PANTERA: orelhas pequenas e redondas
     if (skin === 'FISH') for (const s of [-1, 1]) { S.p([-1, s * 6, -9, s * 14, -4, s * 5.5], '#ff9a3c'); S.p([-2, s * 7, -7, s * 11.5, -4, s * 6.5], '#ffd08a', null); }
     if (skin === 'GORILLA') for (const s of [-1, 1]) { S.e(-2.2, s * 10.4, 2.8, 3.2, c); S.e(-2.1, s * 10.4, 1.3, 1.6, shade(c, 0.55), null); }   // orelhinhas escuras coladas na cabeça
     if (skin === 'WOLF') for (const s of [-1, 1]) { S.p([0, s * 5, -4, s * 14, 5, s * 8.5], c); S.p([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', null); }
     S.e(0, 0, 9.6, 9.8, body);   // máscara
-    if (skin === 'TIGER') {   // PUMA: pelo liso, focinho claro, marcas escuras do olho ao focinho
-      S.e(-2.4, 0, 3.6, 4.8, shade(c, 0.86), null);                                  // testa levemente mais escura
-      for (const sd of [-1, 1]) S.l(4.6, sd * 4.1, 9, sd * 3, '#4a3320', 1.5);       // listras do olho ao focinho
-      S.e(6.8, 0, 4.0, 4.4, '#f1e3c8');                                              // focinho claro
-      S.e(8.2, -2.2, 1.6, 1.4, '#c9a36b', null); S.e(8.2, 2.2, 1.6, 1.4, '#c9a36b', null);   // bochechas
-      S.p([9.2, -1.7, 11.8, 0, 9.2, 1.7], '#7a3f3f', null);                          // nariz escuro
-      S.l(11.4, 0, 11.4, 0, '#3a2018', 1); S.l(9.6, 0, 8, 0, '#4a3320', 1);          // boca
+    if (skin === 'TIGER') {   // PANTERA: pelo preto, focinho mais claro, olhos amarelos brilhantes
+      S.e(-2.4, 0, 3.6, 4.8, shade(c, 0.8), null);                                   // testa mais escura
+      for (const sd of [-1, 1]) S.l(4.6, sd * 4.1, 9, sd * 3, shade(c, 0.6), 1.4);   // marcas do olho ao focinho
+      S.e(6.8, 0, 4.0, 4.4, '#55525f');                                              // focinho cinza-escuro
+      S.e(8.2, -2.2, 1.6, 1.4, '#4a4854', null); S.e(8.2, 2.2, 1.6, 1.4, '#4a4854', null);   // bochechas
+      S.p([9.2, -1.7, 11.8, 0, 9.2, 1.7], '#c97a8a', null);                          // nariz rosado
+      S.l(9.6, 0, 8, 0, '#15151b', 1);                                               // boca
+      for (const sd of [-1, 1]) S.e(3.0, sd * 5.5, 3.0, 3.3, '#f2c230', null);       // olhos amarelos (a pupila escura é desenhada logo depois)
     }
     if (skin === 'BEAR') { S.e(7.2, 0, 4.4, 3.6, '#d9b48c'); S.e(10.6, 0, 1.8, 1.5, '#120808', null); S.l(10.4, 1.4, 10.4, 3.4, '#3a2418', 1); }
     if (skin === 'MONKEY') {
@@ -1704,11 +1705,19 @@ function drawPlayer(p, x, y, ang, isMe, now) {
       ctx.save(); ctx.translate(px - back, GY); ctx.scale(K, K); drawWeaponSprite(wt); ctx.restore();
       hand(gx - back, gy);
     } else {
+    if (p.dm === 1) {   // Shadow 7 no modo dupla: uma arma em cada mão, cada braço estendido com a sua arma (a da esquerda espelhada)
+      for (const sd of [1, -1]) {
+        limb(1.5, sd * 11.5, 15 - back, sd * 8, jacket);
+        ctx.save(); ctx.translate(8 - back, sd * 5.5); ctx.scale(1, sd); drawWeaponSprite(wt); ctx.restore();
+        hand(15 - back, sd * 8);
+      }
+    } else {
     const fx2 = { PISTOL: 15, REVOLVER: 15, SMG: 24, RIFLE: 26, SHOTGUN: 28, SNIPER: 32, MINIGUN: 28 }[wt] || 22, small = wt === 'PISTOL' || wt === 'REVOLVER';
     const fy = small ? -2 : -3, by = wt === 'MINIGUN' ? 6 : 3;
     limb(1.5, 11.5, 15 - back, by, jacket); limb(1.5, -11.5, fx2 - back, fy, jacket);   // braços nascem nos ombros
     ctx.save(); ctx.translate(8 - back, 0); drawWeaponSprite(wt); ctx.restore();
     hand(15 - back, by); hand(fx2 - back, fy);
+    }
     }
   }
   ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
