@@ -917,7 +917,7 @@
     tick(dt) {
       for (const p of this.players) {
         if (!p) continue;
-        p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; if (p.actCd > 0) p.actCd = Math.max(0, p.actCd - dt); if (p.emCd > 0) p.emCd -= dt; p.budget = Math.min(0.3, p.budget + dt);
+        p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; if (p.dcT > 0) p.dcT -= dt; if (p.actCd > 0) p.actCd = Math.max(0, p.actCd - dt); if (p.emCd > 0) p.emCd -= dt; p.budget = Math.min(0.3, p.budget + dt);
         if (p.charging) {   // lança: enquanto segura o botão de arremesso a força sobe; soltou = arremessa
           if (!p.alive || p.down || p.healT > 0 || !p.weapon || p.weapon.type !== 'SPEAR' || this.phase !== 'live') { p.charging = false; p.chg = 0; }
           else {
@@ -1008,20 +1008,40 @@
       if (p.hookOn) { this.fireHook(p); return; }   // gancho na mão: o clique lança o gancho em vez de bater/atirar
       const wd = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
       if (wd.melee) {
-        p.cd = wd.cd; p.swing = 0.2;
-        this.events.push({ t: 'swing', by: p.id, w: p.weapon ? p.weapon.type : 'FISTS', x: p.x, y: p.y, a: p.angle });
+        // SHADOW 7 com 2 armas corpo a corpo do mesmo tipo (modo dupla): COMBO. Sem bater por ~0,5 s o combo volta ao início.
+        //  - geral (faca, machete, machado, katana, taco...): direita, esquerda (mais rápidos) e CRUZADO com as duas armas (arco x1,5, alcance x1,2, dano x1,6, recuperação lenta)
+        //  - LANÇA: ESTOCADA direita, SLASH esquerdo (varrida larga) e DUPLA ESTOCADA com as duas lanças juntas (alcance x1,3, dano x1,7)
+        //  - GARRAFA: rajada de 4 garrafadas alternando direita/esquerda (rápida) e ESMAGADA com as duas (arco x1,5, alcance x1,2, dano x1,6)
+        const dp = p.weapon ? dualPair(p) : null;
+        let dStep = -1, mRange = wd.range, mArc = wd.arc, mDmg = wd.dmg, mCd = wd.cd, cK = 0, cN = 3;
+        if (dp) {
+          const spr = p.weapon.type === 'SPEAR', bot = isBottle(p.weapon.type);
+          cN = bot ? 5 : 3; cK = p.dcT > 0 ? (p.dc | 0) % cN : 0;
+          const fin = cK === cN - 1; dStep = fin ? 2 : cK % 2;
+          if (fin) {
+            if (spr) { mRange *= 1.3; mDmg *= 1.7; mCd *= 1.25; }
+            else if (bot) { mRange *= 1.2; mArc *= 1.5; mDmg *= 1.6; mCd *= 1.3; }
+            else { mRange *= 1.2; mArc *= 1.5; mDmg *= 1.6; mCd *= 1.25; }
+          } else {
+            mCd *= bot ? 0.8 : 0.7;
+            if (spr && dStep === 1) { mArc = 1.9; mRange *= 0.85; }   // lança: o 2º golpe é um SLASH (varrida larga, alcance um pouco menor) com a lança esquerda
+          }
+        }
+        p.cd = mCd; p.swing = 0.2;
+        if (dp) { p.dc = (cK + 1) % cN; p.dcT = mCd + 0.5; }
+        this.events.push({ t: 'swing', by: p.id, w: p.weapon ? p.weapon.type : 'FISTS', x: p.x, y: p.y, a: p.angle, dc: dStep });
         // o golpe atinge todos os adversários dentro do arco
         let hitAny = false;
         for (const o of this.players) {
           if (!o || o === p || !o.alive) continue;
           const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
-          if (d > wd.range + PR) continue;
+          if (d > mRange + PR) continue;
           const aa = Math.atan2(dy, dx);
-          const tol = wd.arc / 2 + Math.asin(Math.min(1, PR * 0.75 / Math.max(d, 1)));   // alvo grande = mais fácil de acertar de raspão
+          const tol = mArc / 2 + Math.asin(Math.min(1, PR * 0.75 / Math.max(d, 1)));   // alvo grande = mais fácil de acertar de raspão
           if ((Math.abs(angDiff(aa, p.angle)) <= tol || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
             hitAny = true;
-            if (o.down) this.hurt(o, p, wd.dmg * EXEC_MULT, 'exec', aa);
-            else { this.hurt(o, p, wd.dmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
+            if (o.down) this.hurt(o, p, mDmg * EXEC_MULT, 'exec', aa);
+            else { this.hurt(o, p, mDmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
           }
         }
         // garrafa inteira que bate numa parede/porta/móvel: QUEBRA e vira garrafa quebrada (se acertou alguém, sobrevive)
@@ -1081,15 +1101,16 @@
     }
     kill(v, by, how, a) {
       if (!v.alive || this.phase !== 'live') return;
+      const wasDk = (v.dualOn || (v.down && v.wasDual)) ? 1 : 0;   // máscara preta do Shadow 7 (modo dupla) na hora da morte
       v.alive = false; v.down = false; v.fire = false; v.charging = false;
       if (by && by !== v) by.kills = (by.kills | 0) + 1;
       this.dropAll(v, Math.cos(a) * 120, Math.sin(a) * 120);
-      this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin });
+      this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin, dk: wasDk });
     }
     knockdown(p, dur, a) {
       if (!p.alive || p.down) return;
       p.hook = null; p.hookOn = false;
-      p.down = true; p.downT = dur; p.fire = false;
+      p.down = true; p.downT = dur; p.fire = false; p.wasDual = !!p.dualOn;   // Shadow 7: caído continua com a máscara preta se estava no modo dupla
       this.dropWeapon(p, Math.cos(a) * 220, Math.sin(a) * 220);
       this.events.push({ t: 'down', id: p.id, x: p.x, y: p.y, a });
     }
@@ -1483,7 +1504,7 @@
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / spearChargeOf(p.skin)).toFixed(2) : -1,
-          su: p.sui > 0.01 ? +p.sui.toFixed(2) : 0, em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, dm: p.dualOn ? (dualPair(p) ? 1 : 2) : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
+          su: p.sui > 0.01 ? +p.sui.toFixed(2) : 0, em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, dm: p.dualOn ? (dualPair(p) ? 1 : 2) : 0, dk: (p.dualOn || (p.down && p.wasDual)) ? 1 : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),

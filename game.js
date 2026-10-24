@@ -1048,9 +1048,9 @@ function handleEvent(e, now) {
       break;
     }
     case 'swing': {
-      const st = animOf(e.by); st.sw0 = now; st.sw = e.w; st.punch *= -1;
+      const st = animOf(e.by); st.sw0 = now; st.sw = e.w; st.punch *= -1; st.dc = e.dc != null ? e.dc : -1;
       sfx('swing', e.x, e.y);
-      fx.slashes.push({ x: e.x, y: e.y, a: e.a, t: 1, w: e.w, by: e.by, dir: st.punch, t0: now });
+      fx.slashes.push({ x: e.x, y: e.y, a: e.a, t: 1, w: e.w, by: e.by, dir: st.punch, t0: now, dc: st.dc });
       break;
     }
     case 'kill': {
@@ -1059,7 +1059,7 @@ function handleEvent(e, now) {
       const big = e.how === 'exec' || e.how === 'blade' || e.how === 'blast';
       addBlood(e.x, e.y, e.a, big ? 80 : 50, big ? 420 : 330);
       bloodPool(e.x, e.y, e.a, big);
-      fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId, col: jacketOf(e.id, e.id === myId) });
+      fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: Math.cos(e.a) * (big ? 30 : 160), vy: Math.sin(e.a) * (big ? 30 : 160), mine: e.id === myId, col: jacketOf(e.id, e.id === myId), dk: e.dk });
       addShake(big ? 13 : 9); if (cfg.kick) { fx.flash = 0.35; hitstop = 0.09; zoomKick = 0.06; }
       if (e.id === myId) fx.red = 0.6;
       break;
@@ -1318,12 +1318,12 @@ const MELEE_DEF = {
     R(28, 12, 6, 1, 'W'); R(28, 13, 6, 1, 'M3');
     R(30, 0, 2, 4, 'M1'); R(30, 0, 2, 1, 'W');
   }),
-  BAT: () => mkMelee(29, 4, 4.5, 1.5, R => {          // taco de madeira (sprite do autor): cabo laranja com ponta redonda + pontas serrilhadas
-    R(0, 1, 1, 2, 'O3');
-    R(1, 0, 19, 1, 'O3'); R(1, 1, 8, 1, 'O1'); R(9, 1, 11, 1, 'O2'); R(1, 2, 8, 1, 'O1'); R(9, 2, 11, 1, 'O3'); R(1, 3, 8, 1, 'O3'); R(8, 2, 1, 1, 'O2');
-    R(20, 0, 1, 2, 'M4');
-    R(21, 0, 8, 1, 'M2'); R(21, 1, 8, 1, 'M1'); R(22, 0, 2, 1, 'M3');
-    for (const x of [21, 23, 25, 27]) R(x, 2, 1, 1, 'M3');
+  BAT: () => mkMelee(29, 5, 4.5, 1.5, R => {          // taco (sprite do autor): ponta cinza serrilhada À ESQUERDA = onde segura; corpo de madeira laranja com fundo redondo
+    R(0, 0, 8, 1, 'M2'); R(0, 1, 8, 1, 'M3');                                            // pegada cinza
+    R(0, 2, 1, 1, 'M4'); R(2, 2, 2, 1, 'M4'); R(5, 2, 2, 1, 'M4');                       // dentes serrilhados
+    R(8, 0, 20, 1, 'O3'); R(8, 1, 20, 1, 'O2'); R(8, 2, 11, 1, 'O3');                    // madeira: borda de cima, laranja, borda de baixo (parte fina)
+    R(19, 2, 9, 1, 'O1'); R(19, 3, 9, 1, 'O2'); R(19, 4, 9, 1, 'O3'); R(21, 1, 6, 1, 'O1');  // parte grossa com brilho
+    R(28, 2, 1, 2, 'O3');                                                                // fundo redondo
   }),
   KATANA: () => mkMelee(41, 5, 4.5, 2.5, R => {         // katana: cabo roxo, tsuba dourada, lâmina clara
     for (let x = 0; x <= 10; x++) { R(x, 1, 1, 1, x % 2 ? 'U2' : 'U1'); R(x, 2, 1, 1, x % 2 ? 'U1' : 'U2'); R(x, 3, 1, 1, 'U3'); }
@@ -1517,14 +1517,20 @@ const segInfo = (px, py, ax, ay, bx, by) => {
 };
 // SHADOW 4 — braço do sprite: sai do ombro, o COTOVELO vai para fora do corpo e o antebraço segue até a mão.
 // Braço (ombro→cotovelo) em ciano, antebraço (cotovelo→mão) em branco, tudo com contorno preto de 1px.
-function heroArm(x1, y1, x2, y2) {
+const armTonesC = new Map();
+function armTones(col) {   // manga: mesmas três tonalidades do torso (sombra, base, realce)
+  let t = armTonesC.get(col);
+  if (!t) { t = { c: col, d: shade(col, 0.78), l: shade(col, 1.2) }; if (armTonesC.size > 200) armTonesC.clear(); armTonesC.set(col, t); }
+  return t;
+}
+function heroArm(x1, y1, x2, y2, torso) {
   const sg = y1 < 0 ? -1 : 1, len = Math.hypot(x2 - x1, y2 - y1);
   const out = Math.max(3, Math.min(9.5, 10 - (len - 10) * 0.4));                                          // braço esticado = cotovelo menos aberto
   const ex = x1 + (x2 - x1) * 0.42, ey = y1 + (y2 - y1) * 0.42 + sg * out;   // cotovelo para FORA do ombro (a manga ciano fica à mostra)
-  const P = v => v / PU + SCO, ax = P(x1), ay = P(y1), bx = P(ex), by = P(ey), cx = P(x2), cy = P(y2);
+  const P = v => v / PU + SCO, ax = P(x1), ay = P(y1), bx = P(ex), by = P(ey), cx = P(x2), cy = P(y2), tn = torso ? armTones(torso) : null;
   scrB.paint(mkUnion([mkSeg(ax, ay, bx, by, 2.3), mkSeg(bx, by, cx, cy, 2.0)]), (x, y) => {
     const px = x + .5, py = y + .5, A = segInfo(px, py, ax, ay, bx, by), B = segInfo(px, py, bx, by, cx, cy);
-    if (A.d < B.d + 1.4) return A.side > 0.9 ? '#2c8fab' : A.side < -1.1 ? '#8fe6f4' : '#4fc7e0';   // manga ciano
+    if (A.d < B.d + 1.4) return A.side > 0.9 ? (tn ? tn.d : '#2c8fab') : A.side < -1.1 ? (tn ? tn.l : '#8fe6f4') : (tn ? tn.c : '#4fc7e0');   // manga: segue a cor do torso
     if (B.t > 0.82) return '#e3e9ee';                                                                   // punho
     return B.side > 0.8 ? '#c3ccd5' : '#ffffff';                                                        // antebraço branco (sombra embaixo)
   });
@@ -1553,7 +1559,7 @@ function heroLegs(stp) {
 }
 // braço: manga (jaqueta ou pele no Shadow 4) com sombra num lado, punho e contorno preto
 function limb(x1, y1, x2, y2, jacket) {
-  heroArm(x1, y1, x2, y2); return;   // mesmo braço para TODOS os personagens
+  heroArm(x1, y1, x2, y2, curHero ? heroJacket(jacket) : jacket); return;   // mesmo braço para TODOS os personagens; a manga usa a cor do torso (no Shadow 4 a jaqueta marrom da arte)
   const ax = x1 / PU + SCO, ay = y1 / PU + SCO, bx = x2 / PU + SCO, by = y2 / PU + SCO, dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1, L2 = L * L;
   const base = curHero ? '#d8ab87' : jacket, dk = curHero ? '#b68b69' : shade(jacket, .76), lt = curHero ? '#e6bf9b' : shade(jacket, 1.2);
   const cf = curHero ? '#44211b' : '#efe6d0', cf2 = curHero ? '#341813' : '#cfc6a8';
@@ -1619,19 +1625,30 @@ let curHero = false;   // o personagem que está sendo desenhado é o Shadow 4 (
 
 /* ---------- máscaras de animal em pixel art (mesmos desenhos de antes, agora rasterizados numa grade de pixels) ---------- */
 const HEAD_N = 30, HEAD_C = 15;
-function animalHead(skin) {
-  return cached('head|' + skin, () => {
-    const c = (SKINS[skin] || SKINS.HERO).c, k = skin === 'GORILLA' ? 0.95 : 0.8, S = new Spr(HEAD_N, HEAD_N, HEAD_C, HEAD_C, k);
+function animalHead(skin, dark) {   // dark (só o TIGER): modo dupla ligado -> a máscara do Shadow 7 fica PRETA (pantera); normal = tigre laranja
+  const TG = skin === 'TIGER' && !dark;
+  return cached('head|' + skin + (skin === 'TIGER' ? (dark ? '|k' : '|t') : ''), () => {
+    const c = TG ? '#e8892b' : (SKINS[skin] || SKINS.HERO).c, k = skin === 'GORILLA' ? 0.95 : 0.8, S = new Spr(HEAD_N, HEAD_N, HEAD_C, HEAD_C, k);
     const body = { c, d: shade(c, 0.7), l: shade(c, 1.22) };
     S.e(-2.4, 0, 9.6, 10.4, { c: HAIR, d: shade(HAIR, 0.7), l: shade(HAIR, 1.3) });   // cabelo aparecendo atrás da máscara
     // orelhas (atrás da máscara)
     if (skin === 'BEAR' || skin === 'MONKEY') { const r = skin === 'BEAR' ? 4.4 : 5.2; for (const s of [-1, 1]) { S.e(-1.5, s * (skin === 'BEAR' ? 10.6 : 11), r + 0.4, r + 0.4, c); S.e(-1, s * (skin === 'BEAR' ? 10.6 : 11), r * 0.5, r * 0.5, skin === 'BEAR' ? '#d9b48c' : '#f3c6d6', null); } }
-    if (skin === 'TIGER') for (const s of [-1, 1]) { S.e(-2, s * 9.2, 3.6, 3.9, c); S.e(-1.4, s * 9.4, 1.9, 2.2, '#15151b', null); S.e(-0.6, s * 9.4, 1.0, 1.2, '#6b4a5a', null); }   // PANTERA: orelhas pequenas e redondas
+    if (skin === 'TIGER') for (const s of [-1, 1]) { S.e(-2, s * 9.2, 3.6, 3.9, c); S.e(-1.4, s * 9.4, 1.9, 2.2, TG ? '#fff0da' : '#15151b', null); S.e(-0.6, s * 9.4, 1.0, 1.2, TG ? '#e79ab0' : '#6b4a5a', null); }   // orelhas pequenas e redondas
     if (skin === 'FISH') for (const s of [-1, 1]) { S.p([-1, s * 6, -9, s * 14, -4, s * 5.5], '#ff9a3c'); S.p([-2, s * 7, -7, s * 11.5, -4, s * 6.5], '#ffd08a', null); }
     if (skin === 'GORILLA') for (const s of [-1, 1]) { S.e(-2.2, s * 10.4, 2.8, 3.2, c); S.e(-2.1, s * 10.4, 1.3, 1.6, shade(c, 0.55), null); }   // orelhinhas escuras coladas na cabeça
     if (skin === 'WOLF') for (const s of [-1, 1]) { S.p([0, s * 5, -4, s * 14, 5, s * 8.5], c); S.p([0.5, s * 7, -2.6, s * 12, 3, s * 8.8], '#3a4656', null); }
     S.e(0, 0, 9.6, 9.8, body);   // máscara
-    if (skin === 'TIGER') {   // PANTERA: pelo preto, focinho mais claro, olhos amarelos brilhantes
+    if (TG) {   // TIGRE: pelo laranja com listras pretas, focinho creme, nariz rosado, olhos âmbar
+      const ST = '#1a1008';
+      for (const sd of [-1, 1]) { S.l(-6.8, sd * 3.0, -1.6, sd * 2.4, ST, 1.4); S.l(1.4, sd * 8.9, 2.6, sd * 6.3, ST, 1.3); S.l(4.2, sd * 9.0, 4.8, sd * 7.1, ST, 1.2); }   // listras da testa e das bochechas
+      S.l(-7, 0, -1.2, 0, ST, 1.4);                                                  // listra do meio
+      S.e(6.8, 0, 4.0, 4.4, '#fff1dc');                                              // focinho creme
+      S.e(8.2, -2.2, 1.6, 1.4, '#ffe3bd', null); S.e(8.2, 2.2, 1.6, 1.4, '#ffe3bd', null);   // bochechas do focinho
+      S.p([9.2, -1.7, 11.8, 0, 9.2, 1.7], '#e0708a', null);                          // nariz rosado
+      S.l(9.6, 0, 8, 0, '#3a2418', 1);                                               // boca
+      for (const sd of [-1, 1]) S.e(3.0, sd * 5.5, 3.0, 3.3, '#f6d34a', null);       // olhos âmbar (a pupila escura é desenhada logo depois)
+    }
+    if (skin === 'TIGER' && !TG) {   // PANTERA (modo dupla): pelo preto, focinho mais claro, olhos amarelos brilhantes
       S.e(-2.4, 0, 3.6, 4.8, shade(c, 0.8), null);                                   // testa mais escura
       for (const sd of [-1, 1]) S.l(4.6, sd * 4.1, 9, sd * 3, shade(c, 0.6), 1.4);   // marcas do olho ao focinho
       S.e(6.8, 0, 4.0, 4.4, '#55525f');                                              // focinho cinza-escuro
@@ -1670,10 +1687,10 @@ function animalHead(skin) {
     return S.canvas();
   });
 }
-function drawHead(skin) {
+function drawHead(skin, dark) {
   if (skin === 'HERO') { drawPixelHead('hero', HERO_HEAD); return; }
   if (skin === 'ROOSTER') { drawPixelHead('roost', ROOSTER_HEAD); return; }
-  blitSpr(animalHead(SKINS[skin] ? skin : 'HERO'), HEAD_C, HEAD_C);
+  blitSpr(animalHead(SKINS[skin] ? skin : 'HERO', dark), HEAD_C, HEAD_C);
 }
 
 /* ---------- tronco visto de cima em pixel art: ombros largos, jaqueta com gola, costura e listra nas costas ---------- */
@@ -1708,6 +1725,7 @@ function drawBody(skin, jacket, flat) {
    O sentido alterna a cada golpe (ida e volta), como o taco/faca do jogo original. */
 const SWDUR = { FISTS: 200, KNIFE: 230, MACHETE: 270, AXE: 310, BAT: 340, KATANA: 300, SPEAR: 300, WINE: 260, BROKEN: 210 };
 const swDur = t => SWDUR[t] || 240;
+const dualSwMul = dc => dc === 2 ? 1.2 : dc >= 0 ? 0.8 : 1;   // Shadow 7 com 2 armas melee: golpes 0 e 1 mais rápidos, o cruzado (2) mais lento
 const lerpN = (a, b, t) => a + (b - a) * t;
 function swingAng(sp, arc, dir) {
   const rest = -0.6, a0 = -dir * arc / 2, wind = a0 - dir * 0.45, a1 = dir * arc / 2, over = a1 + dir * 0.18;
@@ -1758,10 +1776,10 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   if (healing) ctx.scale(0.94, 0.94);   // agachadinho enquanto se cura
   const dancing = !!p.em && !p.dn && !healing;   // emote: dancinha (tudo preso ao relógio, então a galera dança no mesmo ritmo)
   if (dancing) { const bt = now / 230, pul = 1 + 0.05 * Math.abs(Math.sin(bt * 2)); ctx.rotate(Math.sin(bt) * 0.5); ctx.scale(pul, pul); }
-  const swW = st.sw || 'FISTS', swSp = Math.min(1, (now - st.sw0) / swDur(p.w || 'FISTS')), swOn = swSp < 1;
+  const swW = st.sw || 'FISTS', swSp = Math.min(1, (now - st.sw0) / (swDur(p.w || 'FISTS') * (p.dm === 1 ? dualSwMul(st.dc) : 1))), swOn = swSp < 1;
   if (swOn && !p.dn && (!p.w || (WEAPONS[p.w] && WEAPONS[p.w].melee))) ctx.translate(swingLunge(swSp) * (p.w === 'SPEAR' ? 5 : p.w ? 8 : 6), 0);   // passada do corpo
   if (p.dn) {
-    ctx.globalAlpha = 0.95; drawBody(p.sk, jacket, true); ctx.translate(-3, 0); drawHead(p.sk); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.95; drawBody(p.sk, jacket, true); ctx.translate(-3, 0); drawHead(p.sk, p.dk > 0); ctx.globalAlpha = 1;
     ctx.restore();
     ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
     const k = 1 - Math.max(0, p.dt) / DOWN_TIME;
@@ -1795,6 +1813,13 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     limb(0, 10, 9 + a * 9, 17 + b2 * 3, jacket); limb(0, -10, 9 - a * 9, -17 - b2 * 3, jacket);
     hand(10 + a * 9, 17.5 + b2 * 3); hand(10 - a * 9, -17.5 - b2 * 3);
     twist = a * 0.2;
+  } else if (swt && p.su > 0.02) {
+    // CTRL: os DOIS braços levam a arma (desenhada por cima do tronco, mais abaixo) da frente até a cabeça: uma mão no cabo, a outra mais à frente
+    const u = p.su, e = u * u * (3 - 2 * u), ra = e * Math.PI / 2, dx = Math.cos(ra), dy = Math.sin(ra), gx = 12 - 9 * e, gy = -26 * e;
+    const h1x = lerpN(10.5, gx + dx * 1.7, e), h1y = lerpN(-7.5, gy + dy * 1.7, e), h2x = lerpN(10, gx + dx * 7.6, e), h2y = lerpN(8, gy + dy * 7.6, e);
+    limb(0, -10, h1x, h1y, jacket); limb(0, 10, h2x, h2y, jacket);
+    hand(h1x, h1y); hand(h2x, h2y);
+    twist = -e * 0.15;
   } else if (p.hm) {
     // gancho na mão (Shadow 4): segura o lançador com as duas mãos, apontado para a mira
     limb(0, 10, 14, 3, jacket); limb(0, -10, 21, -3, jacket);
@@ -1808,7 +1833,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     hand(12 + ext, side * (6.5 - cross)); hand(10.5 - bump * 3, -side * 7.5);
     if (swinging) twist = -side * bump * 0.28;
   } else if (melee) {
-    const spear = wt === 'SPEAR', arc = wd.arc, dir = st.punch || 1, a = spear ? 0 : (swinging ? swingAng(sp, arc, dir) : -0.6);
+    const spearW = wt === 'SPEAR', dcs = p.dm === 1 && swinging && st.dc >= 0 ? st.dc : -1, spear = spearW && dcs !== 1, arc = spearW && dcs === 1 ? 1.9 : wd.arc * (dcs === 2 ? 1.5 : 1), dir = st.punch || 1, a = spear ? 0 : (swinging ? swingAng(sp, arc, dir) : -0.6);
     // lança: puxa o braço, estoca para frente e recolhe
     const thrust = spear && swinging ? (sp < 0.2 ? -9 * (sp / 0.2) : lerpN(-9, 0, (sp - 0.2) / 0.8) + 38 * Math.sin(Math.min(1, (sp - 0.2) / 0.5) * Math.PI / 2) * (sp < 0.7 ? 1 : 1 - (sp - 0.7) / 0.3)) : 0;
     const chg = spear && p.ch > 0 ? p.ch : 0, lunge = thrust - chg * 12, hy = spear ? 5 : 8;
@@ -1816,10 +1841,18 @@ function drawPlayer(p, x, y, ang, isMe, now) {
       // golpe como no Hotline Miami: o braço INTEIRO gira a partir do ombro (estica atrás, varre, estica ao máximo, recolhe) e a arma segue em linha com ele
       const bl = sp < 0.12 ? sp / 0.12 : sp > 0.85 ? (1 - sp) / 0.15 : 1, ha = lerpN(-0.2, a, bl), len = lerpN(10.2, swingArm(sp), bl);
       const hx = Math.cos(ha) * len, hy2 = 10 + Math.sin(ha) * len, cnt = Math.sin(Math.min(1, sp / 0.7) * Math.PI);
-      if (p.dm === 1) {   // Shadow 7 no modo dupla: os DOIS braços varrem juntos, cada um com a sua arma (a da esquerda espelhada)
+      if (p.dm === 1) {   // Shadow 7 no modo dupla: COMBO — golpe 0 = só o braço direito, 1 = só o esquerdo (o outro fica de guarda), 2 = CRUZADO: os dois braços varrem juntos com o corpo girando
+        const stp = dcs >= 0 ? dcs : 0, both = stp === 2;
+        twist = both ? (a + 0.6) * 0.5 : (a + 0.6) * 0.3 * (stp === 0 ? 1 : -1);
         for (const sd of [1, -1]) {
-          limb(0, sd * 10, hx, sd * hy2, jacket);
-          ctx.save(); ctx.translate(hx, sd * hy2); ctx.rotate(sd * a); ctx.scale(1, sd); drawWeaponSprite(sd === 1 ? wt : wt2); hand(1, 0); ctx.restore();
+          const act = both || (stp === 0 ? sd === 1 : sd === -1);
+          if (act) {
+            limb(0, sd * 10, hx, sd * hy2, jacket);
+            ctx.save(); ctx.translate(hx, sd * hy2); ctx.rotate(sd * a); ctx.scale(1, sd); drawWeaponSprite(sd === 1 ? wt : wt2); hand(1, 0); ctx.restore();
+          } else {
+            limb(0, sd * 10, 10, sd * hy, jacket);
+            ctx.save(); ctx.translate(10, sd * hy); ctx.rotate(sd * -0.6); ctx.scale(1, sd); drawWeaponSprite(sd === 1 ? wt : wt2); hand(1, 0); ctx.restore();
+          }
         }
       } else {
       twist = (a + 0.6) * 0.42;   // tronco gira junto com a varrida
@@ -1827,10 +1860,13 @@ function drawPlayer(p, x, y, ang, isMe, now) {
       limb(0, 10, hx, hy2, jacket);
       ctx.save(); ctx.translate(hx, hy2); ctx.rotate(a); drawWeaponSprite(wt); hand(1, 0); ctx.restore();
       }
-    } else if (p.dm === 1) {   // Shadow 7 no modo dupla, em repouso (ou lança): uma arma em cada mão, espelhadas
+    } else if (p.dm === 1) {   // Shadow 7 no modo dupla, em repouso (ou lança): uma arma em cada mão, espelhadas. Lança: estocada direita (0), esquerda (1) ou DUPLA (2)
+      const stS = spear && swinging && dcs >= 0 ? dcs : -1;
       for (const sd of [1, -1]) {
-        limb(0, sd * 10, 10 + lunge, sd * hy, jacket);
-        ctx.save(); ctx.translate(10 + lunge, sd * hy); ctx.rotate(sd * a); ctx.scale(1, sd); drawWeaponSprite(sd === 1 ? wt : wt2); hand(1, 0); ctx.restore();
+        const act = stS < 0 || stS === 2 || (stS === 0 ? sd === 1 : sd === -1);
+        const lg = act ? lunge * (stS === 2 ? 1.25 : 1) : -chg * 12;
+        limb(0, sd * 10, 10 + lg, sd * hy, jacket);
+        ctx.save(); ctx.translate(10 + lg, sd * hy); ctx.rotate(sd * a); ctx.scale(1, sd); drawWeaponSprite(sd === 1 ? wt : wt2); hand(1, 0); ctx.restore();
       }
     } else {
       limb(0, 10, 10 + lunge, hy, jacket);
@@ -1871,7 +1907,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
   drawBody(p.sk, jacket, false);
   drawBackWeapon(p);   // a outra arma do inventário fica nas costas
-  ctx.save(); ctx.translate(2.5, 0); drawHead(p.sk); ctx.restore();
+  ctx.save(); ctx.translate(2.5, 0); drawHead(p.sk, p.dk > 0); ctx.restore();
   if (swt && p.su > 0.02) {   // CTRL: a arma sai da frente e vai girando até apontar para a própria cabeça
     const u = p.su, e = u * u * (3 - 2 * u);
     ctx.save(); ctx.translate(12 - 9 * e, -26 * e); ctx.rotate(e * Math.PI / 2); ctx.scale(0.85, 0.85); drawWeaponSprite(swt); ctx.restore();
@@ -1912,7 +1948,7 @@ function drawCorpse(c) {
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(2, 4, 18, 14, 0, 0, TAU); ctx.fill();
   drawBody(c.sk, c.col || (c.mine ? '#10c6e8' : '#ff2e97'), true);
   ctx.fillStyle = 'rgba(160,10,35,.85)'; circle(2, 0, 7); circle(-4, 5, 4);
-  ctx.translate(-4, 0); drawHead(c.sk);
+  ctx.translate(-4, 0); drawHead(c.sk, c.dk > 0);
   ctx.fillStyle = 'rgba(160,10,35,.7)'; circle(1, 2, 5);
   ctx.restore();
 }
@@ -2127,21 +2163,25 @@ function render(now, dt) {
   for (const s of fx.slashes) {
     const wd = WEAPONS[s.w];
     if (!wd || s.w === 'FISTS') continue;
-    const sp = Math.min(1, (performance.now() - s.t0) / swDur(s.w)), fade = Math.max(0, 1 - Math.max(0, sp - 0.35) / 0.65);
+    const sp = Math.min(1, (performance.now() - s.t0) / (swDur(s.w) * dualSwMul(s.dc))), fade = Math.max(0, 1 - Math.max(0, sp - 0.35) / 0.65);
     if (fade <= 0 || sp < 0.1) continue;
     const pp = s.by === myId ? pred : (interpEnemy(s.by) || s), L = swingLunge(sp) * (s.w === 'SPEAR' ? 5 : 8) * CS;
     ctx.save(); ctx.translate(pp.x + Math.cos(s.a) * L, pp.y + Math.sin(s.a) * L); ctx.rotate(s.a);
     ctx.shadowColor = wd.col; ctx.shadowBlur = 14; ctx.lineCap = 'round';
-    if (s.w === 'SPEAR') {   // estocada: rastro reto saindo da ponta
-      const tip = wd.range * (0.55 + 0.45 * Math.sin(Math.min(1, sp / 0.5) * Math.PI / 2)), g = ctx.createLinearGradient(wd.range * 0.25, 0, tip, 0);
+    if (s.w === 'SPEAR' && s.dc !== 1) {   // estocada: rastro reto saindo da ponta
+      const RG = wd.range * (s.dc === 2 ? 1.3 : 1), tip = RG * (0.55 + 0.45 * Math.sin(Math.min(1, sp / 0.5) * Math.PI / 2)), g = ctx.createLinearGradient(RG * 0.25, 0, tip, 0);
       g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, wd.col);
-      ctx.globalAlpha = fade * 0.85; ctx.strokeStyle = g; ctx.lineWidth = 5 * fade + 1; ctx.beginPath(); ctx.moveTo(wd.range * 0.25, 0); ctx.lineTo(tip, 0); ctx.stroke();
+      for (const off of (s.dc === 0 ? [7] : s.dc === 1 ? [-7] : s.dc === 2 ? [7, -7] : [0])) {   // dupla: o rastro sai da lança do lado que estocou
+        ctx.globalAlpha = fade * 0.85; ctx.strokeStyle = g; ctx.lineWidth = 5 * fade + 1; ctx.beginPath(); ctx.moveTo(RG * 0.25, off); ctx.lineTo(tip, off); ctx.stroke();
+      }
     } else {                 // varrida: meia-lua que acompanha a ponta da arma e some
-      const arc = wd.arc, dir = s.dir || 1;
-      const head = swingAng(Math.min(sp, 0.62), arc, dir), tail = head - dir * Math.min(1.5, arc * 0.7) * (0.35 + 0.65 * Math.min(1, sp / 0.45));
-      const r1 = wd.range * 0.95, r0 = wd.range * 0.5, a0 = Math.min(head, tail), a1 = Math.max(head, tail);
-      ctx.globalAlpha = fade * 0.55; ctx.fillStyle = wd.col; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.arc(0, 0, r0, a1, a0, true); ctx.closePath(); ctx.fill();
-      ctx.globalAlpha = fade * 0.95; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.stroke();
+      const fin = s.dc === 2, arc = s.w === 'SPEAR' ? 1.9 : wd.arc * (fin ? 1.5 : 1), rng = wd.range * (fin ? 1.2 : s.w === 'SPEAR' ? 0.85 : 1);   // lança dupla, 2º golpe = slash
+      for (const dir of (fin ? [s.dir || 1, -(s.dir || 1)] : [s.dir || 1])) {   // cruzado do Shadow 7: dois rastros em X
+        const head = swingAng(Math.min(sp, 0.62), arc, dir), tail = head - dir * Math.min(1.5, arc * 0.7) * (0.35 + 0.65 * Math.min(1, sp / 0.45));
+        const r1 = rng * 0.95, r0 = rng * 0.5, a0 = Math.min(head, tail), a1 = Math.max(head, tail);
+        ctx.globalAlpha = fade * 0.55; ctx.fillStyle = wd.col; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.arc(0, 0, r0, a1, a0, true); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = fade * 0.95; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -2409,7 +2449,7 @@ function ensureVitals() {
   return vit;
 }
 // rosto da máscara no painel de vida: reaproveita drawHead() num canvas próprio (mesma troca de ctx dos ícones de arma)
-function drawFace(cvs, skin, jacket) {
+function drawFace(cvs, skin, jacket, dark) {
   const old = ctx; ctx = cvs.getContext('2d');
   try {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cvs.width, cvs.height);
@@ -2420,7 +2460,7 @@ function drawFace(cvs, skin, jacket) {
     } else {
       ctx.setTransform(4.9, 0, 0, 4.9, cvs.width / 2, cvs.height / 2 + 4); ctx.rotate(-Math.PI / 2);
       ctx.translate(-5, 0);
-      drawHead(SKINS[skin] ? skin : 'HERO');
+      drawHead(SKINS[skin] ? skin : 'HERO', dark);
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = jacket || '#e2a93b'; ctx.fillRect(0, cvs.height - 6, cvs.width, 6);   // faixa na cor da jaqueta
   } finally { ctx = old; }
@@ -2436,8 +2476,8 @@ function updateVitals(me) {
   if (V.c.num !== num) { V.c.num = num; V.num.textContent = num; }
   if (V.c.st !== st) { V.c.st = st; V.el.classList.remove('ok', 'mid', 'low'); V.el.classList.add(st); V.tag.textContent = st === 'low' ? 'CRÍTICO' : st === 'mid' ? 'FERIDO' : 'EM PÉ'; }
   const nm = me.nm || ''; if (V.c.nm !== nm) { V.c.nm = nm; V.name.textContent = nm; }
-  const fk = (me.sk || 'HERO') + '|' + jacketOf(me.id);   // retrato da máscara: redesenha só quando muda
-  if (V.c.fk !== fk) { V.c.fk = fk; drawFace(V.face, me.sk, jacketOf(me.id)); }
+  const fk = (me.sk || 'HERO') + '|' + jacketOf(me.id) + '|' + (me.dk > 0 ? 1 : 0);   // retrato da máscara: redesenha só quando muda
+  if (V.c.fk !== fk) { V.c.fk = fk; drawFace(V.face, me.sk, jacketOf(me.id), me.dk > 0); }
   const hz = me.hz > 0 ? Math.round((1 - me.hz / healTimeOf(me.sk)) * 100) : -1;
   if (V.c.hz !== hz) { V.c.hz = hz; V.heal.classList.toggle('on', hz >= 0); if (hz >= 0) V.healI.style.width = hz + '%'; }
   const act = hasActive(me.sk); if (V.c.act !== act) { V.c.act = act; V.cdI.parentNode.style.display = act ? '' : 'none'; }   // gorila (explosão) e Shadow 4 (gancho) têm ativa
@@ -2525,6 +2565,7 @@ requestAnimationFrame(frame);
    loop (anoitecer → dia → noite…) até o jogador apertar ESPAÇO (ou Enter / clique / toque). Tudo desenhado em canvas. */
 const introEl = $('intro'), icv = $('introCv'), ic = icv.getContext('2d');
 let iW = 0, iH = 0, iD = 1, introOn = true, introT = 0, introLast = performance.now(), introGo = -1, introSkipAt = 0, introDust = [], introShot = '';
+let bootOn = true, bootDoneAt = 0;   // tela de carregamento (N64) na frente: a abertura e a música só começam quando ela acaba e o jogador aperta uma tecla
 let sunCv = null, sunR = 0, moonCv = null, logoCv = null, logoFs = 0, logoW = 0, logoH = 0, shineCv = null;
 const IT_CUT1 = 2.8,        // segundos: corte da serra (câmera 1) para o cavaleiro vindo do fundo (câmera 2)
   IT_FLASH = 6.0,           // segundos: clarão + surge o logo
@@ -3070,6 +3111,7 @@ function drawIntro(t, dt) {
 function introFrame(now) {
   if (!introOn) return;
   requestAnimationFrame(introFrame);
+  if (bootOn) { introLast = now; return; }   // carregando: a animação espera
   const dt = Math.min(0.05, (now - introLast) / 1000); introLast = now; introT += dt;
   drawIntro(introT, dt);
   if (introGo >= 0 && introT - introGo >= IT_GO) endIntro();   // acabou o efeito: abre o menu
@@ -3081,14 +3123,14 @@ function endIntro() {
 }
 // ESPAÇO / Enter / clique / toque. Na cena da serra, o primeiro aperto pula para o logo; com "INICIAR JOGO" na tela, entra no jogo.
 function introPress() {
-  if (!introOn || introGo >= 0) return;
+  if (!introOn || introGo >= 0 || bootOn || performance.now() - bootDoneAt < 700) return;   // o toque que fechou o carregamento não conta aqui
   try { initAudio(); } catch { }
   if (introT < IT_FLASH - 0.3) { introT = IT_FLASH - 0.3; return; }
   if (introT < IT_PROMPT) return;
   introGo = introT; try { sfx('go'); } catch { }
   menuMusicOK = true; menuMusicPlay();   // a música do menu entra junto com o clarão e sobe de volume já no menu
 }
-addEventListener('keydown', e => { if (introOn && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) introPress(); } }, true);
+addEventListener('keydown', e => { if (introOn && !bootOn && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) introPress(); } }, true);
 addEventListener('keyup', e => { if (e.key === ' ' && performance.now() - introSkipAt < 400) e.preventDefault(); });
 $('introSkip').onclick = () => introPress();
 introLast = performance.now(); requestAnimationFrame(introFrame);
@@ -3107,13 +3149,135 @@ function introMusicVol() {
   return Math.max(0, Math.min(1, base * f));
 }
 function introMusicTick() {
-  if (!introOn) { introBgm.pause(); return; }
+  if (!introOn || bootOn) { introBgm.pause(); return; }
   introBgm.volume = introMusicVol();
   if (introBgm.paused && introBgm.volume > 0) { const pr = introBgm.play(); if (pr && pr.catch) pr.catch(() => { }); }
 }
 setInterval(introMusicTick, 100);   // se o autoplay foi bloqueado, o próximo toque/tecla (abaixo) libera
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => { if (introOn) introMusicTick(); }, true);
 introMusicTick();
+
+/* ------------------------------------------------ TELA DE CARREGAMENTO (estilo N64)
+   Fundo preto, cubo 3D colorido girando com reflexo no chão, barra de progresso nas quatro cores. Espera as fontes, a página e as duas músicas
+   (abertura e menu) carregarem — no mínimo ~2,8 s — e então pede "PRESSIONE QUALQUER TECLA". Esse toque libera o áudio do navegador:
+   a tela some num clarão e a abertura começa do zero JUNTO com a música. */
+(function bootScreen() {
+  const ov = document.createElement('div'); ov.id = 'boot';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:60;background:#000;transition:opacity .5s ease;cursor:default;touch-action:manipulation;user-select:none;-webkit-user-select:none';
+  const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
+  ov.appendChild(cv); document.body.appendChild(ov);
+  const c = cv.getContext('2d'), touchDev = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  let W = 0, H = 0, D = 1;
+  const fit = () => { D = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = Math.round(W * D); cv.height = Math.round(H * D); };
+  fit(); addEventListener('resize', fit);
+
+  // ---- progresso real: fontes, página e as duas músicas (cada item tem tempo máximo, para nunca travar)
+  const wait = (arm, ms) => new Promise(res => { let d = false; const f = () => { if (!d) { d = true; res(); } }; try { arm(f); } catch { f(); } setTimeout(f, ms); });
+  const audioReady = (el, ms) => wait(f => { if (el.readyState >= 3) return f(); el.addEventListener('canplay', f, { once: true }); el.addEventListener('error', f, { once: true }); }, ms);
+  const tasks = [
+    wait(f => (document.fonts && document.fonts.ready ? document.fonts.ready.then(f) : f()), 5000),
+    wait(f => (document.readyState === 'complete' ? f() : addEventListener('load', f, { once: true })), 8000),
+    audioReady(introBgm, 5000), audioReady(menuBgm, 5000)
+  ];
+  let real = 0; for (const p of tasks) p.then(() => { real++; });
+  const T0 = performance.now(), MIN = 2.8;
+  let shown = 0, ready = false, finishing = false, flashT = 0, last = T0, raf = 0;
+
+  // ---- cubo 3D (cores do logo do console: vermelho, verde, azul, amarelo; topo e base em cinza)
+  const COLS = ['#e53935', '#3fae49', '#2f7be8', '#f9c80e'];
+  const rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const FACES = [
+    { n: [0, 0, -1], v: [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1]], c: 0 },
+    { n: [0, 0, 1], v: [[1, -1, 1], [-1, -1, 1], [-1, 1, 1], [1, 1, 1]], c: 2 },
+    { n: [1, 0, 0], v: [[1, -1, -1], [1, -1, 1], [1, 1, 1], [1, 1, -1]], c: 1 },
+    { n: [-1, 0, 0], v: [[-1, -1, 1], [-1, -1, -1], [-1, 1, -1], [-1, 1, 1]], c: 3 },
+    { n: [0, -1, 0], v: [[-1, -1, 1], [1, -1, 1], [1, -1, -1], [-1, -1, -1]], c: -1 },
+    { n: [0, 1, 0], v: [[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]], c: -1 }
+  ];
+  function drawCube(cx, cy, s, ry, rx) {
+    const cyA = Math.cos(ry), syA = Math.sin(ry), cxA = Math.cos(rx), sxA = Math.sin(rx), F = 6;
+    const rot = (x, y, z) => { const x1 = x * cyA + z * syA, z1 = -x * syA + z * cyA; return [x1, y * cxA - z1 * sxA, y * sxA + z1 * cxA]; };
+    const vis = [];
+    for (const f of FACES) {
+      const n = rot(...f.n); if (n[2] >= 0) continue;   // de costas para a câmera
+      const pts = f.v.map(p => { const r = rot(...p), k = F / (F + r[2]); return [cx + r[0] * k * s, cy + r[1] * k * s, r[2]]; });
+      vis.push({ f, n, pts, z: pts.reduce((a, p) => a + p[2], 0) / 4 });
+    }
+    vis.sort((a, b) => b.z - a.z);
+    for (const q of vis) {
+      const lam = Math.max(0, -q.n[0] * 0.45 - q.n[1] * 0.6 - q.n[2] * 0.66), br = 0.42 + 0.78 * lam;
+      const base = q.f.c >= 0 ? rgb(COLS[q.f.c]) : [150, 156, 170];
+      c.fillStyle = `rgb(${Math.min(255, base[0] * br) | 0},${Math.min(255, base[1] * br) | 0},${Math.min(255, base[2] * br) | 0})`;
+      c.beginPath(); c.moveTo(q.pts[0][0], q.pts[0][1]); for (let i = 1; i < 4; i++) c.lineTo(q.pts[i][0], q.pts[i][1]); c.closePath(); c.fill();
+      c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = Math.max(1, s * 0.03); c.stroke();
+      c.strokeStyle = `rgba(255,255,255,${0.1 + 0.3 * lam})`; c.lineWidth = Math.max(1, s * 0.02); c.beginPath(); c.moveTo(q.pts[0][0], q.pts[0][1]); c.lineTo(q.pts[1][0], q.pts[1][1]); c.stroke();
+    }
+  }
+
+  function frame(now) {
+    raf = requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const el = (now - T0) / 1000, target = Math.min(real / tasks.length, el / MIN);
+    shown += (target - shown) * Math.min(1, dt * 5); if (shown > 0.995 && target >= 1) shown = 1;
+    if (!ready && shown >= 1 && el >= MIN) ready = true;
+
+    const t = el, m = Math.min(W, H), s = m * (W < H ? 0.17 : 0.14);
+    c.setTransform(D, 0, 0, D, 0, 0); c.globalAlpha = 1; c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+    const cx = W / 2, cy = H * 0.37 + Math.sin(t * 2.2) * s * 0.07;
+    // brilho atrás do cubo
+    const gl = c.createRadialGradient(cx, cy, s * 0.3, cx, cy, s * 3.4); gl.addColorStop(0, 'rgba(120,150,255,.22)'); gl.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = gl; c.fillRect(0, 0, W, H);
+    const spin = t * (ready ? 2.4 : 1.5), tilt = 0.55 + Math.sin(t * 0.9) * 0.28, floorY = cy + s * 1.95;
+    // reflexo no chão
+    c.save(); c.beginPath(); c.rect(0, floorY, W, H); c.clip(); c.translate(0, floorY * 2); c.scale(1, -1); c.globalAlpha = 0.16; drawCube(cx, cy, s, spin, tilt); c.restore();
+    const fg = c.createLinearGradient(0, floorY, 0, floorY + s * 1.6); fg.addColorStop(0, 'rgba(0,0,0,0)'); fg.addColorStop(1, 'rgba(0,0,0,1)'); c.fillStyle = fg; c.fillRect(0, floorY, W, s * 1.7);
+    drawCube(cx, cy, s, spin, tilt);
+
+    // título
+    const fs = Math.max(22, Math.min(W * 0.085, m * 0.1));
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `400 ${fs}px Bungee, Impact, sans-serif`;
+    c.shadowColor = 'rgba(120,150,255,.7)'; c.shadowBlur = 18; c.fillStyle = '#fff'; c.fillText('7 SHADOWS', cx, H * 0.665); c.shadowBlur = 0;
+
+    // barra + texto
+    const bw = Math.min(W * 0.72, 440), bh = Math.max(10, m * 0.022), bx = cx - bw / 2, by = H * 0.8;
+    if (!ready) {
+      const dots = '.'.repeat(1 + ((t * 2.5) | 0) % 3);
+      c.font = `400 ${Math.max(13, fs * 0.38)}px Bungee, Impact, sans-serif`; c.fillStyle = '#cfd6ee'; c.textAlign = 'left'; c.fillText('CARREGANDO' + dots, bx, by - bh * 1.7);
+      c.textAlign = 'right'; c.fillText(Math.round(shown * 100) + '%', bx + bw, by - bh * 1.7);
+    }
+    c.fillStyle = '#12141c'; c.strokeStyle = '#8b93ad'; c.lineWidth = 2; c.beginPath(); c.rect(bx, by, bw, bh); c.fill(); c.stroke();
+    c.save(); c.beginPath(); c.rect(bx + 2, by + 2, Math.max(0, (bw - 4) * shown), bh - 4); c.clip();
+    for (let i = 0; i < 4; i++) { c.fillStyle = COLS[i]; c.fillRect(bx + 2 + (bw - 4) * i / 4, by + 2, (bw - 4) / 4 + 1, bh - 4); }
+    c.fillStyle = 'rgba(255,255,255,.28)'; c.fillRect(bx, by + 2, bw, (bh - 4) * 0.4); c.restore();
+    if (ready) {
+      const blink = 0.55 + 0.45 * Math.sin(t * 5);
+      c.textAlign = 'center'; c.font = `400 ${Math.max(14, fs * 0.42)}px Bungee, Impact, sans-serif`; c.globalAlpha = finishing ? 1 : blink; c.fillStyle = '#ffe14f';
+      c.fillText(touchDev ? 'TOQUE NA TELA' : 'PRESSIONE QUALQUER TECLA', cx, by + bh * 3.4); c.globalAlpha = 1;
+    }
+    if (flashT) { c.fillStyle = `rgba(255,255,255,${Math.min(1, (now - flashT) / 180)})`; c.fillRect(0, 0, W, H); }
+  }
+  raf = requestAnimationFrame(frame);
+
+  function finish() {
+    if (finishing) return; finishing = true; flashT = performance.now();
+    removeEventListener('keydown', onKey, true); removeEventListener('pointerdown', onPtr, true); removeEventListener('touchstart', onPtr, true);
+    bootDoneAt = performance.now(); bootOn = false;
+    try { initAudio(); } catch { }
+    introT = 0; introLast = performance.now();   // abertura e música começam juntas, do zero
+    try { introBgm.volume = 0; const pr = introBgm.play(); if (pr && pr.catch) pr.catch(() => { }); } catch { }   // o play() tem que sair DENTRO do toque (Safari); o volume sobe no tick
+    introMusicTick();
+    setTimeout(() => { ov.style.opacity = '0'; ov.style.pointerEvents = 'none'; }, 180);
+    setTimeout(() => { cancelAnimationFrame(raf); ov.remove(); removeEventListener('resize', fit); }, 800);
+  }
+  const onKey = e => {
+    e.stopImmediatePropagation();   // enquanto carrega, o jogo não recebe teclas
+    if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab'].includes(e.key) || /^F\d+$/.test(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === ' ' || e.key === 'Enter' || e.key.startsWith('Arrow')) e.preventDefault();
+    if (ready) finish();
+  };
+  const onPtr = e => { e.stopImmediatePropagation(); if (ready) finish(); };
+  addEventListener('keydown', onKey, true); addEventListener('pointerdown', onPtr, true); addEventListener('touchstart', onPtr, { capture: true, passive: true });
+})();
 
 /* ------------------------------------------------ MENU: música */
 $('btnMusic').onclick = () => showTab('music');
@@ -3129,7 +3293,7 @@ function shadowInfo(k) {
   if (st.healTime || st.healPct) L.push('Cura ' + Shared.healPctOf(k) + '% da vida em ' + String(healTimeOf(k)).replace('.', ',') + ' s');
   if (st.meleeOnly) L.push('Só empunha armas corpo a corpo');
   if (st.bladeKill) L.push('Lâmina arremessada que acerta a lâmina tira 100%');
-  if (hasActive(k)) L.push('Ativa (Espaço): ' + (hasHook(k) ? 'gancho' : hasDual(k) ? 'segura 2 armas do mesmo tipo (ex.: pistola + revólver), uma em cada mão (de fogo: atiram juntas)' : 'explosão'));
+  if (hasActive(k)) L.push('Ativa (Espaço): ' + (hasHook(k) ? 'gancho' : hasDual(k) ? 'segura 2 armas do mesmo tipo (ex.: pistola + revólver), uma em cada mão (de fogo: atiram juntas; corpo a corpo: combo direita, esquerda e cruzado; lança: estocada, slash e dupla estocada; garrafa: rajada de 4 e esmagada)' : 'explosão'));
   return L;
 }
 function buildShadows() {
