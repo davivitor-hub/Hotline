@@ -35,7 +35,7 @@
   const WEAPON_SLOW = { SNIPER: 0.85, MINIGUN: 0.65 };   // velocidade de quem segura: sniper -15%, minigun -35%
   const ACT_SLOW = 0.45, ACT_SLOW_T = 3;   // quem leva a explosão da ativa anda a 45% da velocidade por 3 s
   /* SOCO DO SHADOW 2: bola de energia (sem arma na mão) — colisão grande, dano enorme, recarga longa */
-  const ORB_DMG = 15, ORB_R = 46, ORB_SPEED = 720, ORB_RANGE = 760, ORB_CD = 0.9;
+  const ORB_DMG = 15, ORB_R = 46, ORB_SPEED = 720, ORB_RANGE = 150, ORB_CD = 0.5, ORB_DELAY = 0.1;
   const ACT_RADIUS = 170;    // raio da explosão (px)
   const ACT_CD = 3;          // recarga (s)
   /* ===== SHADOW 4: ATIVA = GANCHO. Prende no adversário mais perto da mira e se puxa até ele ===== */
@@ -857,7 +857,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.slowT = 0; p.dive = false; p.air = DIVE_AIR; p.hook = null; p.hookOn = false; p.dualOn = false; p.emT = 0; p.emCd = 0; p.sui = 0; p.ct = false; p.coinT = 0; p.coinUsed = false; p.coinRes = 0; p.coinFx = -1; p.fx = -1; p.fxSpd = 1; p.fxDmg = 1; p.fxCad = 1;
+      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.orbT = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.slowT = 0; p.dive = false; p.air = DIVE_AIR; p.hook = null; p.hookOn = false; p.dualOn = false; p.emT = 0; p.emCd = 0; p.sui = 0; p.ct = false; p.coinT = 0; p.coinUsed = false; p.coinRes = 0; p.coinFx = -1; p.fx = -1; p.fxSpd = 1; p.fxDmg = 1; p.fxCad = 1;
     }
     startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
@@ -971,6 +971,7 @@
         if (!p) continue;
         if (p.slowT > 0) p.slowT -= dt;
         this.stepCoin(p, dt);
+        if (p.orbT > 0) { p.orbT -= dt; if (p.orbT <= 0) { p.orbT = 0; if (p.alive && !p.down) this.spawnOrb(p); } }   // soco do gorila: solta a bola no ponto do golpe
         p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; if (p.dcT > 0) p.dcT -= dt; if (p.actCd > 0) p.actCd = Math.max(0, p.actCd - dt); if (p.emCd > 0) p.emCd -= dt; p.budget = Math.min(0.3, p.budget + dt);
         if (p.charging) {   // lança: enquanto segura o botão de arremesso a força sobe; soltou = arremessa
           if (!p.alive || p.down || p.healT > 0 || !p.weapon || p.weapon.type !== 'SPEAR' || this.phase !== 'live') { p.charging = false; p.chg = 0; }
@@ -1061,7 +1062,7 @@
     }
     attack(p) {
       if (p.hookOn) { this.fireHook(p); return; }   // gancho na mão: o clique lança o gancho em vez de bater/atirar
-      if (!p.weapon && p.skin === 'GORILLA') { this.fireOrb(p); return; }   // Shadow 2 de mãos vazias: o soco solta uma bola de energia
+      if (!p.weapon && p.skin === 'GORILLA') { this.fireOrb(p); return; }   // Shadow 2 de mãos vazias: o soco É a bola de energia (curta, sai da mão)
       const wd = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
       if (wd.melee) {
         // SHADOW 7 com 2 armas corpo a corpo do mesmo tipo (modo dupla): COMBO. Sem bater por ~0,5 s o combo volta ao início.
@@ -1070,10 +1071,11 @@
         //  - GARRAFA: rajada de 4 garrafadas alternando direita/esquerda (rápida) e ESMAGADA com as duas (arco x1,5, alcance x1,2, dano x1,6)
         const dp = p.weapon ? dualPair(p) : null;
         let dStep = -1, mRange = wd.range, mArc = wd.arc, mDmg = wd.dmg, mCd = wd.cd, cK = 0, cN = 3;
+        let dFin = false, dSpr = false, dBot = false;
         if (dp) {
           const spr = p.weapon.type === 'SPEAR', bot = isBottle(p.weapon.type);
           cN = bot ? 5 : 3; cK = p.dcT > 0 ? (p.dc | 0) % cN : 0;
-          const fin = cK === cN - 1; dStep = fin ? 2 : cK % 2;
+          const fin = cK === cN - 1; dStep = fin ? 2 : cK % 2; dFin = fin; dSpr = spr; dBot = bot;
           if (fin) {
             if (spr) { mRange *= 1.3; mDmg *= 1.7; mCd *= 1.25; }
             else if (bot) { mRange *= 1.2; mArc *= 1.5; mDmg *= 1.6; mCd *= 1.3; }
@@ -1083,6 +1085,16 @@
             if (spr && dStep === 1) { mArc = 1.9; mRange *= 0.85; }   // lança: o 2º golpe é um SLASH (varrida larga, alcance um pouco menor) com a lança esquerda
           }
         }
+        // MODO DUPLA: cada arma tem o SEU alcance, arco e dano; o ritmo é o da mais lenta das duas
+        const hands = (dp ? [wd, WEAPONS[dp[1].type] || wd] : [wd]).map(w => {
+          let r = w.range, ar = w.arc, dm = w.dmg;
+          if (dp) {
+            if (dFin) { if (dSpr) { r *= 1.3; dm *= 1.7; } else { r *= 1.2; ar *= 1.5; dm *= dBot ? 1.6 : 1.6; } }
+            else if (dSpr && dStep === 1) { ar = 1.9; r *= 0.85; }
+          }
+          return { w, r, ar, dm };
+        });
+        if (dp) mCd *= Math.max(...hands.map(h => h.w.cd)) / wd.cd;
         p.cd = mCd * cadMulOf(p.skin, p.dualOn) * (p.fxCad || 1); p.swing = 0.2;
         if (dp) { p.dc = (cK + 1) % cN; p.dcT = mCd + 0.5; }
         this.events.push({ t: 'swing', by: p.id, w: p.weapon ? p.weapon.type : 'FISTS', x: p.x, y: p.y, a: p.angle, dc: dStep });
@@ -1091,13 +1103,16 @@
         for (const o of this.players) {
           if (!o || o === p || !o.alive || o.dive) continue;
           const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
-          if (d > mRange + PR) continue;
-          const aa = Math.atan2(dy, dx);
-          const tol = mArc / 2 + Math.asin(Math.min(1, PR * 0.75 / Math.max(d, 1)));   // alvo grande = mais fácil de acertar de raspão
-          if ((Math.abs(angDiff(aa, p.angle)) <= tol || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) {
+          let tot = 0, knock = false, aa = Math.atan2(dy, dx);
+          for (const h of hands) {   // cada arma acerta (ou não) com o próprio alcance/arco; quem acerta soma o próprio dano
+            if (d > h.r + PR) continue;
+            const tol = h.ar / 2 + Math.asin(Math.min(1, PR * 0.75 / Math.max(d, 1)));   // alvo grande = mais fácil de acertar de raspão
+            if ((Math.abs(angDiff(aa, p.angle)) <= tol || d < PR * 1.6) && this.level.los(p.x, p.y, o.x, o.y)) { tot += h.dm; if (h.w.knock) knock = true; }
+          }
+          if (tot > 0) {
             hitAny = true;
-            if (o.down) this.hurt(o, p, mDmg * EXEC_MULT, 'exec', aa);
-            else { this.hurt(o, p, mDmg, 'melee', aa); if (wd.knock) this.knockdown(o, DOWN_TIME, aa); }
+            if (o.down) this.hurt(o, p, tot * EXEC_MULT, 'exec', aa);
+            else { this.hurt(o, p, tot, 'melee', aa); if (knock) this.knockdown(o, DOWN_TIME, aa); }
           }
         }
         // garrafa inteira que bate numa parede/porta/móvel: QUEBRA e vira garrafa quebrada (se acertou alguém, sobrevive)
@@ -1139,12 +1154,15 @@
 
     fireOrb(p) {
       p.cd = ORB_CD; p.swing = 0.2;
-      const cs = Math.cos(p.angle), sn = Math.sin(p.angle);
+      p.orbT = ORB_DELAY; p.orbA = p.angle;   // a bola só sai quando o punho estica (sincronizada com a animação do soco)
+      this.events.push({ t: 'swing', by: p.id, w: 'FISTS', x: p.x, y: p.y, a: p.angle, dc: -1 });
+    }
+    spawnOrb(p) {
+      const a = p.orbA, cs = Math.cos(a), sn = Math.sin(a);
       let mz = 34;
       if (!this.level.los(p.x, p.y, p.x + cs * mz, p.y + sn * mz)) mz = 8;
       this.bullets.push({ id: this.nid++, x: p.x + cs * mz, y: p.y + sn * mz, vx: cs * ORB_SPEED, vy: sn * ORB_SPEED, owner: p.id, w: 'ORB', life: ORB_RANGE / ORB_SPEED, r: ORB_R });
-      this.events.push({ t: 'swing', by: p.id, w: 'FISTS', x: p.x, y: p.y, a: p.angle, dc: -1 });
-      this.events.push({ t: 'shot', by: p.id, w: 'ORB', x: p.x, y: p.y, a: p.angle });
+      this.events.push({ t: 'shot', by: p.id, w: 'ORB', x: p.x, y: p.y, a });
     }
     // Garrafa quebra: a arma da mão do jogador `p` vira a versão quebrada (GARRAFA QUEBRADA) e sai um estilhaço de vidro/vinho no ponto do impacto.
     shatter(p, x, y, a) {
@@ -1546,7 +1564,9 @@
           if (this.level.doorAt(b.x, b.y, 1.5)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }   // porta destravada também barra tiro
           for (const p of this.players) {
             if (!p || !p.alive || p.dive || p.id === b.owner) continue;
-            if (segDist(p.x, p.y, px, py, b.x, b.y) < (b.r || PR)) { dead = true; this.hurt(p, this.byId(b.owner), b.w === 'ORB' ? ORB_DMG : WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
+            if (segDist(p.x, p.y, px, py, b.x, b.y) < (b.r || PR)) {
+              if (b.w === 'ORB') { b.hit = b.hit || new Set(); if (b.hit.has(p.id)) continue; b.hit.add(p.id); this.hurt(p, this.byId(b.owner), ORB_DMG, 'bullet', Math.atan2(b.vy, b.vx)); continue; }   // soco do gorila: atravessa e pega TODOS na área, 1x cada
+              dead = true; this.hurt(p, this.byId(b.owner), b.w === 'ORB' ? ORB_DMG : WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
           }
         }
         b.life -= dt;
