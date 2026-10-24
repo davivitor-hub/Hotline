@@ -150,17 +150,17 @@ body.touch #optDesc{font-size:0}
 body.touch #optDesc::after{content:"tremor, tela e som";font-size:.85rem;letter-spacing:.14em}
 
 /* ------------------------------------------------------------ modais no mesmo estilo (pausa, sala, opções, configurar sala) */
-#pause,#lobby,#opts,#roomCfg{background:rgba(3,10,36,.82)!important;font-family:var(--dc-font)}
-#pause .box,#lobby .box,#opts .box,#roomCfg .box{
+#pause,#lobby,#opts,#roomCfg,#botCfg{background:rgba(3,10,36,.82)!important;font-family:var(--dc-font)}
+#pause .box,#lobby .box,#opts .box,#roomCfg .box,#botCfg .box{
   background:linear-gradient(135deg,rgba(56,96,186,.95),rgba(20,46,120,.97) 40%,rgba(12,30,90,.98))!important;
   border:2px solid #9db9ee!important;border-right-color:#2a4690!important;border-bottom-color:#1a2f78!important;border-radius:16px 6px 6px 6px;
   box-shadow:0 0 0 2px #0a1a4a,0 18px 50px rgba(0,0,20,.6),inset 0 0 36px rgba(120,170,255,.16)!important;color:var(--dc-white)}
-#pause h2,#lobby h2,#opts h2,#roomCfg h2{font:800 1.4rem var(--dc-font)!important;font-style:italic;color:var(--dc-white)!important;text-shadow:2px 2px 0 #06143f;text-align:left!important;letter-spacing:.02em}
-#pause .btn,#lobby .btn,#opts .btn,#roomCfg .btn{width:100%;min-height:40px;padding:8px 14px;font:800 1rem var(--dc-font);letter-spacing:.03em;color:var(--dc-white);text-shadow:0 1px 0 #0c1c55;
+#pause h2,#lobby h2,#opts h2,#roomCfg h2,#botCfg h2{font:800 1.4rem var(--dc-font)!important;font-style:italic;color:var(--dc-white)!important;text-shadow:2px 2px 0 #06143f;text-align:left!important;letter-spacing:.02em}
+#pause .btn,#lobby .btn,#opts .btn,#roomCfg .btn,#botCfg .btn{width:100%;min-height:40px;padding:8px 14px;font:800 1rem var(--dc-font);letter-spacing:.03em;color:var(--dc-white);text-shadow:0 1px 0 #0c1c55;
   background:var(--dc-btn);border:2px solid;border-color:#c1d4f6 #1b2f6c #1b2f6c #c1d4f6;border-radius:7px;box-shadow:0 2px 3px rgba(0,0,30,.45);transform:none;transition:filter .1s}
-#pause .btn:hover,#lobby .btn:hover,#opts .btn:hover,#roomCfg .btn:hover,#pause .btn:focus-visible,#lobby .btn:focus-visible,#opts .btn:focus-visible,#roomCfg .btn:focus-visible{
+#pause .btn:hover,#lobby .btn:hover,#opts .btn:hover,#roomCfg .btn,#botCfg .btn:hover,#pause .btn:focus-visible,#lobby .btn:focus-visible,#opts .btn:focus-visible,#roomCfg .btn,#botCfg .btn:focus-visible{
   outline:none;background:var(--dc-btn-on);color:#fff;border-color:#e6fbff #3a6fbf #3a6fbf #e6fbff;box-shadow:0 0 0 2px var(--dc-cy),0 0 12px 2px rgba(98,243,255,.7);transform:none}
-#pause .btn.primary,#lobby .btn.primary,#roomCfg .btn.primary,#opts .btn.primary{background:linear-gradient(180deg,#8fd0ff,#3d8be0 46%,#2468c8 54%,#3f95ea)}
+#pause .btn.primary,#lobby .btn.primary,#roomCfg .btn.primary,#botCfg .btn.primary,#opts .btn.primary{background:linear-gradient(180deg,#8fd0ff,#3d8be0 46%,#2468c8 54%,#3f95ea)}
 #pause .btn.danger,#lobby .btn.danger{background:linear-gradient(180deg,#d98aa0,#a53f63 46%,#8a2a4e 54%,#b04a6c)}
 #pause .btn:disabled,#lobby .btn:disabled,#pause .btn#btnSuicide:disabled{opacity:.45;filter:grayscale(.5);cursor:not-allowed;box-shadow:none}
 #btnSuicide.armed{background:linear-gradient(180deg,#ff9bb0,#e0305a)!important;color:#fff!important}
@@ -172,7 +172,7 @@ body.touch #optDesc::after{content:"tremor, tela e som";font-size:.85rem;letter-
 .osec h3{color:var(--dc-cy)!important;border-bottom:1px solid rgba(157,185,238,.45)!important;font:800 .85rem var(--dc-font)!important;letter-spacing:.1em}
 .orow{color:var(--dc-white)!important}
 .orow output{color:var(--dc-cy)!important;font:800 .85rem var(--dc-font)!important}
-.orow select,#opts select,#roomCfg select{background:#14307a;color:#fff;border:2px solid #7f9fdc;border-radius:6px;font:700 .95rem var(--dc-font)}
+.orow select,#opts select,#roomCfg select,#botCfg select{background:#14307a;color:#fff;border:2px solid #7f9fdc;border-radius:6px;font:700 .95rem var(--dc-font)}
 .orow input[type=range],.orow input[type=checkbox]{accent-color:var(--dc-cy)}
 .otabs{border-bottom:2px solid #7f9fdc!important}
 .otab{color:var(--dc-dim)!important;font:800 .95rem var(--dc-font)!important}

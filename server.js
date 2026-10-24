@@ -202,7 +202,7 @@ wss.on('connection', (ws) => {
         sw: m.sw ? 1 : 0,                                // scroll: alterna de arma
         sl: m.sl ? 1 : 0,                                // Espaço: ativa
         em: m.em ? 1 : 0,                                // emote (dancinha)
-        su: m.su ? 1 : 0,                                // botão de suicídio
+        ct: m.ct ? 1 : 0,                                // CTRL segurado: vira a arma para a própria cabeça
         ss: Math.max(0, Math.min(2, Number(m.ss) | 0))   // teclas 1/2: escolhe o espaço
       }, Math.max(0, Math.min(0.05, dt)));
       return;

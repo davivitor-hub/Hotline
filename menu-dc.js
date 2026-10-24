@@ -10,7 +10,7 @@
     try { if ((typeof mode !== 'undefined' && mode) || (typeof introOn !== 'undefined' && introOn)) return; } catch { }
     const tg = e.target && e.target.tagName;
     if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
-    if (!$('roomCfg').classList.contains('hidden') || !$('opts').classList.contains('hidden')) return;
+    if (!$('botCfg').classList.contains('hidden') || !$('roomCfg').classList.contains('hidden') || !$('opts').classList.contains('hidden')) return;
     const k = e.key;
     if (k === 'ArrowDown' || k === 'ArrowUp') {
       const l = items(); if (!l.length) return;

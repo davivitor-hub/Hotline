@@ -27,7 +27,6 @@
     <div id="spectate" class="hidden"><small>ESPECTANDO</small><b id="specName"></b><span class="sh"><kbd>A</kbd><kbd>D</kbd> trocar</span></div>
     <div id="netHud"><span id="pingTxt"></span></div>
     <div id="roundTimer" class="hidden"></div>
-    <div id="suiBar" class="hidden"><small>SUICÍDIO</small><i><b></b></i></div>
     <div id="roster"></div>
   </div>
 
@@ -52,7 +51,6 @@
       <button id="btnResume" class="btn primary">Voltar ao jogo</button>
       <button id="btnOptsPause" class="btn" type="button">Opções</button>
       <button id="btnTouchPause" class="btn touchonly" type="button">Ajustar controles</button>
-      <button id="btnSuicide" class="btn danger" type="button">Suicídio</button>
       <button id="btnLeave" class="btn danger">Sair da partida</button>
     </div>
   </div>
@@ -159,6 +157,29 @@
       <p class="rcnote">Se o tempo da rodada acabar, vence quem estiver com mais vida. Empate na vida = ninguém pontua.</p>
       <button id="btnRcCreate" class="btn primary" type="button">Criar sala</button>
       <button id="btnRcBack" class="btn" type="button">Voltar</button>
+    </div>
+  </div>
+
+  <!-- configurações da partida contra bots (aparece ao tocar em "Vs Bot") -->
+  <div id="botCfg" class="hidden" role="dialog" aria-modal="true" aria-label="Configurar partida contra bots">
+    <div class="box">
+      <h2>Vs Bot</h2>
+      <div class="osec">
+        <h3>Partida</h3>
+        <div class="orow"><span>Dificuldade</span><select id="bcDiff"></select></div>
+        <div class="orow"><span>Fase</span><select id="bcMap"></select></div>
+        <div class="orow"><span>Quantidade de bots</span><select id="bcCount"></select></div>
+        <div class="orow"><span>Rodadas para vencer</span><select id="bcWin"></select></div>
+        <div class="orow"><span>Tempo máx. da rodada</span><select id="bcTime"></select></div>
+      </div>
+      <div class="osec">
+        <h3>Regras</h3>
+        <div class="orow"><span>Armas no mapa</span><select id="bcWeap"></select></div>
+        <div class="orow"><label class="chk"><input type="checkbox" id="bcHeal"> Cura liberada (tecla Q)</label></div>
+      </div>
+      <p class="rcnote" id="bcNote">Com 0 bots você treina sozinho, sem fim de rodada.</p>
+      <button id="btnBcStart" class="btn primary" type="button">Começar</button>
+      <button id="btnBcBack" class="btn" type="button">Voltar</button>
     </div>
   </div>
 

@@ -10,6 +10,7 @@
 
   const TILE = 72, PR = 18, CS = 1.35, SPEED = 290, WIN_SCORE = 5, DOWN_TIME = 1.7;
   const MAX_PLAYERS = 7;   // máximo de jogadores na sala
+  const SUI_TURN = 0.7;    // segundos segurando CTRL até a arma apontar para a cabeça
   const MIN_PLAYERS = 2;   // a partida começa com 2 ou mais
   /* ===== CONFIGURAÇÕES DA SALA (escolhidas por quem cria a sala) ===== */
   const ROOM_DEFAULTS = { map: '', winScore: 5, roundTime: 0, maxPlayers: MAX_PLAYERS, weapons: 1, heal: true };   // roundTime 0 = sem limite
@@ -749,7 +750,7 @@
   class Game {
     // autoStart: true => começa sozinho com 2+ jogadores (treino); false => sala com botão Iniciar (online)
     constructor(opts = {}) {
-      this.autoStart = !!opts.autoStart;
+      this.autoStart = !!opts.autoStart; this.solo = !!opts.solo;   // solo = treino sem bots: a rodada não acaba com 1 jogador
       const rc = sanitizeRoomCfg(opts);
       this.mapPref = rc.map || null;   // fase escolhida (null = aleatória a cada rodada)
       this.winScore = rc.winScore; this.roundTime = rc.roundTime; this.maxPlayers = rc.maxPlayers; this.weaponMul = rc.weapons; this.healOn = rc.heal;
@@ -764,13 +765,13 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0 || slot >= this.maxPlayers) return null;   // sala cheia (limite escolhido na criação)
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'HERO', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: maxHpOf(skin || 'HERO'),
-        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, actCd: 0, aimD: HOOK_RANGE, emT: 0, emCd: 0 };
+        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, actCd: 0, aimD: HOOK_RANGE, emT: 0, emCd: 0, sui: 0, ct: false };
       // inventário de 2 espaços: `weapon` continua sendo a arma NA MÃO (o espaço selecionado), então todo o resto do código funciona igual
       Object.defineProperty(p, 'weapon', { get() { return this.inv[this.sel]; }, set(v) { this.inv[this.sel] = v; }, enumerable: false, configurable: true });
       this.players[slot] = p;
       if (this.phase === 'waiting' || this.phase === 'lobby' || !this.level) {
         if (!this.autoStart) this.phase = 'lobby';                       // espera o anfitrião apertar Iniciar
-        else if (this.count >= MIN_PLAYERS) this.startMatch(); else this.phase = 'waiting';
+        else if (this.count >= MIN_PLAYERS || this.solo) this.startMatch(); else this.phase = 'waiting';
       } else if (this.phase === 'countdown') {
         // ainda na contagem: entra normalmente na rodada
         this.spawnPlayer(p, this.nextSpawn());
@@ -807,7 +808,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false; p.dualOn = false; p.emT = 0; p.emCd = 0;
+      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false; p.dualOn = false; p.emT = 0; p.emCd = 0; p.sui = 0; p.ct = false;
     }
     startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
@@ -876,13 +877,12 @@
     /* entrada de um jogador (cliente ou bot) */
     applyInput(p, inp, dt) {
       if (!p || !inp || !this.level) return;
-      if (inp.su && this.suicide(p)) return;   // botão de suicídio
       if (Number.isFinite(inp.a)) p.angle = inp.a;
       if (Number.isFinite(inp.ad)) p.aimD = Math.max(0, Math.min(2000, inp.ad));   // distância da mira (cursor) até o boneco: alcance do gancho
       p.fire = !!inp.f; p.tc = !!inp.tc;
       if (inp.fp) p.buf = 0.16;
       // EMOTE: qualquer movimento ou ação encerra a dancinha; a tecla de emote liga/desliga (só parado)
-      if (p.emT > 0 && (((inp.k | 0) & 15) || inp.f || inp.fp || inp.pk || inp.it || inp.th || inp.hl || inp.sw || inp.ss || inp.sl || inp.su)) p.emT = 0;
+      if (p.emT > 0 && (((inp.k | 0) & 15) || inp.f || inp.fp || inp.pk || inp.it || inp.th || inp.hl || inp.sw || inp.ss || inp.sl || inp.ct)) p.emT = 0;
       if (inp.em && p.emCd <= 0 && !((inp.k | 0) & 15)) this.emote(p);
       // cancelar a cura: apertar cura de novo, atacar, arremessar, pegar arma ou trocar de arma (não recebe a vida)
       let healCanceled = false;
@@ -904,6 +904,13 @@
           if (r) { this.tryDoors(p, r.dx, r.dy); this.doorContact(p, dd); }
         }
       }
+      // CTRL segurado: a arma vira para a própria cabeça (p.sui sobe no tick); com ela virada, o clique esquerdo se mata
+      p.ct = !!inp.ct && p.alive && !p.down && !(p.healT > 0) && !p.hook && !!p.weapon && this.phase === 'live';
+      if (p.ct) {
+        p.fire = false; p.buf = 0;
+        if (inp.fp && p.sui >= 0.98) this.suicide(p);
+        return;
+      }
       if ((inp.fp || inp.f) && !(p.healT > 0)) this.tryFire(p);   // o tiro sai na hora que o clique chega, sem esperar o próximo tick
     }
 
@@ -918,6 +925,7 @@
             if (!p.tc) { const c = p.chg / mx; p.charging = false; p.chg = 0; this.throwWeapon(p, c); }
           }
         }
+        p.sui = p.ct && p.alive && p.weapon ? Math.min(1, p.sui + dt / SUI_TURN) : Math.max(0, p.sui - dt * 4);   // CTRL: gira a arma até a cabeça; solto, ela volta rápido
         if (p.alive && !p.inv[p.sel] && p.inv[1 - p.sel]) p.sel = 1 - p.sel;   // largou/arremessou/perdeu a arma da mão: saca a outra sozinho
         if (p.hook && (!p.alive || p.down || this.phase !== 'live')) p.hook = null;   // morreu/caiu/acabou a rodada: solta o gancho
         if (p.down) { p.downT -= dt; if (p.downT <= 0) p.down = false; }
@@ -951,7 +959,7 @@
       this.updateBullets(dt); this.updateItems(dt);
       if (this.phase === 'live') {
         this.evalRound();
-        if (this.phase === 'live' && this.roundTime > 0) { this.rt -= dt; if (this.rt <= 0) this.timeUp(); }   // relógio da rodada
+        if (this.phase === 'live' && this.roundTime > 0 && !this.solo) { this.rt -= dt; if (this.rt <= 0) this.timeUp(); }   // relógio da rodada
       }
       else if (this.phase === 'over' || this.phase === 'matchover') {
         this.timer -= dt;
@@ -961,6 +969,7 @@
 
     evalRound() {
       const a = this.players.filter(p => p && p.alive);
+      if (this.solo) { if (!a.length) this.endRound(null); return; }
       if (a.length >= 2) return;
       this.endRound(a.length ? a[0] : null);
     }
@@ -1474,7 +1483,7 @@
           id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / spearChargeOf(p.skin)).toFixed(2) : -1,
-          em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, dm: p.dualOn ? (dualPair(p) ? 1 : 2) : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
+          su: p.sui > 0.01 ? +p.sui.toFixed(2) : 0, em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, dm: p.dualOn ? (dualPair(p) ? 1 : 2) : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
         })),
         b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
