@@ -421,9 +421,13 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 
 /* ---------- configurações da sala ---------- */
 #roomCfg{position:fixed;inset:0;z-index:35;display:grid;place-items:center;padding:12px;overflow:auto;background:rgba(10,0,20,.88);cursor:default}
+#botCfg{position:fixed;inset:0;z-index:35;display:grid;place-items:center;padding:12px;overflow:auto;background:rgba(10,0,20,.88);cursor:default}
 #roomCfg .box{display:grid;gap:12px;width:min(480px,100%);max-height:calc(100vh - 24px);overflow:auto;padding:22px;background:var(--ink);border:3px solid var(--pink);box-shadow:8px 8px 0 var(--cyan)}
+#botCfg .box{display:grid;gap:12px;width:min(480px,100%);max-height:calc(100vh - 24px);overflow:auto;padding:22px;background:var(--ink);border:3px solid var(--pink);box-shadow:8px 8px 0 var(--cyan)}
 #roomCfg h2{margin:0;font:400 2rem var(--display);color:var(--pink);text-align:center}
+#botCfg h2{margin:0;font:400 2rem var(--display);color:var(--pink);text-align:center}
 #roomCfg .btn,#roomCfg select{cursor:pointer;pointer-events:auto}
+#botCfg .btn,#botCfg select{cursor:pointer;pointer-events:auto}
 .orow select{min-width:150px;height:34px}
 .rcnote{margin:0;font-size:.9rem;font-weight:600;color:#c9b3e0}
 .lcfg{margin:0;text-align:center;color:#c9b3e0;font-weight:600;font-size:.9rem;line-height:1.35}
@@ -441,4 +445,4 @@ kbd{flex:none;padding:2px 8px;background:#0b0214;border:2px solid var(--violet);
 #suiBar b{display:block;height:100%;width:0;background:var(--hr)}
 #btnSuicide.armed{background:var(--pink);color:var(--ink)}
 #btnSuicide:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none;background:transparent;color:var(--pink)}
-@media (max-width:640px){#roundTimer{top:8px;font-size:1.1rem;padding:3px 12px}#roomCfg .box{padding:16px}.orow select{min-width:120px}}
+@media (max-width:640px){#roundTimer{top:8px;font-size:1.1rem;padding:3px 12px}#roomCfg .box,#botCfg .box{padding:16px}.orow select{min-width:120px}}

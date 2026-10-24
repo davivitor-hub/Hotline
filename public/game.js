@@ -41,9 +41,7 @@ let dpr = 1, S = 1, Z = 1, W = innerWidth, H = innerHeight;
 let mode = null, ws = null, myId = null, local = null, paused = false, pingMs = 0, pingTimer = null;
 let level = null, mapId, round = -1, snap = null, snapAt = 0, buf = [], pending = [], seq = 0, first = true;
 let pred = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camInit = false;
-let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, it: false, th: false, hl: false, sw: false, ss: 0, sl: false, su: false, em: false };
-let suiHold = 0, suiArm = 0;   // suicídio: tempo segurando a tecla / confirmação do botão do menu de pausa
-const SUI_HOLD = 1.0;          // segundos segurando a tecla para se matar
+let keys = {}, mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, right: false }, edge = { fp: false, pk: false, it: false, th: false, hl: false, sw: false, ss: 0, sl: false, em: false };
 const roomMax = () => (snap && snap.cf ? snap.cf[2] : MAX_PLAYERS);   // vagas da sala (escolhidas na criação)
 const roomWin = () => (snap && snap.cf ? snap.cf[0] : 5);            // rodadas para vencer
 const fmtDur = s => (s % 60 === 0 ? (s / 60) + ' min' : s + ' s');
@@ -54,8 +52,9 @@ let pend2 = 0, pbul = [], pshots = [], hiddenB = new Set(), knownB = new Set(), 
 let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [], roomD = [];   // roomD = escuridão atual de cada cômodo (0 = aceso, 1 = apagado, animada); roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
 const INTERP = () => (mode === 'local' ? 34 : 50);   // online: snapshots a 60 Hz → ~3 amostras de buffer
 
+let dprCap = 1.5;   // teto da resolução interna (a qualidade dinâmica baixa isso se o FPS cair)
 function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
+  dpr = Math.min(window.devicePixelRatio || 1, dprCap); W = innerWidth; H = innerHeight;
   cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
   S = Math.max(IS_TOUCH ? 0.4 : 0.7, Math.min(1.6, H / 780)) * cfg.zoom;
 }
@@ -140,18 +139,40 @@ const bgm = new Audio(); bgm.loop = false; bgm.preload = 'none';   // sem loop: 
 let bgmLoaded = null, musicOn = false, bgmTry = 0;
 
 /* ---- música do MENU (File Select): começa quando a abertura termina, em loop; para quando a partida começa e volta ao voltar pro menu.
-   Fica fora da lista de trilhas da partida (não aparece na aba Músicas, não entra no revezamento, N não troca para ela). */
+   Sempre toca (não dá pra desativar). Fica fora da lista de trilhas da partida (não aparece na aba Músicas, não entra no revezamento, N não troca para ela). */
 const MENU_MUSIC = ['music/file-select.mp3', 'file-select.mp3', 'Zelda__Ocarina_Of_Time_Music_-_File_SelectMP3_160K.mp3', 'music/Zelda__Ocarina_Of_Time_Music_-_File_SelectMP3_160K.mp3'];
-const menuBgm = new Audio(); menuBgm.loop = true; menuBgm.preload = 'auto';
+const menuBgm = new Audio(), menuBgm2 = new Audio(), MENU_EL = [menuBgm, menuBgm2], MENU_XF = 4;   // dois players em revezamento: o fim de um some enquanto o começo do outro sobe (sem corte, não parece loop)
+for (const el of MENU_EL) { el.loop = false; el.preload = 'auto'; }
 let menuMusicOK = false, menuWant = false, menuTry = 0, menuGain = 1, menuFadeT = 0;
-menuBgm.src = MENU_MUSIC[0];
-menuBgm.addEventListener('error', () => { if (++menuTry < MENU_MUSIC.length) menuBgm.src = MENU_MUSIC[menuTry]; });   // tenta a pasta music/, a raiz e o nome original
+menuBgm.src = menuBgm2.src = MENU_MUSIC[0];
+menuBgm.addEventListener('error', () => { if (++menuTry < MENU_MUSIC.length) menuBgm.src = menuBgm2.src = MENU_MUSIC[menuTry]; });
+const menuPlay = el => { const pr = el.play(); if (pr && pr.catch) pr.catch(() => { }); };
+function menuMix() {
+  const base = Math.max(0.15, cfg.vol) * menuGain;   // não desliga pela opção Música nem pela tecla M (só o volume mexe, com piso)
+  const both = MENU_EL.every(e => !e.paused);   // só há sobreposição durante a passagem de uma cópia para a outra
+  for (const el of MENU_EL) {
+    const d = el.duration, t = el.currentTime;
+    const ok = Number.isFinite(d) && d > MENU_XF * 2;
+    const f = !ok ? 1 : Math.min(both ? Math.min(1, t / MENU_XF) : 1, Math.max(0, (d - t) / MENU_XF));
+    el.volume = Math.max(0, Math.min(1, base * f));
+  }
+}
+setInterval(() => {
+  if (!menuWant) return;
+  const on = MENU_EL.filter(e => !e.paused), off = MENU_EL.filter(e => e.paused);
+  if (!on.length) { menuPlay(menuBgm); return; }
+  const a = on[0], d = a.duration;
+  if (off.length && Number.isFinite(d) && d - a.currentTime < MENU_XF) { off[0].currentTime = 0; menuPlay(off[0]); }
+  for (const e of MENU_EL) if (!e.paused && Number.isFinite(e.duration) && e.currentTime >= e.duration - 0.05) { e.pause(); e.currentTime = 0; }
+  menuMix();
+}, 100);
+for (const el of MENU_EL) el.addEventListener('ended', () => { el.currentTime = 0; if (menuWant && MENU_EL.every(e => e.paused)) menuPlay(el); });   // tenta a pasta music/, a raiz e o nome original
 function menuMusicPlay() {
-  if (!menuMusicOK || musicOn || (menuWant && !menuBgm.paused)) return;   // já tocando: não reinicia o fade
+  if (!menuMusicOK || musicOn || (menuWant && MENU_EL.some(e => !e.paused))) return;   // já tocando: não reinicia o fade
   menuWant = true; menuGain = 0; applyMusic();
   clearInterval(menuFadeT); menuFadeT = setInterval(() => { menuGain = Math.min(1, menuGain + 0.05); applyMusic(); if (menuGain >= 1) clearInterval(menuFadeT); }, 60);   // sobe o volume em ~1,2 s
 }
-function menuMusicStop() { menuWant = false; clearInterval(menuFadeT); menuBgm.pause(); }
+function menuMusicStop() { menuWant = false; clearInterval(menuFadeT); for (const el of MENU_EL) { el.pause(); el.currentTime = 0; } }
 // se o arquivo não for achado, tenta o próximo caminho possível (pasta music/, raiz, nome original)
 bgm.addEventListener('error', () => {
   const t = curTrack(); if (!t.file || bgmLoaded !== t.id) return;
@@ -161,9 +182,9 @@ bgm.addEventListener('error', () => {
 function applyMusic() {
   const t = curTrack();
   bgm.volume = cfg.music ? cfg.vol : 0;
-  menuBgm.volume = cfg.music ? cfg.vol * menuGain : 0;
-  if (menuWant && cfg.music) { if (menuBgm.paused) { const pr = menuBgm.play(); if (pr && pr.catch) pr.catch(() => { }); } }
-  else if (!menuBgm.paused) menuBgm.pause();
+  menuMix();
+  if (menuWant) { if (MENU_EL.every(e => e.paused)) menuPlay(menuBgm); }
+  else for (const el of MENU_EL) if (!el.paused) el.pause();
   if (musG) musG.gain.value = (cfg.music && musicOn && !t.file) ? 0.17 * cfg.vol / 0.6 : 0;
 }
 function playTrack() {
@@ -285,7 +306,42 @@ $('btnJoinRoom').onclick = () => {
 };
 // link de convite: ?sala=ABCD já preenche o código
 { const q = roomCodeOf(new URLSearchParams(location.search).get('sala')); if (q.length === 4) { $('roomInput').value = q; status('Convite para a sala ' + q + ': toque em Entrar.'); } }
-$('btnBot').onclick = () => { initAudio(); startLocal(cfg.diff); };
+/* ---------------------------------------------------- CONFIG VS BOT */
+const MAX_BOTS = MAX_PLAYERS - 1;   // o humano ocupa 1 vaga
+const bc = { diff: $('bcDiff'), map: $('bcMap'), count: $('bcCount'), win: $('bcWin'), time: $('bcTime'), weap: $('bcWeap'), heal: $('bcHeal') };
+(function buildBotCfg() {
+  const add = (sel, v, t) => { const o = document.createElement('option'); o.value = String(v); o.textContent = t; sel.appendChild(o); };
+  add(bc.diff, 'EASY', 'Fácil'); add(bc.diff, 'NORMAL', 'Normal'); add(bc.diff, 'HARD', 'Difícil');
+  add(bc.map, '', 'Aleatória');
+  for (const id of Shared.MAP_IDS) add(bc.map, id, MAPS[id].name);
+  for (let n = 0; n <= MAX_BOTS; n++) add(bc.count, n, n === 0 ? '0 (treino livre)' : n === 1 ? '1 bot' : n + ' bots');
+  for (const n of [1, 2, 3, 5, 7, 10]) add(bc.win, n, n === 1 ? '1 rodada' : n + ' rodadas');
+  add(bc.time, 0, 'Sem limite');
+  for (const s of [30, 60, 90, 120, 180, 300]) add(bc.time, s, fmtDur(s));
+  add(bc.weap, 0.5, 'Poucas'); add(bc.weap, 1, 'Normais'); add(bc.weap, 2, 'Muitas');
+})();
+function sanitizeBotCfg(b) {
+  b = b || {};
+  const r = sanitizeRoomCfg({ map: b.map, winScore: b.winScore, roundTime: b.roundTime, weapons: b.weapons, heal: b.heal });
+  const n = Number(b.count);
+  return { diff: ['EASY', 'NORMAL', 'HARD'].includes(b.diff) ? b.diff : 'NORMAL', count: Number.isInteger(n) && n >= 0 && n <= MAX_BOTS ? n : 1,
+    map: r.map, winScore: r.winScore, roundTime: r.roundTime, weapons: r.weapons, heal: r.heal };
+}
+cfg.bot = sanitizeBotCfg(cfg.bot || { diff: cfg.diff });
+function loadBotCfg() {
+  const r = cfg.bot;
+  bc.diff.value = r.diff; bc.map.value = r.map; bc.count.value = String(r.count); bc.win.value = String(r.winScore);
+  bc.time.value = String(r.roundTime); bc.weap.value = String(r.weapons); bc.heal.checked = r.heal;
+  updBotNote();
+}
+const readBotCfg = () => sanitizeBotCfg({ diff: bc.diff.value, map: bc.map.value, count: bc.count.value, winScore: bc.win.value, roundTime: bc.time.value, weapons: bc.weap.value, heal: bc.heal.checked });
+function updBotNote() { const z = bc.count.value === '0'; $('bcNote').textContent = z ? 'Com 0 bots você treina sozinho: a rodada não termina e o tempo máximo é ignorado.' : 'Se o tempo da rodada acabar, vence quem estiver com mais vida.'; bc.time.disabled = z; }
+bc.count.onchange = updBotNote;
+const closeBotCfg = () => $('botCfg').classList.add('hidden');
+$('btnBot').onclick = () => { initAudio(); loadBotCfg(); $('botCfg').classList.remove('hidden'); };
+$('btnBcBack').onclick = closeBotCfg;
+$('btnBcStart').onclick = () => { cfg.bot = readBotCfg(); cfg.diff = cfg.bot.diff; $('diffSel').value = cfg.diff; saveCfg(); closeBotCfg(); startLocal(cfg.bot); };
+addEventListener('keydown', e => { if (e.key === 'Escape' && !$('botCfg').classList.contains('hidden')) closeBotCfg(); });
 $('btnResume').onclick = () => setPaused(false);
 $('btnLeave').onclick = () => { closeAll(); showMenu(''); };
 $('btnStart').onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start' })); };
@@ -301,16 +357,8 @@ function showMenu(msg) { stopTrack(); menuMusicPlay(); $('menu').classList.remov
 function hideMenu() { playTrack(); $('menu').classList.add('hidden'); $('hud').classList.remove('hidden'); }
 function setPaused(p) {
   if (!mode) return; paused = p; $('pause').classList.toggle('hidden', !p);
-  suiReset();
-  if (p) { keys = {}; mouse.down = false; mouse.right = false; const me = myState(); $('btnSuicide').disabled = !(snap && snap.ph === 'live' && me && me.al); }
+  if (p) { keys = {}; mouse.down = false; mouse.right = false; }
 }
-// botão de suicídio do menu de pausa: 1º toque pede confirmação, 2º toque executa
-function suiReset() { clearTimeout(suiArm); suiArm = 0; const b = $('btnSuicide'); b.textContent = 'Suicídio'; b.classList.remove('armed'); }
-$('btnSuicide').onclick = () => {
-  if (!suiArm) { const b = $('btnSuicide'); b.textContent = 'Confirmar suicídio?'; b.classList.add('armed'); suiArm = setTimeout(suiReset, 3000); return; }
-  suiReset(); edge.su = true; setPaused(false);
-};
-function setSuiBar(f) { const el = $('suiBar'); if (f <= 0) { el.classList.add('hidden'); return; } el.classList.remove('hidden'); el.querySelector('b').style.width = Math.min(100, f * 100) + '%'; }
 
 /* remove o texto "ngc" do menu (partida rápida) — varre textos e atributos do menu/sala */
 (function stripNgc() {
@@ -358,7 +406,7 @@ const ACTIONS = [
   { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'v', label: 'Interagir (garrafa / luz)' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' }, { id: 'g', label: 'Emote (dançar)' },
   { id: '1', label: 'Arma do espaço 1' }, { id: '2', label: 'Arma do espaço 2' },
   { id: 'shift', label: 'Soltar / estender a câmera' },
-  { id: 'k', label: 'Suicídio (segurar)' },
+  { id: 'control', label: 'Apontar a arma p/ a cabeça (segurar) + clique' },
   { id: 'm', label: 'Mutar música' }, { id: 'n', label: 'Trocar de música' }
 ];
 const KEYNAMES = { ' ': 'ESPAÇO', shift: 'SHIFT', control: 'CTRL', alt: 'ALT', tab: 'TAB', enter: 'ENTER', capslock: 'CAPS LOCK', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→', backspace: 'BACKSPACE' };
@@ -446,7 +494,7 @@ function closeAll() {
   if (ws) { ws.onclose = null; ws.onmessage = null; try { ws.close(); } catch { } ws = null; }
   clearInterval(pingTimer); local = null; mode = null; snap = null; level = null; mapId = undefined; round = -1; buf = []; pending = [];
   paused = false; camInit = false; resetFx(); $('pause').classList.add('hidden');
-  suiHold = 0; suiReset(); $('suiBar').classList.add('hidden'); $('roundTimer').classList.add('hidden');
+  $('roundTimer').classList.add('hidden');
 }
 let roomCode = '';
 function startOnline(opt = { mode: 'quick' }) {
@@ -470,14 +518,20 @@ function startOnline(opt = { mode: 'quick' }) {
   sock.onerror = () => { if (mode === 'online' && !snap) status('Falha de conexão. O servidor está ligado?'); };
   sock.onclose = () => { const had = !!snap; closeAll(); showMenu(had ? 'Conexão perdida com o servidor.' : 'Não foi possível conectar. O servidor pode estar iniciando, tente de novo em 30 s.'); };
 }
-function startLocal(diff) {
+function startLocal(o) {
+  o = sanitizeBotCfg(o);
   closeAll(); mode = 'local'; myId = 'me';
-  const g = new Game({ autoStart: true });
+  const g = new Game({ autoStart: true, map: o.map, winScore: o.winScore, roundTime: o.roundTime, maxPlayers: Math.max(MIN_PLAYERS, o.count + 1), weapons: o.weapons, heal: o.heal, solo: o.count === 0 });
   const me = g.addPlayer('me', playerName(), cfg.skin);
-  const keysSk = Object.keys(SKINS).filter(k => k !== cfg.skin);
-  const bot = g.addPlayer('bot', 'BOT ' + ({ EASY: 'fácil', NORMAL: 'normal', HARD: 'difícil' }[diff] || ''), keysSk[Math.floor(Math.random() * keysSk.length)]);
-  bot.bot = true;
-  local = { g, me, bot: new Bot(g, bot.slot, diff), t: 0 };
+  const pool = Object.keys(SKINS).filter(k => k !== cfg.skin).sort(() => Math.random() - 0.5);
+  const label = { EASY: 'fácil', NORMAL: 'normal', HARD: 'difícil' }[o.diff] || '';
+  const bots = [];
+  for (let i = 0; i < o.count; i++) {
+    const p = g.addPlayer('bot' + i, 'BOT ' + (o.count > 1 ? (i + 1) + ' ' : '') + label, pool[i % pool.length]);
+    if (!p) break;
+    p.bot = true; bots.push(new Bot(g, p.slot, o.diff));
+  }
+  local = { g, me, bots, t: 0 };
   hideMenu();
 }
 function sendInput(inp) {
@@ -1116,18 +1170,14 @@ function doStep() {
   if (mode === 'local' && local) {
     // monta e aplica a entrada do jogador, depois bot + tick
     if (snap && level) stepInput();
-    local.bot.think(STEP); local.g.tick(STEP);
+    for (const b of local.bots) b.think(STEP);
+    local.g.tick(STEP);
     if (++local.t > 0) { const s = local.g.snapshot(); s.ack = local.me.ack; local.g.events = []; onSnapshot(s); }
     return;
   }
   if (snap && level) stepInput();
 }
 function stepInput() {
-  {   // suicídio: segurar a tecla por SUI_HOLD segundos
-    const m0 = myState();
-    if (keys.k && m0 && m0.al && snap.ph === 'live') { suiHold += STEP; if (suiHold >= SUI_HOLD) { suiHold = 0; keys.k = false; edge.su = true; } } else suiHold = 0;
-    setSuiBar(suiHold / SUI_HOLD);
-  }
   const k = (keys.w ? 1 : 0) | (keys.a ? 2 : 0) | (keys.s ? 4 : 0) | (keys.d ? 8 : 0);
   let aim = aimAngle();
   if (IS_TOUCH && (mouse.down || edge.fp) && level) {   // celular: com o gancho na mão, o disparo mira sozinho no adversário vivo mais perto que esteja à vista (difícil apontar o analógico com precisão)
@@ -1143,8 +1193,8 @@ function stepInput() {
   }
   // distância da mira (cursor) em px do mundo: é até onde o gancho vai. No toque não há cursor de verdade, então vale o alcance máximo.
   const ad = IS_TOUCH ? HOOK_RANGE : Math.round(Math.hypot(mouse.x - (W / 2 + (pred.x - cam.x) * Z), mouse.y - (H / 2 + (pred.y - cam.y) * Z)) / Z);
-  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), ad, f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, it: edge.it ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, su: edge.su ? 1 : 0, em: edge.em ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
-  edge.fp = edge.pk = edge.it = edge.th = edge.hl = edge.sw = edge.sl = edge.su = edge.em = false; edge.ss = 0;
+  const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), ad, f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, it: edge.it ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ct: keys.control ? 1 : 0, em: edge.em ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
+  edge.fp = edge.pk = edge.it = edge.th = edge.hl = edge.sw = edge.sl = edge.em = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
   if (me) pred.skin = me.sk;
   const hooked = !!(me && me.hk);   // preso no gancho: o servidor move o boneco, a previsão só espera
@@ -1159,7 +1209,7 @@ function predictShots(inp) {
   const nowT = performance.now();
   while (pshots.length && nowT - pshots[0] > 700) pshots.shift();   // o servidor não confirmou: descarta
   if (snap.ph !== 'live') return;
-  const me = myState(); if (!me || !me.al || me.dn || me.hz > 0 || me.ch >= 0) return;
+  const me = myState(); if (!me || !me.al || me.dn || me.hz > 0 || me.ch >= 0 || inp.ct || me.su > 0.02) return;
   pcd -= STEP; pbuf -= STEP;
   if (inp.pk || inp.it || inp.sw || inp.ss || inp.th || inp.hl || inp.sl) { pcd = Math.max(pcd, 0.25); pbuf = 0; return; }   // trocou/pegou/jogou/curou: espera o servidor
   if (inp.fp) pbuf = 0.16;
@@ -1244,33 +1294,36 @@ function mkMelee(w, h, cx, cy, draw) {
   return { cv, ox: cx + 1, oy: cy + 1 };
 }
 const MELEE_DEF = {
-  KNIFE: () => mkMelee(21, 7, 2.5, 3.5, R => {          // faca: lâmina cinza com brilho rosado + cabo laranja
-    R(0, 2, 6, 1, 'O1'); R(0, 3, 6, 1, 'O2'); R(0, 4, 6, 1, 'O3'); R(3, 3, 1, 1, 'O3');
-    R(6, 1, 1, 5, 'M4');
-    R(7, 2, 12, 1, 'M1'); R(7, 3, 14, 1, 'M2'); R(7, 4, 10, 1, 'M3'); R(7, 2, 2, 1, 'PK'); R(20, 3, 1, 1, 'W');
+  KNIFE: () => mkMelee(12, 3, 2, 1.5, R => {            // faca (sprite do autor): cabo laranja, guarda escura, lâmina cinza com brilho rosado
+    R(0, 0, 4, 1, 'O2'); R(0, 1, 4, 1, 'O1'); R(2, 1, 2, 1, 'O2'); R(1, 2, 3, 1, 'O2');
+    R(4, 0, 1, 3, 'M4');
+    R(5, 0, 5, 1, 'M2'); R(10, 0, 1, 1, 'PK'); R(11, 0, 1, 1, 'M3');
+    R(5, 1, 1, 1, 'M4'); R(6, 1, 1, 1, 'PK'); R(7, 1, 2, 1, 'M1'); R(9, 1, 1, 1, 'W'); R(10, 1, 1, 1, 'M3');
+    R(5, 2, 1, 1, 'M2'); R(6, 2, 3, 1, 'M3'); R(9, 2, 1, 1, 'M2');
   }),
-  MACHETE: () => mkMelee(32, 11, 2.5, 5.5, R => {       // machete: lâmina verde com dentes nas costas + cabo claro
-    R(0, 4, 8, 1, 'M1'); R(0, 5, 8, 1, 'M2'); R(0, 6, 8, 1, 'M3'); R(2, 4, 1, 3, 'M4'); R(5, 4, 1, 3, 'M4');
-    R(8, 2, 1, 7, 'M4');
-    for (let x = 9; x <= 31; x++) {
-      let top = x <= 26 ? 3 : 3 + (x - 26); if (x <= 26 && [12, 15, 18, 21, 24].includes(x)) top++;
-      const bot = Math.min(8, 6 + (((x - 9) / 7) | 0)); if (top > bot) top = bot;
-      for (let y = top; y <= bot; y++) R(x, y, 1, 1, y === top ? 'G1' : y === bot ? 'G4' : y === bot - 1 ? 'G3' : 'G2');
-    }
+  MACHETE: () => mkMelee(33, 6, 3.5, 2, R => {          // machete (sprite do autor, imagem 3): cabo preto + lâmina larga cinza com fio serrilhado embaixo
+    R(0, 0, 33, 1, 'P4');
+    R(0, 1, 7, 1, 'P4'); R(0, 2, 7, 1, 'P3'); R(1, 3, 6, 1, 'P4');
+    R(7, 1, 1, 4, 'P4');
+    R(8, 1, 23, 3, 'M3'); R(9, 2, 1, 1, 'M1'); R(13, 2, 1, 1, 'M1'); R(15, 2, 1, 1, 'M1');
+    R(31, 1, 2, 3, 'P4'); R(31, 1, 1, 2, 'M2');
+    R(6, 4, 11, 1, 'P4');
+    R(17, 4, 14, 1, 'M3'); for (const x of [18, 21, 23, 25, 28]) R(x, 4, 1, 1, 'M1');
+    R(31, 4, 1, 1, 'P4'); R(17, 5, 14, 1, 'P3');
   }),
-  AXE: () => mkMelee(32, 15, 4.5, 7.5, R => {           // machado: cabo vermelho + cabeça cinza com quina branca
-    R(0, 6, 28, 1, 'R2'); R(0, 7, 28, 1, 'R1'); R(0, 8, 28, 1, 'R3');
-    R(13, 6, 1, 3, 'R3'); R(20, 6, 1, 3, 'R3'); R(10, 7, 2, 1, 'RH'); R(17, 7, 1, 1, 'RH'); R(24, 7, 1, 1, 'RH');
-    R(0, 5, 2, 5, 'M3'); R(0, 5, 1, 1, 'M2');
-    R(22, 5, 2, 5, 'M3');
-    R(24, 1, 8, 13, 'M2'); R(24, 1, 8, 3, 'M1'); R(24, 10, 8, 4, 'M3'); R(24, 4, 2, 6, 'M3');
-    R(31, 2, 1, 11, 'W'); R(24, 1, 1, 1, 'W'); R(24, 12, 2, 2, null);
+  AXE: () => mkMelee(34, 14, 4.5, 7.5, R => {           // machado (sprite do autor): cabo vermelho fino + cabeça cinza em bloco com ponta em cima
+    R(0, 6, 28, 1, 'R3'); R(0, 7, 28, 1, 'R1'); R(0, 8, 28, 1, 'R3');
+    R(8, 6, 1, 3, 'R3'); R(27, 6, 1, 3, 'R3'); R(12, 7, 2, 1, 'RH'); R(20, 7, 1, 1, 'RH'); R(0, 7, 8, 1, 'R2');
+    R(28, 4, 6, 10, 'M2'); R(28, 4, 6, 1, 'M1'); R(33, 5, 1, 7, 'M1'); R(28, 5, 2, 7, 'M3');
+    R(28, 12, 6, 1, 'W'); R(28, 13, 6, 1, 'M3');
+    R(30, 0, 2, 4, 'M1'); R(30, 0, 2, 1, 'W');
   }),
-  BAT: () => mkMelee(31, 5, 2.5, 2.5, R => {            // taco: cano de ferro escuro com listra clara
-    R(0, 0, 31, 1, 'P1'); R(0, 1, 31, 1, 'P2'); R(0, 2, 31, 1, 'P2'); R(0, 3, 31, 1, 'P3'); R(0, 4, 31, 1, 'P4');
-    R(0, 0, 10, 1, 'P2'); R(0, 1, 10, 1, 'P3'); R(0, 2, 10, 1, 'P3'); R(0, 3, 10, 1, 'P4');   // pegada mais escura
-    R(3, 0, 1, 5, 'P4'); R(6, 0, 1, 5, 'P4'); R(9, 0, 1, 5, 'P4');
-    R(29, 0, 2, 1, 'W'); R(30, 1, 1, 1, 'M1');
+  BAT: () => mkMelee(29, 4, 4.5, 1.5, R => {          // taco de madeira (sprite do autor): cabo laranja com ponta redonda + pontas serrilhadas
+    R(0, 1, 1, 2, 'O3');
+    R(1, 0, 19, 1, 'O3'); R(1, 1, 8, 1, 'O1'); R(9, 1, 11, 1, 'O2'); R(1, 2, 8, 1, 'O1'); R(9, 2, 11, 1, 'O3'); R(1, 3, 8, 1, 'O3'); R(8, 2, 1, 1, 'O2');
+    R(20, 0, 1, 2, 'M4');
+    R(21, 0, 8, 1, 'M2'); R(21, 1, 8, 1, 'M1'); R(22, 0, 2, 1, 'M3');
+    for (const x of [21, 23, 25, 27]) R(x, 2, 1, 1, 'M3');
   }),
   KATANA: () => mkMelee(41, 5, 4.5, 2.5, R => {         // katana: cabo roxo, tsuba dourada, lâmina clara
     for (let x = 0; x <= 10; x++) { R(x, 1, 1, 1, x % 2 ? 'U2' : 'U1'); R(x, 2, 1, 1, x % 2 ? 'U1' : 'U2'); R(x, 3, 1, 1, 'U3'); }
@@ -1721,7 +1774,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   drawLegs(dancing ? Math.sin(now / 115) * 9 : Math.sin(st.walk) * 10 * st.mv);
   ctx.restore();
   const sp = swSp, swinging = swOn; let twist = 0;
-  const wt = p.w, wd = wt ? WEAPONS[wt] : null, melee = !wt || wd.melee;
+  const swt = p.w, wt = p.su > 0.02 ? null : p.w, wd = wt ? WEAPONS[wt] : null, melee = !wt || wd.melee;
   const iv2 = p.dm === 1 && p.iv && p.iv[1 - (p.se | 0)], wt2 = (iv2 && iv2[0] && WEAPONS[iv2[0]]) ? iv2[0] : wt;   // arma da OUTRA mão no modo dupla (do mesmo tipo da principal, mas pode ser outro modelo)
   // braços + arma
   if (healing) {
@@ -1819,6 +1872,10 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   drawBody(p.sk, jacket, false);
   drawBackWeapon(p);   // a outra arma do inventário fica nas costas
   ctx.save(); ctx.translate(2.5, 0); drawHead(p.sk); ctx.restore();
+  if (swt && p.su > 0.02) {   // CTRL: a arma sai da frente e vai girando até apontar para a própria cabeça
+    const u = p.su, e = u * u * (3 - 2 * u);
+    ctx.save(); ctx.translate(12 - 9 * e, -26 * e); ctx.rotate(e * Math.PI / 2); ctx.scale(0.85, 0.85); drawWeaponSprite(swt); ctx.restore();
+  }
   ctx.restore();
   ctx.restore();
   if (dancing) {   // notas musicais subindo da cabeça
@@ -1916,11 +1973,20 @@ function updateFx(dt) {
 }
 
 const FOG = 'rgba(8,6,16,0)'; // removida a camada escura de névoa
+const VIS_N = 300, visD = new Float32Array(VIS_N), visCos = new Float32Array(VIS_N), visSin = new Float32Array(VIS_N);
+for (let i = 0; i < VIS_N; i++) { visCos[i] = Math.cos(i / VIS_N * TAU); visSin[i] = Math.sin(i / VIS_N * TAU); }
+let visX = NaN, visY = NaN, visLv = null, visDoors = 0;
 function drawVision() {
-  const x = pred.x, y = pred.y, N = 300, R = 1100, vw = W / Z, vh = H / Z;
+  const x = pred.x, y = pred.y, N = VIS_N, R = 1100, vw = W / Z, vh = H / Z;
   ctx.beginPath(); ctx.rect(cam.x - vw / 2 - 60, cam.y - vh / 2 - 60, vw + 120, vh + 120);
+  // os 300 raios só são recalculados quando o jogador se mexeu (ou uma porta mudou); parado, reaproveita o quadro anterior
+  let dk = 0; for (const d of level.doors) dk += (d.phi || 0) * (d.i + 1) + (d.latched ? 0.001 * (d.i + 1) : 0);
+  if (Math.abs(x - visX) > 0.4 || Math.abs(y - visY) > 0.4 || visLv !== level || Math.abs(dk - visDoors) > 1e-6) {
+    for (let i = 0; i < N; i++) visD[i] = level.ray(x, y, i / N * TAU, R);
+    visX = x; visY = y; visLv = level; visDoors = dk;
+  }
   for (let i = 0; i < N; i++) {
-    const a = i / N * TAU, d = level.ray(x, y, a, R), px = x + Math.cos(a) * d, py = y + Math.sin(a) * d;
+    const d = visD[i], px = x + visCos[i] * d, py = y + visSin[i] * d;
     if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
   }
   ctx.closePath(); ctx.fillStyle = FOG; ctx.fill('evenodd');
@@ -2438,10 +2504,15 @@ function updateHud(now) {
 }
 
 /* ------------------------------------------------------------------- LOOP */
-let last = performance.now(), acc = 0, idleN = 0;
+let last = performance.now(), acc = 0, idleN = 0, fpsAcc = 0, fpsN = 0, qualCool = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  // qualidade dinâmica: se a média de quadros ficar abaixo de ~48 fps por 2 s em partida, baixa a resolução interna (0,25 por vez, mínimo 0,75)
+  if (mode && !paused && !document.hidden) {
+    fpsAcc += dt; fpsN++;
+    if (fpsAcc >= 2) { const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; if (qualCool > 0) qualCool--; else if (fps < 48 && dprCap > 0.75) { dprCap = Math.max(0.75, dprCap - 0.25); qualCool = 2; resize(); } }
+  } else { fpsAcc = 0; fpsN = 0; }
   // menu/abertura cobrem o canvas por inteiro: não gasta GPU/CPU redesenhando o fundo a 60 fps
   if (!mode) { if (idleN++ % 30 === 0) drawIdle(now); return; }
   if (!paused) { acc += dt; let n = 0; while (acc >= STEP && n < 5) { doStep(); acc -= STEP; n++; } if (n >= 5) acc = 0; }
@@ -2461,7 +2532,7 @@ const IT_CUT1 = 2.8,        // segundos: corte da serra (câmera 1) para o caval
   IT_GO = 0.55,             // duração do efeito ao apertar ESPAÇO
   IT_HOLD = 10.8, IT_FADE = 1.2; // cada câmera do loop: tempo + transição de cor para a próxima
 const iC01 = x => Math.max(0, Math.min(1, x)), iEase = x => { x = iC01(x); return x * x * (3 - 2 * x); };
-function iResize() { iD = Math.min(window.devicePixelRatio || 1, 2); iW = innerWidth; iH = innerHeight; icv.width = Math.floor(iW * iD); icv.height = Math.floor(iH * iD); sunCv = moonCv = logoCv = shineCv = null; }
+function iResize() { iD = Math.min(window.devicePixelRatio || 1, 1.5); iW = innerWidth; iH = innerHeight; icv.width = Math.floor(iW * iD); icv.height = Math.floor(iH * iD); sunCv = moonCv = logoCv = shineCv = null; }
 addEventListener('resize', iResize); iResize();
 try { if (document.fonts && document.fonts.load) Promise.all([document.fonts.load('400 40px Bungee'), document.fonts.load('700 24px Rajdhani')]).then(() => { logoCv = null; }, () => { }); } catch { }
 
@@ -2581,6 +2652,10 @@ let H_FILLA = [14, 6, 24], H_RIMA = [255, 70, 170];
 const R3_A = 34, R3_DUTY = 0.5, R3_W = 11;   // meia-passada, fração de apoio e velocidade do galope (rad/s)
 const R3_FOOT = 2 * R3_A / (R3_DUTY * (TAU / R3_W));   // velocidade (un/s) do casco apoiado no chão: o cenário corre exatamente nisso
 const R3_MESH = {};
+// buffers reaproveitados a cada quadro (antes: um array novo por polígono + string de cor nova → coletor de lixo travando)
+const R3_PV = new Float32Array(3 * 400), R3_NV = new Float32Array(3 * 400), R3_QMAX = 16000, R3_QD = new Float32Array(R3_QMAX * 9), R3_QC = new Array(R3_QMAX), R3_ORD = [];
+const R3_COL = new Map();   // cache de strings 'rgb(r,g,b)' (cores quantizadas em passos de 4: o olho não vê, e o canvas reaproveita o parse)
+function r3Rgb(r, g, b) { const k = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2); let v = R3_COL.get(k); if (!v) { v = `rgb(${(r >> 2) << 2},${(g >> 2) << 2},${(b >> 2) << 2})`; R3_COL.set(k, v); } return v; }
 function r3Sph(nu, nv) {
   const k = nu * 100 + nv; if (R3_MESH[k]) return R3_MESH[k];
   const v = [];
@@ -2591,7 +2666,7 @@ const R3_HEX = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), p
 function drawRider3D(c, gait, t, yaw, pitch, o) {
   o = o || {}; const sil = !!o.sil, lo = !!o.lo;
   const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), D = 900;
-  const FA = H_FILLA, RA = H_RIMA, LX = -0.42, LY = 0.72, LZ = 0.55, Q = [];
+  const FA = H_FILLA, RA = H_RIMA, LX = -0.42, LY = 0.72, LZ = 0.55; let qn = 0;
   const wob = (k, a, p = 0) => Math.sin(t * k + p) * a;
   const st = (c0, rim, lit, emi) => ({ c: c0, rim, lit, emi: !!emi });
   const sHorse = st([FA[0] * 0.8 + RA[0] * 0.1, FA[1] * 0.8 + RA[1] * 0.1, FA[2] * 0.8 + RA[2] * 0.1], 0.95, 0.24),
@@ -2601,16 +2676,18 @@ function drawRider3D(c, gait, t, yaw, pitch, o) {
   const SIL = 'rgb(3,1,10)';
   const shade = (s, nx, ny, nz) => {
     if (sil) return SIL;
-    if (s.emi) return `rgb(${s.c[0] | 0},${s.c[1] | 0},${s.c[2] | 0})`;
+    if (s.emi) return r3Rgb(s.c[0] | 0, s.c[1] | 0, s.c[2] | 0);
     const d = Math.max(0, nx * LX + ny * LY + nz * LZ), rm = Math.pow(1 - Math.max(0, nz), 2.2) * s.rim, a = 0.32 + 0.78 * d, e = rm + s.lit * d;
     const r = Math.min(255, s.c[0] * a + RA[0] * e), g = Math.min(255, s.c[1] * a + RA[1] * e), b = Math.min(255, s.c[2] * a + RA[2] * e);
-    return `rgb(${r | 0},${g | 0},${b | 0})`;
+    return r3Rgb(r | 0, g | 0, b | 0);
   };
-  const V = [0, 0, 0], PV = new Float32Array(3 * 140), NV = new Float32Array(3 * 140);
+  const V = [0, 0, 0], PV = R3_PV, NV = R3_NV;
   const vt = (x, y, z) => { const X = x * cy - z * sy, Z0 = x * sy + z * cy; V[0] = X; V[1] = y * cp - Z0 * sp; V[2] = y * sp + Z0 * cp; };
   const pushQ = (s, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz) => {
     const k0 = D / (D - z0), k1 = D / (D - z1), k2 = D / (D - z2), k3 = D / (D - z3);
-    Q.push([(z0 + z1 + z2 + z3) * 0.25, x0 * k0, -y0 * k0, x1 * k1, -y1 * k1, x2 * k2, -y2 * k2, x3 * k3, -y3 * k3, shade(s, nx, ny, nz)]);
+    if (qn >= R3_QMAX) return;
+    const o9 = qn * 9, Dd = R3_QD; Dd[o9] = (z0 + z1 + z2 + z3) * 0.25; Dd[o9 + 1] = x0 * k0; Dd[o9 + 2] = -y0 * k0; Dd[o9 + 3] = x1 * k1; Dd[o9 + 4] = -y1 * k1; Dd[o9 + 5] = x2 * k2; Dd[o9 + 6] = -y2 * k2; Dd[o9 + 7] = x3 * k3; Dd[o9 + 8] = -y3 * k3;
+    R3_QC[qn++] = shade(s, nx, ny, nz);
   };
   // elipsoide: centro, eixo (direção do raio maior), raios (ao longo do eixo, vertical no plano do eixo, lateral)
   const ell = (cx, cy_, cz, ax, ay, az, rx, ry, rz, s, big) => {
@@ -2618,7 +2695,7 @@ function drawRider3D(c, gait, t, yaw, pitch, o) {
     let qx = 0, qy = 0, qz = 1; if (Math.abs(az) > 0.9) { qy = 1; qz = 0; }
     let bx = ay * qz - az * qy, by = az * qx - ax * qz, bz = ax * qy - ay * qx; l = Math.hypot(bx, by, bz) || 1; bx /= l; by /= l; bz /= l;
     const ex = ay * bz - az * by, ey = az * bx - ax * bz, ez = ax * by - ay * bx;
-    const m = r3Sph(...(big ? (lo ? [6, 4] : [10, 7]) : (lo ? [5, 3] : [7, 5]))), U = m.v, n = m.n, nu = m.nu, nv = m.nv;
+    const m = r3Sph(...(big ? (lo ? [8, 5] : [14, 9]) : (lo ? [6, 4] : [9, 6]))), U = m.v, n = m.n, nu = m.nu, nv = m.nv;
     for (let i = 0; i < n; i++) {
       const ux = U[i * 3], uy = U[i * 3 + 1], uz = U[i * 3 + 2], mx = rx * ux, my = ry * uy, mz = rz * uz;
       vt(cx + ax * mx + bx * my + ex * mz, cy_ + ay * mx + by * my + ey * mz, cz + az * mx + bz * my + ez * mz);
@@ -2673,10 +2750,10 @@ function drawRider3D(c, gait, t, yaw, pitch, o) {
   ell(126, 38, 0, 0.81, -0.58, 0, 12, 8.5, 8, sHorse);   // focinho
   for (const z of [-5.5, 5.5]) { ell(97, 70, z, 0.15, 1, 0, 10, 3.6, 3, sHorse); ell(110, 55, z * 1.6, 1, 0, 0, 2.4, 2.4, 2.4, sEye); }
   // crina ao vento
-  for (let i = 0; i < 8; i++) { const u = i / 7, px = 34 + u * 58, py = 22 + u * 42; ell(px - 7 + wob(14, 3, i), py + 4 + wob(11, 2, i * 2), 0, -1, 0.35, 0, 11, 3.6, 3, sHorse); }
+  for (let i = 0; i < 12; i++) { const u = i / 11, px = 34 + u * 58, py = 22 + u * 42; ell(px - 7 + wob(14, 3, i), py + 4 + wob(11, 2, i * 2), 0, -1, 0.35, 0, 11, 3.6, 3, sHorse); }
   // cauda: curva de Bézier ondulando
   { const p0 = [-60, 10], p1 = [-92, 6 - wob(9, 8)], p2 = [-112, -16 - wob(8, 10, 1)], p3 = [-134, -40 - wob(7, 14, 2)]; let px = p0[0], py = p0[1];
-    for (let i = 1; i <= 6; i++) { const u = i / 6, w = 1 - u, x = w * w * w * p0[0] + 3 * w * w * u * p1[0] + 3 * w * u * u * p2[0] + u * u * u * p3[0], y = w * w * w * p0[1] + 3 * w * w * u * p1[1] + 3 * w * u * u * p2[1] + u * u * u * p3[1], z = wob(7, 4 * u, i);
+    for (let i = 1; i <= 10; i++) { const u = i / 10, w = 1 - u, x = w * w * w * p0[0] + 3 * w * w * u * p1[0] + 3 * w * u * u * p2[0] + u * u * u * p3[0], y = w * w * w * p0[1] + 3 * w * w * u * p1[1] + 3 * w * u * u * p2[1] + u * u * u * p3[1], z = wob(7, 4 * u, i);
       cap(px, py, z, x, y, z, 7.5 - u * 3.5, 6.5 - u * 3.5, sHorse); px = x; py = y; } }
 
   // ---- cavaleiro
@@ -2691,17 +2768,23 @@ function drawRider3D(c, gait, t, yaw, pitch, o) {
   for (const z of [-1, 1]) { ell(23, 77, z * 6, 1, 0, 0, 5.5, 6, 3.2, sFace); ell(26, 78, z * 8, 1, 0, 0, 2.4, 2.6, 2.2, sOwlEye); ell(11, 88, z * 7, 0.2, 1, 0, 7, 3, 2.6, sOwlD); }
   ell(30, 73, 0, 1, -0.2, 0, 5.5, 3, 3, sBeak);
   // capa e cachecol: faixas ao vento
-  { const A = [], M = [], B = [], n = 10;
+  { const A = [], M = [], B = [], n = 16;
     for (let i = 0; i < n; i++) { const s = i / (n - 1), x = 2 - s * 118, y = 62 - 26 * s + wob(10, 7, -s * 5) * s, zc = wob(7, 7, 1 - s * 4) * s, w = 8 + 12 * s; A.push([x, y, zc - w]); M.push([x, y + 5 * (1 - s * 0.4), zc]); B.push([x, y, zc + w]); }
     ribbon(A, M, sCape); ribbon(M, B, sCape); }
-  { const A = [], B = [], n = 8;
+  { const A = [], B = [], n = 12;
     for (let i = 0; i < n; i++) { const s = i / (n - 1), x = 10 - s * 62, y = 64 - 6 * s + wob(13, 5, -s * 6) * s, zc = wob(9, 5, -s * 3) * s, w = 4 - s * 1.5; A.push([x, y, zc - w]); B.push([x, y, zc + w]); }
     ribbon(A, B, sScarf); }
   leg(50, 13, g, false); leg(-32, 13, g + 2.2, true);   // lado de cá (por cima)
 
-  Q.sort((p, q) => p[0] - q[0]);
+  const O = R3_ORD, Dd = R3_QD; O.length = qn; for (let i = 0; i < qn; i++) O[i] = i;
+  O.sort((p, q) => Dd[p * 9] - Dd[q * 9]);   // de trás pra frente
   c.lineJoin = 'round'; c.lineWidth = 0.8;
-  for (const q of Q) { c.fillStyle = q[9]; c.strokeStyle = q[9]; c.beginPath(); c.moveTo(q[1], q[2]); c.lineTo(q[3], q[4]); c.lineTo(q[5], q[6]); c.lineTo(q[7], q[8]); c.closePath(); c.fill(); c.stroke(); }
+  let last = null;
+  for (let i = 0; i < qn; i++) {
+    const k = O[i], o9 = k * 9, col = R3_QC[k];
+    if (col !== last) { c.fillStyle = col; c.strokeStyle = col; last = col; }   // só troca a cor quando muda (parse de cor é caro)
+    c.beginPath(); c.moveTo(Dd[o9 + 1], Dd[o9 + 2]); c.lineTo(Dd[o9 + 3], Dd[o9 + 4]); c.lineTo(Dd[o9 + 5], Dd[o9 + 6]); c.lineTo(Dd[o9 + 7], Dd[o9 + 8]); c.closePath(); c.fill(); c.stroke();
+  }
 }
 
 /* ---- logo "7 SHADOWS" pré-renderizado (brilho e relevo já embutidos) */
@@ -2992,7 +3075,7 @@ function introFrame(now) {
   if (introGo >= 0 && introT - introGo >= IT_GO) endIntro();   // acabou o efeito: abre o menu
 }
 function endIntro() {
-  if (!introOn) return; introOn = false; introSkipAt = performance.now();
+  if (!introOn) return; introOn = false; introSkipAt = performance.now(); try { introBgm.pause(); } catch { }
   const m = $('menu'); m.classList.remove('hidden'); m.classList.add('enter');
   introEl.classList.add('out'); setTimeout(() => introEl.classList.add('hidden'), 750);
 }
@@ -3009,6 +3092,28 @@ addEventListener('keydown', e => { if (introOn && (e.key === ' ' || e.key === 'E
 addEventListener('keyup', e => { if (e.key === ' ' && performance.now() - introSkipAt < 400) e.preventDefault(); });
 $('introSkip').onclick = () => introPress();
 introLast = performance.now(); requestAnimationFrame(introFrame);
+
+/* ------------------------------------------------ ABERTURA: música (Castlevania — Stage 1)
+   Toca durante a animação, em loop. O navegador bloqueia som antes do 1º toque/tecla: se for bloqueado, começa assim que o jogador interagir.
+   Ao apertar INICIAR JOGO ela some em ~1,2 s enquanto a música do menu entra. Como a do menu, não depende da opção Música. */
+const INTRO_MUSIC = ['music/dracula-x-stage1.mp3', 'dracula-x-stage1.mp3', 'Castlevania_Dracula_X_OST__Stage_1_BloodlinesMP3_160K.mp3', 'music/Castlevania_Dracula_X_OST__Stage_1_BloodlinesMP3_160K.mp3'];
+const introBgm = new Audio(); introBgm.loop = true; introBgm.preload = 'auto';
+let introMusTry = 0;
+introBgm.src = INTRO_MUSIC[0];
+introBgm.addEventListener('error', () => { if (++introMusTry < INTRO_MUSIC.length) introBgm.src = INTRO_MUSIC[introMusTry]; });
+function introMusicVol() {
+  const base = Math.max(0.15, cfg.vol);
+  const f = introGo >= 0 ? Math.max(0, 1 - (introT - introGo) / (IT_GO * 0.9)) : Math.min(1, introT / 1.5);   // sobe no começo, some ao apertar
+  return Math.max(0, Math.min(1, base * f));
+}
+function introMusicTick() {
+  if (!introOn) { introBgm.pause(); return; }
+  introBgm.volume = introMusicVol();
+  if (introBgm.paused && introBgm.volume > 0) { const pr = introBgm.play(); if (pr && pr.catch) pr.catch(() => { }); }
+}
+setInterval(introMusicTick, 100);   // se o autoplay foi bloqueado, o próximo toque/tecla (abaixo) libera
+for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => { if (introOn) introMusicTick(); }, true);
+introMusicTick();
 
 /* ------------------------------------------------ MENU: música */
 $('btnMusic').onclick = () => showTab('music');
