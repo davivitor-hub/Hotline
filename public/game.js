@@ -2575,6 +2575,135 @@ function drawRider(c, g, t) {
   return hooves;
 }
 
+/* ---- cavalo + cavaleiro em 3D: malha de elipsoides e faixas, luz por face + brilho de contorno (rim) neon,
+   projetados em perspectiva e pintados de trás pra frente no canvas 2D. Modelo: x = frente, y = cima, z = lado. Origem = centro do corpo; chão em y = -92. */
+let H_FILLA = [14, 6, 24], H_RIMA = [255, 70, 170];
+const R3_A = 34, R3_DUTY = 0.5, R3_W = 11;   // meia-passada, fração de apoio e velocidade do galope (rad/s)
+const R3_FOOT = 2 * R3_A / (R3_DUTY * (TAU / R3_W));   // velocidade (un/s) do casco apoiado no chão: o cenário corre exatamente nisso
+const R3_MESH = {};
+function r3Sph(nu, nv) {
+  const k = nu * 100 + nv; if (R3_MESH[k]) return R3_MESH[k];
+  const v = [];
+  for (let j = 0; j <= nv; j++) { const a = Math.PI * j / nv; for (let i = 0; i <= nu; i++) { const b = TAU * i / nu; v.push(Math.cos(a), Math.sin(a) * Math.cos(b), Math.sin(a) * Math.sin(b)); } }
+  return (R3_MESH[k] = { v, nu, nv, n: v.length / 3 });
+}
+const R3_HEX = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function drawRider3D(c, gait, t, yaw, pitch, o) {
+  o = o || {}; const sil = !!o.sil, lo = !!o.lo;
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), D = 900;
+  const FA = H_FILLA, RA = H_RIMA, LX = -0.42, LY = 0.72, LZ = 0.55, Q = [];
+  const wob = (k, a, p = 0) => Math.sin(t * k + p) * a;
+  const st = (c0, rim, lit, emi) => ({ c: c0, rim, lit, emi: !!emi });
+  const sHorse = st([FA[0] * 0.8 + RA[0] * 0.1, FA[1] * 0.8 + RA[1] * 0.1, FA[2] * 0.8 + RA[2] * 0.1], 0.95, 0.24),
+    sCape = st([16, 198, 232], 0.3, 0.1), sPants = st([52, 80, 143], 0.28, 0.08), sBoot = st([244, 241, 234], 0.2, 0),
+    sSkin = st([240, 195, 154], 0.2, 0.05), sScarf = st([255, 46, 77], 0.3, 0.1), sGold = st([255, 210, 63], 0, 0, true), sEye = st([255, 154, 208], 0, 0, true),
+    sOwl = st(R3_HEX(HERO_PAL.m), 0.35, 0.08), sOwlD = st(R3_HEX(HERO_PAL.n), 0.3, 0.05), sFace = st(R3_HEX(HERO_PAL.k), 0.2, 0.05), sBeak = st(R3_HEX(HERO_PAL.Q), 0.2, 0.05), sOwlEye = st(R3_HEX(HERO_PAL.j), 0, 0, true);
+  const SIL = 'rgb(3,1,10)';
+  const shade = (s, nx, ny, nz) => {
+    if (sil) return SIL;
+    if (s.emi) return `rgb(${s.c[0] | 0},${s.c[1] | 0},${s.c[2] | 0})`;
+    const d = Math.max(0, nx * LX + ny * LY + nz * LZ), rm = Math.pow(1 - Math.max(0, nz), 2.2) * s.rim, a = 0.32 + 0.78 * d, e = rm + s.lit * d;
+    const r = Math.min(255, s.c[0] * a + RA[0] * e), g = Math.min(255, s.c[1] * a + RA[1] * e), b = Math.min(255, s.c[2] * a + RA[2] * e);
+    return `rgb(${r | 0},${g | 0},${b | 0})`;
+  };
+  const V = [0, 0, 0], PV = new Float32Array(3 * 140), NV = new Float32Array(3 * 140);
+  const vt = (x, y, z) => { const X = x * cy - z * sy, Z0 = x * sy + z * cy; V[0] = X; V[1] = y * cp - Z0 * sp; V[2] = y * sp + Z0 * cp; };
+  const pushQ = (s, x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, nx, ny, nz) => {
+    const k0 = D / (D - z0), k1 = D / (D - z1), k2 = D / (D - z2), k3 = D / (D - z3);
+    Q.push([(z0 + z1 + z2 + z3) * 0.25, x0 * k0, -y0 * k0, x1 * k1, -y1 * k1, x2 * k2, -y2 * k2, x3 * k3, -y3 * k3, shade(s, nx, ny, nz)]);
+  };
+  // elipsoide: centro, eixo (direção do raio maior), raios (ao longo do eixo, vertical no plano do eixo, lateral)
+  const ell = (cx, cy_, cz, ax, ay, az, rx, ry, rz, s, big) => {
+    let l = Math.hypot(ax, ay, az) || 1; ax /= l; ay /= l; az /= l;
+    let qx = 0, qy = 0, qz = 1; if (Math.abs(az) > 0.9) { qy = 1; qz = 0; }
+    let bx = ay * qz - az * qy, by = az * qx - ax * qz, bz = ax * qy - ay * qx; l = Math.hypot(bx, by, bz) || 1; bx /= l; by /= l; bz /= l;
+    const ex = ay * bz - az * by, ey = az * bx - ax * bz, ez = ax * by - ay * bx;
+    const m = r3Sph(...(big ? (lo ? [6, 4] : [10, 7]) : (lo ? [5, 3] : [7, 5]))), U = m.v, n = m.n, nu = m.nu, nv = m.nv;
+    for (let i = 0; i < n; i++) {
+      const ux = U[i * 3], uy = U[i * 3 + 1], uz = U[i * 3 + 2], mx = rx * ux, my = ry * uy, mz = rz * uz;
+      vt(cx + ax * mx + bx * my + ex * mz, cy_ + ay * mx + by * my + ey * mz, cz + az * mx + bz * my + ez * mz);
+      PV[i * 3] = V[0]; PV[i * 3 + 1] = V[1]; PV[i * 3 + 2] = V[2];
+      const gx = ux / rx, gy = uy / ry, gz = uz / rz;
+      vt(ax * gx + bx * gy + ex * gz, ay * gx + by * gy + ey * gz, az * gx + bz * gy + ez * gz);   // normal (só rotação)
+      const nl = Math.hypot(V[0], V[1], V[2]) || 1; NV[i * 3] = V[0] / nl; NV[i * 3 + 1] = V[1] / nl; NV[i * 3 + 2] = V[2] / nl;
+    }
+    for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+      const a = (j * (nu + 1) + i) * 3, b = a + 3, d = a + (nu + 1) * 3, e = d + 3;
+      const nx = NV[a] + NV[b] + NV[e] + NV[d], ny = NV[a + 1] + NV[b + 1] + NV[e + 1] + NV[d + 1], nz = NV[a + 2] + NV[b + 2] + NV[e + 2] + NV[d + 2];
+      if (nz < -0.15) continue;   // face de trás
+      const q = 0.25; pushQ(s, PV[a], PV[a + 1], PV[a + 2], PV[b], PV[b + 1], PV[b + 2], PV[e], PV[e + 1], PV[e + 2], PV[d], PV[d + 1], PV[d + 2], nx * q, ny * q, nz * q);
+    }
+  };
+  const cap = (x0, y0, z0, x1, y1, z1, r0, r1, s, big) => {   // "osso": elipsoide alongado entre dois pontos
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, len = Math.hypot(dx, dy, dz) || 1, r = (r0 + r1) / 2;
+    ell((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, dx, dy, dz, len / 2 + r * 0.55, r, r, s, big);
+  };
+  const ribbon = (A, B, s) => {   // faixa de dupla face (capa, cachecol)
+    const P = [];
+    for (let i = 0; i < A.length; i++) { vt(A[i][0], A[i][1], A[i][2]); const p = [V[0], V[1], V[2]]; vt(B[i][0], B[i][1], B[i][2]); P.push([p, [V[0], V[1], V[2]]]); }
+    for (let i = 0; i < P.length - 1; i++) {
+      const p0 = P[i][0], p1 = P[i][1], p2 = P[i + 1][1], p3 = P[i + 1][0];
+      let nx = (p1[1] - p0[1]) * (p3[2] - p0[2]) - (p1[2] - p0[2]) * (p3[1] - p0[1]), ny = (p1[2] - p0[2]) * (p3[0] - p0[0]) - (p1[0] - p0[0]) * (p3[2] - p0[2]), nz = (p1[0] - p0[0]) * (p3[1] - p0[1]) - (p1[1] - p0[1]) * (p3[0] - p0[0]);
+      const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl; if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      pushQ(s, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], p2[0], p2[1], p2[2], p3[0], p3[1], p3[2], nx, ny, nz);
+    }
+  };
+
+  // ---- pernas do cavalo: passo com cascos que ficam parados no chão durante o apoio (IK de 2 ossos)
+  const leg = (hx, hz, ph, rear) => {
+    const hy = -14, u = (((ph / TAU) % 1) + 1) % 1; let fx, fy;
+    if (u < R3_DUTY) { fx = R3_A - 2 * R3_A * (u / R3_DUTY); fy = 0; }
+    else { const v = (u - R3_DUTY) / (1 - R3_DUTY), e = v * v * (3 - 2 * v); fx = -R3_A + 2 * R3_A * e; fy = (rear ? 15 : 22) * Math.sin(Math.PI * v); }
+    const tx = hx + fx + 4, ty = hy - 73 + fy, L1 = 42;
+    let dx = tx - hx, dy = ty - hy, d = Math.hypot(dx, dy); if (d > 83) { dx *= 83 / d; dy *= 83 / d; d = 83; }
+    const aa = d / 2, h = Math.sqrt(Math.max(0, L1 * L1 - aa * aa)), ux = dx / d, uy = dy / d, dk = rear ? -1 : 1;
+    const kx = hx + ux * aa - uy * dk * h, ky = hy + uy * aa + ux * dk * h, ex = hx + dx, ey = hy + dy;
+    cap(hx, hy, hz, kx, ky, hz, rear ? 12 : 10.5, 6.5, sHorse, !lo);
+    cap(kx, ky, hz, ex, ey + 2, hz, 5.2, 3.8, sHorse);
+    ell(ex + 2, ey - 2, hz, 1, -0.25, 0, 7, 4.2, 4.6, sHorse);
+  };
+  const g = gait;
+  leg(-38, -13, g + 3.0, true); leg(44, -13, g + 0.5, false);   // lado de lá
+  // ---- corpo
+  ell(0, 0, 0, 1, 0, 0, 62, 28, 21, sHorse, true);
+  ell(38, 2, 0, 1, 0, 0, 30, 29, 21, sHorse, true);
+  ell(-40, -1, 0, 1, 0, 0, 30, 28, 21, sHorse, true);
+  cap(34, 18, 0, 92, 54, 0, 17, 11, sHorse, true);   // pescoço
+  ell(112, 49, 0, 0.81, -0.58, 0, 27, 12, 10, sHorse, true);   // cabeça
+  ell(126, 38, 0, 0.81, -0.58, 0, 12, 8.5, 8, sHorse);   // focinho
+  for (const z of [-5.5, 5.5]) { ell(97, 70, z, 0.15, 1, 0, 10, 3.6, 3, sHorse); ell(110, 55, z * 1.6, 1, 0, 0, 2.4, 2.4, 2.4, sEye); }
+  // crina ao vento
+  for (let i = 0; i < 8; i++) { const u = i / 7, px = 34 + u * 58, py = 22 + u * 42; ell(px - 7 + wob(14, 3, i), py + 4 + wob(11, 2, i * 2), 0, -1, 0.35, 0, 11, 3.6, 3, sHorse); }
+  // cauda: curva de Bézier ondulando
+  { const p0 = [-60, 10], p1 = [-92, 6 - wob(9, 8)], p2 = [-112, -16 - wob(8, 10, 1)], p3 = [-134, -40 - wob(7, 14, 2)]; let px = p0[0], py = p0[1];
+    for (let i = 1; i <= 6; i++) { const u = i / 6, w = 1 - u, x = w * w * w * p0[0] + 3 * w * w * u * p1[0] + 3 * w * u * u * p2[0] + u * u * u * p3[0], y = w * w * w * p0[1] + 3 * w * w * u * p1[1] + 3 * w * u * u * p2[1] + u * u * u * p3[1], z = wob(7, 4 * u, i);
+      cap(px, py, z, x, y, z, 7.5 - u * 3.5, 6.5 - u * 3.5, sHorse); px = x; py = y; } }
+
+  // ---- cavaleiro
+  const hip = 30;
+  ell(2, hip, 0, 1, 0, 0, 10, 8, 10, sPants);
+  for (const z of [-1, 1]) { const zz = z * 23; cap(2, hip, z * 9, 24, 10, zz, 7.5, 6, sPants); cap(24, 10, zz, 16, -12, zz * 1.04, 6, 4.6, sPants); ell(20, -15, zz * 1.04, 1, 0, 0, 8, 4.5, 4.5, sBoot); }
+  ell(6, 46, 0, 0.37, 0.93, 0, 20, 11, 9.5, sCape, true);   // tronco inclinado para a frente
+  ell(14, 60, 0, 0.3, 0.2, 0, 9, 8, 14, sCape);   // ombros
+  for (const z of [-1, 1]) { const zz = z * 10; cap(14, 57, zz, 38, 42, z * 14, 5.4, 4.6, sCape); cap(38, 42, z * 14, 60, 36, z * 8, 4.6, 3.6, sCape); ell(63, 35, z * 8, 1, 0, 0, 4, 3.6, 3.6, sSkin); cap(63, 35, z * 5, 120, 40, z * 5, 0.9, 0.9, sGold); }
+  // cabeça (coruja)
+  ell(17, 76, 0, 1, 0, 0, 12.5, 11.5, 11.5, sOwl, true);
+  for (const z of [-1, 1]) { ell(23, 77, z * 6, 1, 0, 0, 5.5, 6, 3.2, sFace); ell(26, 78, z * 8, 1, 0, 0, 2.4, 2.6, 2.2, sOwlEye); ell(11, 88, z * 7, 0.2, 1, 0, 7, 3, 2.6, sOwlD); }
+  ell(30, 73, 0, 1, -0.2, 0, 5.5, 3, 3, sBeak);
+  // capa e cachecol: faixas ao vento
+  { const A = [], M = [], B = [], n = 10;
+    for (let i = 0; i < n; i++) { const s = i / (n - 1), x = 2 - s * 118, y = 62 - 26 * s + wob(10, 7, -s * 5) * s, zc = wob(7, 7, 1 - s * 4) * s, w = 8 + 12 * s; A.push([x, y, zc - w]); M.push([x, y + 5 * (1 - s * 0.4), zc]); B.push([x, y, zc + w]); }
+    ribbon(A, M, sCape); ribbon(M, B, sCape); }
+  { const A = [], B = [], n = 8;
+    for (let i = 0; i < n; i++) { const s = i / (n - 1), x = 10 - s * 62, y = 64 - 6 * s + wob(13, 5, -s * 6) * s, zc = wob(9, 5, -s * 3) * s, w = 4 - s * 1.5; A.push([x, y, zc - w]); B.push([x, y, zc + w]); }
+    ribbon(A, B, sScarf); }
+  leg(50, 13, g, false); leg(-32, 13, g + 2.2, true);   // lado de cá (por cima)
+
+  Q.sort((p, q) => p[0] - q[0]);
+  c.lineJoin = 'round'; c.lineWidth = 0.8;
+  for (const q of Q) { c.fillStyle = q[9]; c.strokeStyle = q[9]; c.beginPath(); c.moveTo(q[1], q[2]); c.lineTo(q[3], q[4]); c.lineTo(q[5], q[6]); c.lineTo(q[7], q[8]); c.closePath(); c.fill(); c.stroke(); }
+}
+
 /* ---- logo "7 SHADOWS" pré-renderizado (brilho e relevo já embutidos) */
 function buildLogo(fs) {
   const font = `400 ${fs}px Bungee, Impact, sans-serif`;
@@ -2606,7 +2735,7 @@ function buildLogo(fs) {
 const riderCv = document.createElement('canvas'); riderCv.width = 300; riderCv.height = 220;
 function drawRiderSil(t, gait) {
   const c = riderCv.getContext('2d'); c.clearRect(0, 0, 300, 220);
-  c.save(); c.translate(160, 120); drawRider(c, gait, t); c.restore();
+  c.save(); c.translate(160, 120); drawRider3D(c, gait, t, 0.25, 0.05, { sil: true, lo: true }); c.restore();
   c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(3,1,10,.96)'; c.fillRect(0, 0, 300, 220); c.globalCompositeOperation = 'source-over';
 }
 
@@ -2671,7 +2800,7 @@ function iRidge(sc, t, W, H, horizon, S) {
 
 /* ---- cena 2 (loop): cavalgada em paralaxe */
 function iGallop(sc, t, dt, W, H, horizon, gy, S) {
-  const speed = 300 * S, scroll = t * speed;
+  const speed = R3_FOOT * 1.12 * S, scroll = t * speed;   // o chão corre exatamente na velocidade dos cascos apoiados (sem patinar)
   ic.strokeStyle = iRgba(sc.dust, 0.18); ic.lineWidth = 1.2;   // linhas de velocidade
   for (let i = 0; i < 14; i++) { const ly = hash(i, 11) * horizon, len = (60 + hash(i, 13) * 140) * S, lx = W - (((t * (700 + hash(i, 17) * 600) * S) + hash(i, 19) * W * 2) % (W * 1.6)) + 80; ic.beginPath(); ic.moveTo(lx, ly); ic.lineTo(lx + len, ly); ic.stroke(); }
   hillLayer(scroll * 0.06, H * 0.62, H * 0.07, 0.004, 0.011, iRgbS(sc.hill[0]), false, S);
@@ -2682,18 +2811,18 @@ function iGallop(sc, t, dt, W, H, horizon, gy, S) {
   ic.strokeStyle = iRgba(sc.line, 0.55); ic.lineWidth = 2; ic.beginPath(); ic.moveTo(-60, horizon + 5); ic.lineTo(W + 60, horizon + 5); ic.stroke();
   ic.lineCap = 'round';   // capim rápido no chão
   for (let i = 0; i < 46; i++) {
-    const depth = hash(i, 23), y = horizon + 12 + depth * (H - horizon - 12), sp = speed * (0.9 + depth * 1.6), x = (((hash(i, 29) * (W + 240)) - t * sp) % (W + 240) + (W + 240)) % (W + 240) - 120, h = (6 + depth * 18) * S;
+    const depth = hash(i, 23), y = horizon + 12 + depth * (H - horizon - 12), sp = speed * (0.4 + depth * 1.66), x = (((hash(i, 29) * (W + 240)) - t * sp) % (W + 240) + (W + 240)) % (W + 240) - 120, h = (6 + depth * 18) * S;
     ic.strokeStyle = depth > 0.6 ? iRgba(sc.g1, 0.5) : iRgba(sc.g2, 0.28); ic.lineWidth = 1 + depth * 1.6;
     ic.beginPath(); ic.moveTo(x, y); ic.lineTo(x - 3 * S, y - h); ic.stroke();
   }
   // cavalo e cavaleiro
-  H_FILL = iRgbS(sc.fill); H_RIM = iRgba(sc.rim, 0.8);
-  const rx = W * 0.25 + Math.sin(t * 0.7) * 14 * S, gait = t * 11, hoofLift = Math.abs(Math.sin(gait)) * 5;
+  H_FILL = iRgbS(sc.fill); H_RIM = iRgba(sc.rim, 0.8); H_FILLA = sc.fill; H_RIMA = sc.rim;
+  const rx = W * 0.25 + Math.sin(t * 0.7) * 14 * S, gait = t * R3_W, hoofLift = Math.abs(Math.sin(gait)) * 3;
   ic.save(); ic.translate(rx, gy - 92 * S - hoofLift * S); ic.scale(S * 1.12, S * 1.12);
   ic.fillStyle = 'rgba(0,0,0,.35)';
   ic.save(); ic.translate(0, 92 + hoofLift); ic.scale(1, 0.16); ic.beginPath(); ic.arc(0, 0, 90, 0, TAU); ic.fill(); ic.restore();   // sombra
   ic.rotate(Math.sin(gait + 0.6) * 0.03);
-  drawRider(ic, gait, t);
+  drawRider3D(ic, gait, t, 0.42 + Math.sin(t * 0.45) * 0.22, 0.1);   // 3/4 de frente, câmera balança devagar
   ic.restore();
   // poeira dos cascos
   for (let i = 0; i < 2; i++) introDust.push({ x: rx - 50 * S + (Math.random() - 0.5) * 60 * S, y: gy - 2 * S, vx: -speed * (0.8 + Math.random() * 0.4), vy: -(8 + Math.random() * 40) * S, life: 0.7 + Math.random() * 0.5, max: 1.2, r: (4 + Math.random() * 7) * S, k: S });
@@ -2749,10 +2878,10 @@ function iApproach(sc, t, ul, dt, W, H, horizon, gy, S, dir, dur) {
   };
   let i = 0; for (; i < list.length && list[i][0] > zr; i++) item(list[i][0], list[i][1]);
   // cavaleiro
-  H_FILL = iRgbS(sc.fill); H_RIM = iRgba(sc.rim, 0.8);
-  const sr = 1.232 * S / zr, rx = px(zr), ry = py(zr), gait = t * 11, lift = Math.abs(Math.sin(gait)) * 5 * sr;
+  H_FILL = iRgbS(sc.fill); H_RIM = iRgba(sc.rim, 0.8); H_FILLA = sc.fill; H_RIMA = sc.rim;
+  const sr = 1.232 * S / zr, rx = px(zr), ry = py(zr), gait = t * R3_W, lift = Math.abs(Math.sin(gait)) * 3 * sr;
   ic.save(); ic.translate(rx, ry); ic.fillStyle = 'rgba(0,0,0,.35)'; ic.scale(1, 0.16); ic.beginPath(); ic.arc(0, 0, 90 * sr, 0, TAU); ic.fill(); ic.restore();
-  ic.save(); ic.translate(rx, ry - 92 * sr - lift); ic.scale(dir * sr, sr); ic.rotate(Math.sin(gait + 0.6) * 0.03); drawRider(ic, gait, t); ic.restore();
+  ic.save(); ic.translate(rx, ry - 92 * sr - lift); ic.scale(sr, sr); ic.rotate(Math.sin(gait + 0.6) * 0.03); drawRider3D(ic, gait, t, (dir > 0 ? 0.95 : Math.PI - 0.95) + Math.sin(t * 0.8) * 0.1 * dir, 0.07); ic.restore();
   for (let n = 0; n < 2; n++) introDust.push({ x: rx - dir * (30 + Math.random() * 40) * sr, y: ry - 2 * sr, vx: -dir * (40 + Math.random() * 80) * sr, vy: -(8 + Math.random() * 40) * sr, life: 0.6 + Math.random() * 0.5, max: 1.1, r: (4 + Math.random() * 7) * sr, k: sr });
   for (; i < list.length; i++) item(list[i][0], list[i][1]);
   iDustDraw(sc, dt);
