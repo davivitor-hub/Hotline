@@ -1017,6 +1017,7 @@ function handleEvent(e, now) {
         if (pshots.length) { pshots.shift(); gotShot++; if (e.dn) pend2++; break; }   // já mostrei esse tiro na hora do clique
       }
       sfx(e.w, e.x, e.y);
+      if (e.w === 'ORB') { animOf(e.by).recoil = 0; addShake(e.by === myId ? 3 : 1); break; }   // soco do gorila: sem clarão de cano nem cápsula
       const wdx = WEAPONS[e.w], mz = ((wdx && wdx.muz) || 30) + (e.d || 0), mx = e.x + Math.cos(e.a) * mz, my = e.y + Math.sin(e.a) * mz;
       fx.lights.push({ x: mx, y: my, t: e.w === 'SNIPER' ? 0.14 : 0.08, r: e.w === 'SNIPER' ? 260 : 170, c: e.w === 'SNIPER' ? '255,120,150' : '255,225,130' });
       for (let i = 0; i < (e.w === 'SNIPER' ? 9 : 4); i++) fx.parts.push({ k: 's', x: mx, y: my, vx: Math.cos(e.a + (Math.random() - .5)) * 300, vy: Math.sin(e.a + (Math.random() - .5)) * 300, life: 0.08, sz: 6, col: '#ffe9a0' });
@@ -2224,16 +2225,38 @@ function splashFx(x, y, k, quiet) {   // respingo ao entrar/sair da água
   if (!quiet) sfx('splash', x, y);
   for (let i = 0; i < 16 * k; i++) { const a = Math.random() * TAU, v = 60 + Math.random() * 170; fx.parts.push({ k: 's', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.3 + Math.random() * 0.25, sz: 3, col: Math.random() < .5 ? '#d8f8ff' : '#8fe3ff' }); }
 }
+// Porta em PIXEL ART: sprite 35x5 (cada pixel = 2 unidades do mundo), montado uma vez e girado sem suavização
+// porta da fachada = fica no contorno do teto (entrada da casa): aparece SEMPRE, por cima do teto
+function isFacadeDoor(d) {
+  if (d._fc !== undefined) return d._fc;
+  let f = false;
+  for (const r of (level.m.roofs || [])) {
+    if (d.x < r.x || d.x >= r.x + r.w || d.y < r.y || d.y >= r.y + r.h) continue;
+    if (d.x === r.x || d.x === r.x + r.w - 1 || d.y === r.y || d.y === r.y + r.h - 1) { f = true; break; }
+  }
+  return d._fc = f;
+}
+let doorSpr = null;
+function makeDoorSprite() {
+  const w = Math.round((TILE - 2) / 2), h = Math.round(DOOR_HT * 2 / 2), cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const c = cv.getContext('2d'), px = (x, y, col) => { c.fillStyle = col; c.fillRect(x, y, 1, 1); };
+  const rows = ['#b27a3e', '#8b5a2b', '#74481f'];   // luz, madeira, sombra
+  for (let x = 0; x < w; x++) {
+    px(x, 0, '#3a2310'); px(x, h - 1, '#3a2310');
+    for (let y = 1; y < h - 1; y++) px(x, y, (x % 7 === 6) ? '#5a3716' : rows[Math.min(rows.length - 1, y - 1)]);   // tábuas
+  }
+  for (let y = 0; y < h; y++) { px(0, y, '#3a2310'); px(w - 1, y, '#3a2310'); }
+  px(1, 1, '#f3d27a'); px(1, h - 2, '#f3d27a'); px(2, 1, '#c9a24a'); px(2, h - 2, '#c9a24a');   // dobradiças
+  px(w - 5, (h - 1) >> 1, '#ffe9a0'); px(w - 4, (h - 1) >> 1, '#f3d27a');                         // maçaneta
+  return cv;
+}
 function drawDoor(d) {
-  const T = TILE, a = d.o === 'h' ? d.phi : Math.PI / 2 - d.phi;
+  const T = TILE, a = d.o === 'h' ? d.phi : Math.PI / 2 - d.phi, ht = DOOR_HT;
+  if (!doorSpr) doorSpr = makeDoorSprite();
+  const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
   ctx.save(); ctx.translate(d.hx, d.hy); ctx.rotate(a);
-  const ht = DOOR_HT;
-  ctx.fillStyle = '#8b5a2b'; ctx.fillRect(0, -ht, T - 2, ht * 2);
-  ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(2, -ht + 1.5, T - 8, 2.4);
-  ctx.strokeStyle = '#4a2e14'; ctx.lineWidth = 1.8; ctx.strokeRect(0, -ht, T - 2, ht * 2);
-  ctx.fillStyle = '#f3d27a'; ctx.beginPath(); ctx.arc(T - 11, 0, 2.6, 0, TAU); ctx.fill();   // maçaneta
-  ctx.fillStyle = '#c9a24a'; ctx.beginPath(); ctx.arc(2, 0, 3.8, 0, TAU); ctx.fill();      // dobradiça
-  ctx.restore();
+  ctx.drawImage(doorSpr, 0, -ht, T - 2, ht * 2);
+  ctx.restore(); ctx.imageSmoothingEnabled = sm;
 }
 
 function updateFx(dt) {
@@ -2341,7 +2364,7 @@ function render(now, dt) {
   {   // porta dentro de uma construção com teto: só aparece para quem está dentro (acompanha o fade do teto, inclusive a folha aberta que sai do contorno)
     const rs = level.m.roofs || [];
     for (const d of level.doors) {
-      if (!inView(d.hx, d.hy, TILE)) continue;
+      if (!inView(d.hx, d.hy, TILE) || isFacadeDoor(d)) continue;
       let al = 1;
       for (let i = 0; i < rs.length; i++) { const r = rs[i]; if (d.x >= r.x && d.x < r.x + r.w && d.y >= r.y && d.y < r.y + r.h) { al = 1 - (roofA[i] === undefined ? 1 : roofA[i]); break; } }
       if (al < 0.02) continue;
@@ -2352,8 +2375,9 @@ function render(now, dt) {
 
   // paredes antes dos personagens: evita que a camada de paredes cubra o sprite
   blitView(wallCv, vx0, vy0, vx1 - vx0, vy1 - vy0);
-  // ESCURIDÃO DA CASA: cômodo com a luz apagada fica quase preto (piso, móveis, paredes, portas, corpos e sangue somem).
+  // ESCURIDÃO DA CASA: cômodo com a luz apagada fica bem escuro e semitransparente (piso, móveis, paredes, portas, corpos e sangue ficam esmaecidos).
   // Itens no chão, tiros (com brilho) e o SEU boneco são desenhados depois, por cima da escuridão; adversários dentro de cômodo apagado ficam invisíveis.
+  const DARK_A = 0.6;   // escuridão semitransparente: dá para ver o cômodo (piso, móveis, paredes), mas adversários lá dentro continuam invisíveis
   const loff = snap.lo | 0, lrooms = level.m.rooms || [];
   const darkAt = (x, y) => { for (let i = 0; i < lrooms.length; i++) if ((loff >> i) & 1) { const r = lrooms[i]; if (x >= r.x1 * TILE && x < (r.x2 + 1) * TILE && y >= r.y1 * TILE && y < (r.y2 + 1) * TILE) return true; } return false; };
   if (lrooms.length) {
@@ -2363,7 +2387,7 @@ function render(now, dt) {
       const a = roomD[i]; if (a < 0.02) continue;
       const r = lrooms[i], x0 = (r.x1 - 1) * TILE, y0 = (r.y1 - 1) * TILE, w0 = (r.x2 - r.x1 + 3) * TILE, h0 = (r.y2 - r.y1 + 3) * TILE;
       if (!inView(x0 + w0 / 2, y0 + h0 / 2, Math.max(w0, h0))) continue;
-      ctx.fillStyle = `rgba(2,3,8,${0.985 * a})`; ctx.fillRect(x0, y0, w0, h0);
+      ctx.fillStyle = `rgba(2,3,8,${DARK_A * a})`; ctx.fillRect(x0, y0, w0, h0);
     }
     ctx.restore();
   }
@@ -2565,6 +2589,7 @@ function render(now, dt) {
     }
     ctx.globalAlpha = 1;
   }
+  for (const d of level.doors) if (isFacadeDoor(d) && inView(d.hx, d.hy, TILE)) drawDoor(d);   // portas de entrada: visíveis por fora, por cima do teto
   // barras de cura e de carga da lança do PRÓPRIO jogador: por cima de tetos/efeitos, com o estado do canvas zerado
   if (me && me.al) {
     ctx.save();
