@@ -72,13 +72,16 @@
   const canHold = (skin, type) => !(SKIN_STATS[skin] && SKIN_STATS[skin].meleeOnly) || !!(WEAPONS[type] && WEAPONS[type].melee);   // quem só usa corpo a corpo não pega arma de fogo
   const maxHpOf = skin => MAX_HP * ((SKIN_STATS[skin] && SKIN_STATS[skin].hpMul) || 1);          // vida máxima do personagem
   const healPctOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healPct) || HEAL_PCT;          // % da PRÓPRIA vida máxima que a cura devolve
+  const DUAL_FWD = 16 * CS;   // modo dupla: as armas longas ficam 16 unidades (do desenho) mais à frente, com os braços esticados — o cano sai dessa distância a mais
+  const dualFwdOf = type => (type === 'PISTOL' || type === 'REVOLVER') ? 0 : DUAL_FWD;   // pistola/revólver já ficam na ponta do braço
   const hasDual = skin => !!(SKIN_STATS[skin] && SKIN_STATS[skin].dual);                          // a ativa é o modo dupla (duas armas iguais ao mesmo tempo)
-  const dualPair = p => {   // [arma da mão, arma do outro espaço] se o modo dupla está ligado e são duas armas de fogo da mesma categoria; senão null
-    if (!p || !p.dualOn || !hasDual(p.skin)) return null;
+  const canDual = p => {   // tem 2 armas do mesmo TIPO no inventário (mão + outro espaço)? Só assim o Shadow 7 pode usar a ativa
+    if (!p || !hasDual(p.skin) || !p.inv) return false;
     const a = p.inv[p.sel], b = p.inv[1 - p.sel];
-    if (!a || !b || a.type !== b.type) return null;
-    const w = WEAPONS[a.type];
-    return w && !w.melee ? [a, b] : null;
+    return !!(a && b && WEAPONS[a.type] && sameWeaponType(a.type, b.type));
+  };
+  const dualPair = p => {   // [arma da mão, arma do outro espaço] se o modo dupla está ligado e as duas armas são do mesmo tipo; senão null
+    return p && p.dualOn && canDual(p) ? [p.inv[p.sel], p.inv[1 - p.sel]] : null;
   };
   const hasActive = skin => !!(SKIN_STATS[skin] && SKIN_STATS[skin].active);                      // ativa (Espaço): gorila (explosão) e Shadow 4 (gancho)
   const healTimeOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healTime) || HEAL_TIME;       // segundos de cura
@@ -132,6 +135,22 @@
     SNIPER:  { name: 'SNIPER',  dmg: 85, ammo: 4,  cd: 1.15,  spread: 0.004, speed: 2800, pellets: 1, range: 3400, auto: false, col: '#ff5a7a', muz: 78 },
     MINIGUN: { name: 'MINIGUN', dmg: 8,  ammo: 120, cd: 0.055, spread: 0.16, speed: 1050, pellets: 1, range: 800,  auto: true,  col: '#ffb02e', muz: 68 }
   };
+  /* TIPOS DE ARMA: agrupam modelos parecidos. O modo DUPLA do Shadow 7 aceita duas armas do MESMO TIPO (ex.: PISTOLAS = pistola + revólver). */
+  const WEAPON_TYPES = {
+    PISTOLAS: { name: 'PISTOLAS', list: ['PISTOL', 'REVOLVER'] },
+    SUBMETRALHADORAS: { name: 'SUBMETRALHADORAS', list: ['SMG'] },
+    FUZIS: { name: 'FUZIS', list: ['RIFLE', 'SNIPER'] },
+    ESPINGARDAS: { name: 'ESPINGARDAS', list: ['SHOTGUN'] },
+    PESADAS: { name: 'PESADAS', list: ['MINIGUN'] },
+    LAMINAS: { name: 'LÂMINAS', list: ['KNIFE', 'MACHETE', 'KATANA', 'AXE'] },
+    CONTUNDENTES: { name: 'CONTUNDENTES', list: ['BAT'] },
+    LANCAS: { name: 'LANÇAS', list: ['SPEAR'] },
+    GARRAFAS: { name: 'GARRAFAS', list: ['WINE', 'BROKEN'] }
+  };
+  const TYPE_OF = {};
+  for (const k of Object.keys(WEAPON_TYPES)) for (const w of WEAPON_TYPES[k].list) TYPE_OF[w] = k;
+  const weaponTypeOf = w => TYPE_OF[w] || w;                          // tipo da arma (arma sem tipo definido é um tipo só dela)
+  const sameWeaponType = (a, b) => weaponTypeOf(a) === weaponTypeOf(b);
   // Raridade: quanto menor o peso, mais difícil da arma aparecer
   const RARITY = {
     KNIFE: 10, BAT: 10, PISTOL: 10,                 // comuns
@@ -923,6 +942,9 @@
         this.timer -= dt;
         if (this.timer <= 0) { this.phase = 'live'; this.events.push({ t: 'go' }); }
       } else if (this.phase === 'live') {
+        for (const p of this.players) if (p && p.dualOn && !canDual(p)) {   // perdeu o par de armas (largou, arremessou, trocou, morreu...): a dupla desliga
+          p.dualOn = false; this.events.push({ t: 'dualeq', id: p.id, x: p.x, y: p.y, on: 0 });
+        }
         for (const p of this.players) this.tryFire(p);
         for (const p of this.players) if (p && p.hook) this.stepHook(p, dt);   // Shadow 4: puxada do gancho
       }
@@ -1003,25 +1025,30 @@
         }
         return;
       }
-      const guns = dualPair(p) || [p.weapon], loaded = guns.filter(g => g.ammo > 0);   // modo dupla do Shadow 7: as duas armas iguais atiram juntas (uma de cada lado do corpo)
+      const guns = dualPair(p) || [p.weapon], loaded = guns.filter(g => g.ammo > 0), dual = guns.length > 1;   // modo dupla do Shadow 7: as duas armas do mesmo tipo atiram juntas (uma de cada lado do corpo)
       if (!loaded.length) { p.cd = 0.3; this.events.push({ t: 'click', by: p.id, x: p.x, y: p.y }); return; }
-      p.cd = wd.cd;
+      p.cd = Math.max(...loaded.map(g => WEAPONS[g.type].cd));   // armas diferentes: o ritmo é o da mais lenta
       const cs = Math.cos(p.angle), sn = Math.sin(p.angle);
-      loaded.forEach((gun, gi) => {
+      let shotN = 0;
+      guns.forEach((gun, gi) => {
+        if (gun.ammo <= 0) return;   // a arma vazia não atira; a outra continua do lado certo
         gun.ammo--;
-        let off = loaded.length > 1 ? (gi ? -5.5 : 5.5) : 0;   // desvio lateral de cada cano
+        const gw = WEAPONS[gun.type], fwd = dual ? dualFwdOf(gun.type) : 0;   // cada arma com o seu dano, cano, espalhamento e velocidade
+        let off = dual ? (gi ? -1 : 1) * (fwd ? 8.5 : 5.5) : 0;   // desvio lateral de cada cano (bate com o desenho: armas longas bem abertas, uma em cada braço)
         if (off && !this.level.los(p.x, p.y, p.x - sn * off, p.y + cs * off)) off = 0;   // encostado na parede: os dois saem do corpo
         const ox = p.x - sn * off, oy = p.y + cs * off;
-        let mz = wd.muz || 12;
+        let mz = (gw.muz || 12) + fwd, fw = fwd;
         // se a ponta do cano atravessar uma parede (encostado nela), o tiro sai do corpo
-        if (!this.level.los(ox, oy, ox + cs * mz, oy + sn * mz)) mz = 8;
+        if (!this.level.los(ox, oy, ox + cs * mz, oy + sn * mz)) mz = 8, fw = 0;
         const sx = ox + cs * mz, sy = oy + sn * mz;
-        for (let i = 0; i < wd.pellets; i++) {
-          const a = p.angle + (Math.random() - 0.5) * 2 * wd.spread;
-          const sp = wd.speed * (wd.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
-          this.bullets.push({ id: this.nid++, x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: p.id, w: gun.type, life: wd.range / sp });
+        for (let i = 0; i < gw.pellets; i++) {
+          const a = p.angle + (Math.random() - 0.5) * 2 * gw.spread;
+          const sp = gw.speed * (gw.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
+          this.bullets.push({ id: this.nid++, x: sx, y: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, owner: p.id, w: gun.type, life: gw.range / sp });
         }
-        this.events.push({ t: 'shot', by: p.id, w: gun.type, x: ox, y: oy, a: p.angle });
+        // dn = 1º tiro de uma salva dupla · n = 2º tiro da mesma salva (o cliente online já mostrou os dois na hora do clique)
+        this.events.push({ t: 'shot', by: p.id, w: gun.type, x: ox, y: oy, a: p.angle, d: fw ? Math.round(fw) : undefined, dn: shotN === 0 && loaded.length > 1 ? 1 : undefined, n: shotN ? 1 : undefined });
+        shotN++;
       });
     }
 
@@ -1069,6 +1096,10 @@
     useActive(p) {
       if (!p || !hasActive(p.skin) || !p.alive || p.down || p.healT > 0 || p.charging || p.hook || this.phase !== 'live') return false;
       if (hasDual(p.skin)) {   // Shadow 7: a ativa liga/desliga o modo dupla
+        if (!p.dualOn && !canDual(p)) {   // sem 2 armas do mesmo tipo: a ativa não liga
+          this.events.push({ t: 'dualno', id: p.id, x: p.x, y: p.y });
+          return false;
+        }
         p.dualOn = !p.dualOn; p.fire = false; p.buf = 0; p.cd = Math.max(p.cd, 0.12);
         this.events.push({ t: 'dualeq', id: p.id, x: p.x, y: p.y, on: p.dualOn ? 1 : 0 });
         return true;
@@ -1587,5 +1618,5 @@
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, hasDual, dualPair, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
+  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, hasDual, canDual, dualFwdOf, DUAL_FWD, dualPair, WEAPON_TYPES, weaponTypeOf, sameWeaponType, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });
