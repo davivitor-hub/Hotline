@@ -227,7 +227,6 @@
   }
 
   /* ------------------------------------------------ textos para toque */
-  const skip = $('introSkip'); if (skip) skip.innerHTML = 'Toque para pular';
   const sh = document.querySelector('#spectate .sh'); if (sh) sh.textContent = 'toque p/ trocar';
 
   /* ====================================================================
