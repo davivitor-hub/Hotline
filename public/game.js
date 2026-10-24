@@ -4,7 +4,7 @@
    Online 1v1 (servidor autoritativo + predição/reconciliação) ou treino vs bot
    (a mesma simulação roda localmente). Estilo Hotline Miami: um tiro = morte.
    ========================================================================== */
-const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, ACT_CD, activeCdOf, canHold, hasHook, hasDual, dualFwdOf, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, DOOR_HT, sanitizeRoomCfg } = Shared;
+const { TILE, PR, CS, WEAPONS, MAPS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, maxHpOf, healTimeOf, hasActive, cadMulOf, ACT_CD, activeCdOf, canHold, hasHook, hasDual, dualFwdOf, HOOK_RANGE, HOOK_STOP, MAX_PLAYERS, MIN_PLAYERS, randomColor, SPEAR_THROW_MIN, SPEAR_THROW_MAX, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, DOOR_HT, sanitizeRoomCfg } = Shared;
 const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
@@ -49,7 +49,7 @@ let shake = 0, zoomKick = 0, hitstop = 0, goUntil = 0;
 let fx = { parts: [], lights: [], slashes: [], blasts: [], hooks: [], corpses: [], pops: [], flash: 0, red: 0 };
 // predição dos MEUS tiros (online): o tiro aparece na hora do clique; quando o do servidor chega, ele é escondido para não duplicar
 let pend2 = 0, pbul = [], pshots = [], hiddenB = new Set(), knownB = new Set(), gotShot = 0, pcd = 0, pbuf = 0;
-let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [], roomD = [];   // roomD = escuridão atual de cada cômodo (0 = aceso, 1 = apagado, animada); roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
+let anim = {}, levelCv = null, wallCv = null, decal = null, dctx = null, roofCv = null, roofA = [], roomD = [], canA = {}, poolFurn = [], fountainFurn = [];   // roomD = escuridão atual de cada cômodo (0 = aceso, 1 = apagado, animada); roofA = opacidade atual de cada teto (1 = fechado, 0 = você está dentro)
 const INTERP = () => (mode === 'local' ? 34 : 50);   // online: snapshots a 60 Hz → ~3 amostras de buffer
 
 let dprCap = 1.5;   // teto da resolução interna (a qualidade dinâmica baixa isso se o FPS cair)
@@ -252,13 +252,29 @@ function sfx(n, x, y) {
     case 'swap': nz(d, t, 0.05, 0.22 * v, 'highpass', 2600); osc(d, 'square', 380, t, 0.06, 0.2 * v, 720); break;
     case 'pick': osc(d, 'square', 600, t, 0.07, 0.25 * v, 950); break;
     case 'click': osc(d, 'square', 1600, t, 0.025, 0.25 * v); break;
-    case 'throw': nz(d, t, 0.2, 0.3 * v, 'bandpass', 900); break;
-    case 'wall': nz(d, t, 0.05, 0.25 * v, 'highpass', 3000); break;
-    case 'go': osc(d, 'sawtooth', 220, t, 0.35, 0.4, 660); osc(d, 'square', 330, t, 0.35, 0.2, 990); break;
-    case 'end': osc(d, 'triangle', 440, t, 0.4, 0.4, 220); break;
-    case 'tick': osc(d, 'square', 880, t, 0.06, 0.2); break;
-    case 'glass': nz(d, t, 0.35, 0.8 * v, 'highpass', 4500); nz(d, t, 0.12, 0.5 * v, 'bandpass', 2600); [2400, 3100, 3900].forEach((f, i) => osc(d, 'triangle', f, t + i * 0.03, 0.18, 0.16 * v, f * 0.6)); break;
-    case 'unlock': [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { osc(d, 'triangle', f, t + i * 0.09, 0.6, 0.35); osc(d, 'sine', f * 2, t + i * 0.09, 0.5, 0.12); }); nz(d, t, 0.5, 0.25, 'highpass', 5000); break;
+    case 'coin':   // peteleco + moeda girando no ar + plim ao cair na água
+      osc(d, 'square', 1500, t, 0.03, 0.18 * v); osc(d, 'triangle', 1800, t + 0.12, 0.45, 0.2 * v, 2700);
+      [2200, 2500, 2200, 2500, 2200].forEach((fq, i) => osc(d, 'sine', fq, t + 0.22 + i * 0.1, 0.05, 0.07 * v));
+      nz(d, t + 0.77, 0.22, 0.35 * v, 'bandpass', 1500); osc(d, 'sine', 900, t + 0.77, 0.16, 0.3 * v, 420); break;
+    // sons da fonte (só quem jogou a moeda escuta). Abençoados = brilhantes e subindo; amaldiçoados = graves e descendo; nada = sopro suave.
+    case 'fx_spd': [784, 988, 1175, 1568, 1976].forEach((fq, i) => { osc(d, 'triangle', fq, t + i * 0.05, 0.28, 0.2); osc(d, 'sine', fq * 2, t + i * 0.05, 0.2, 0.06); }); nz(d, t, 0.3, 0.12, 'highpass', 4500); break;   // varrida de brilho (vento)
+    case 'fx_arm': [523, 659, 784].forEach(fq => { osc(d, 'triangle', fq, t, 0.9, 0.17); osc(d, 'sine', fq / 2, t, 0.9, 0.12); }); osc(d, 'sine', 2093, t + 0.05, 0.5, 0.09); osc(d, 'sine', 3136, t + 0.12, 0.4, 0.05); break;   // acorde quente de escudo com sininho
+    case 'fx_rof': for (let i = 0; i < 7; i++) osc(d, 'square', 600 + i * 130, t + i * 0.045, 0.05, 0.07); osc(d, 'triangle', 1568, t + 0.33, 0.35, 0.16); break;   // bolhinhas rápidas subindo + plim
+    case 'fx_slow': [494, 415, 330, 247].forEach((fq, i) => osc(d, 'sine', fq, t + i * 0.14, 0.45, 0.22)); osc(d, 'triangle', 124, t, 0.8, 0.12, 82); nz(d, t, 0.5, 0.08, 'lowpass', 500); break;   // sino descendo, pesado
+    case 'fx_frag': [2093, 1760, 1397].forEach((fq, i) => osc(d, 'triangle', fq, t + i * 0.06, 0.25, 0.1, fq * 0.7)); osc(d, 'sine', 110, t, 0.35, 0.28, 55); nz(d, t, 0.12, 0.2, 'highpass', 3500); break;   // vidro trincando + baque grave
+    case 'fx_rus': osc(d, 'triangle', 440, t, 0.8, 0.2, 110); osc(d, 'sine', 466, t + 0.03, 0.8, 0.12, 116); osc(d, 'sine', 55, t, 0.8, 0.15); break;   // escorregada desafinada para baixo
+    case 'fx_none': nz(d, t, 0.25, 0.12, 'lowpass', 900); osc(d, 'sine', 330, t, 0.3, 0.1, 220); break;   // sopro suave: nada aconteceu
+    case 'power':   // quadro de energia baleado: estalo elétrico + faíscas + a casa "desligando" (queda grave) + três notinhas descendo
+      nz(d, t, 0.1, 0.9 * v, 'highpass', 3500); osc(d, 'square', 1900, t, 0.09, 0.35 * v, 260);
+      [0.07, 0.12, 0.2, 0.27].forEach(o => nz(d, t + o, 0.035, 0.4 * v, 'bandpass', 2600 + o * 4000));
+      osc(d, 'sine', 90, t + 0.03, 0.3, 0.85 * v, 32);
+      osc(d, 'sawtooth', 620, t + 0.1, 0.85, 0.22 * v, 45); osc(d, 'sine', 310, t + 0.1, 0.85, 0.35 * v, 30);
+      [784, 587, 392].forEach((f, i) => osc(d, 'triangle', f, t + 0.16 + i * 0.13, 0.35, 0.22 * v, f * 0.92));
+      break;
+    case 'splash': nz(d, t, 0.3, 0.55 * v, 'bandpass', 1300); nz(d, t + 0.04, 0.22, 0.3 * v, 'highpass', 2800); osc(d, 'sine', 460, t, 0.14, 0.18 * v, 150); osc(d, 'sine', 300, t + 0.08, 0.12, 0.12 * v, 120); break;
+    case 'dive': nz(d, t, 0.22, 0.5 * v, 'lowpass', 900); osc(d, 'sine', 420, t, 0.2, 0.3 * v, 120); [0.04, 0.1, 0.17].forEach((o, i) => osc(d, 'sine', 700 + i * 180, t + o, 0.07, 0.14 * v, 1100 + i * 200));   // glub + bolhinhas
+    case 'surface': if (n === 'surface') { nz(d, t, 0.3, 0.5 * v, 'bandpass', 1600); nz(d, t + 0.05, 0.2, 0.28 * v, 'highpass', 3000); osc(d, 'sine', 300, t, 0.16, 0.18 * v, 640); } break;
+    case 'drown': osc(d, 'sine', 260, t, 0.7, 0.5 * v, 60); [0, 0.1, 0.2, 0.32, 0.46].forEach((o, i) => osc(d, 'sine', 500 + i * 90, t + o, 0.09, 0.2 * v, 900 + i * 120)); nz(d, t, 0.5, 0.4 * v, 'lowpass', 700); break;
     case 'heal': osc(d, 'sine', 520, t, 0.25, 0.5 * v, 1040); osc(d, 'triangle', 780, t + 0.08, 0.25, 0.35 * v, 1560); break;
   }
 }
@@ -403,7 +419,7 @@ $('volRange').oninput = e => { cfg.vol = e.target.value / 100; saveCfg(); applyM
 // o id de cada ação é a sua tecla padrão; cfg.binds guarda só o que o jogador trocou
 const ACTIONS = [
   { id: 'w', label: 'Andar para cima' }, { id: 's', label: 'Andar para baixo' }, { id: 'a', label: 'Andar para a esquerda' }, { id: 'd', label: 'Andar para a direita' },
-  { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'v', label: 'Interagir (garrafa / luz)' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' }, { id: 'g', label: 'Emote (dançar)' },
+  { id: ' ', label: 'Ativa' }, { id: 'e', label: 'Pegar arma' }, { id: 'v', label: 'Interagir (garrafa / luz / fonte)' }, { id: 'f', label: 'Arremessar' }, { id: 'q', label: 'Curar' }, { id: 'g', label: 'Emote (dançar)' },
   { id: '1', label: 'Arma do espaço 1' }, { id: '2', label: 'Arma do espaço 2' },
   { id: 'shift', label: 'Soltar / estender a câmera' },
   { id: 'control', label: 'Apontar a arma p/ a cabeça (segurar) + clique' },
@@ -735,12 +751,7 @@ const FURN = {
     rrect(c, 3, 8, w - 6, h - 16, 3, '#b98550', OUT); c.strokeStyle = 'rgba(60,30,10,.45)'; c.lineWidth = 1;
     for (let x = 14; x < w - 6; x += 12) { c.beginPath(); c.moveTo(x, 9); c.lineTo(x, h - 9); c.stroke(); }
   },
-  pool(c, w, h) {
-    rrect(c, 0, 0, w, h, 6, '#ece6d6', OUT, 2); rrect(c, 6, 6, w - 12, h - 12, 4, '#27b8e0', '#118aa8', 2);
-    c.strokeStyle = 'rgba(255,255,255,.5)'; c.lineWidth = 2;
-    for (let k = 0; k < 3; k++) { const y = 18 + k * (h - 36) / 2; c.beginPath(); c.moveTo(14, y); for (let x = 14; x <= w - 14; x += 6) c.lineTo(x, y + Math.sin(x / 9 + k * 2) * 3); c.stroke(); }
-    dot(c, w - 28, h - 26, 9, null, '#ff5a5a', 4); dot(c, w - 28, h - 26, 9, null, '#fff', 1.5);
-  },
+  pool(c, w, h) { /* a piscina é pixel art animada: desenhada em quadros por drawPool() */ },
   tree(c, w, h) {
     const R = Math.min(w, h) / 2 - 2; dot(c, w / 2, h / 2, R, '#2b7733', OUT, 2);
     for (let i = 0; i < 8; i++) { const a = i * TAU / 8; dot(c, w / 2 + Math.cos(a) * R * .55, h / 2 + Math.sin(a) * R * .55, R * .48, i & 1 ? '#37913f' : '#2f8338'); }
@@ -759,14 +770,11 @@ const FURN = {
     c.fillStyle = 'rgba(255,255,255,.55)'; c.fillRect(8 + w * .30 + 9, 15, w - 26 - w * .30, 2);
     c.restore();
   },
-  patio(c, w, h) {   // mesa de jardim com ombrelone (visto de cima)
+  patio(c, w, h) {   // mesa de jardim (visto de cima). O ombrelone em si é desenhado POR CIMA dos personagens (drawCanopy), para dar pra entrar debaixo dele.
     const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 2;
-    c.fillStyle = 'rgba(0,0,0,.2)'; c.beginPath(); c.ellipse(cx + 4, cy + 5, R, R * .94, 0, 0, TAU); c.fill();
-    dot(c, cx, cy, R, '#f4ead0', OUT, 2);
-    for (let i = 0; i < 8; i++) { c.fillStyle = i & 1 ? '#f4ead0' : '#e0533f'; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R - 2, i * TAU / 8, (i + 1) * TAU / 8); c.closePath(); c.fill(); }
-    c.strokeStyle = 'rgba(70,24,12,.4)'; c.lineWidth = 1.2;
-    for (let i = 0; i < 8; i++) { c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(i * TAU / 8) * (R - 2), cy + Math.sin(i * TAU / 8) * (R - 2)); c.stroke(); }
-    dot(c, cx, cy, 5, '#8a5a30', OUT, 1.2); dot(c, cx - 1, cy - 1, 1.8, '#d9b27a');
+    c.fillStyle = 'rgba(0,0,0,.14)'; c.beginPath(); c.ellipse(cx + 4, cy + 5, R, R * .94, 0, 0, TAU); c.fill();   // sombra suave no chão
+    for (let i = 0; i < 4; i++) { const a = i * TAU / 4 + Math.PI / 4; dot(c, cx + Math.cos(a) * 24, cy + Math.sin(a) * 24, 7, '#9a6b3a', OUT, 1.2); }   // cadeiras
+    dot(c, cx, cy, 13, '#c99a62', OUT, 1.6); dot(c, cx, cy, 9, '#e8c78f'); dot(c, cx, cy, 3.2, '#8a5a30');
   },
   flowers(c, w, h) {   // canteiro de flores
     rrect(c, 3, 6, w - 6, h - 12, 9, '#8a5a30', OUT);
@@ -859,11 +867,10 @@ const FURN = {
     rrect(c, 3, 5, w - 6, h - 10, 4, '#2f6b4a', OUT); rrect(c, 6, 8, w - 12, h - 16, 3, '#3d8a60', 'rgba(0,0,0,.4)', 1);
     c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; for (let x = 14; x < w - 8; x += 14) { c.beginPath(); c.moveTo(x, 9); c.lineTo(x, h - 9); c.stroke(); }
   },
-  fountain(c, w, h) {
-    rrect(c, 0, 0, w, h, w / 2, '#d5cfc0', OUT, 2.5); rrect(c, 8, 8, w - 16, h - 16, (w - 16) / 2, '#35b9e6', '#1a86ad', 2.5);
-    const g = c.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w / 2); g.addColorStop(0, 'rgba(130,235,250,.6)'); g.addColorStop(1, 'rgba(20,110,150,0)'); c.fillStyle = g; c.fillRect(8, 8, w - 16, h - 16);
-    c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 2; for (const r of [w * .3, w * .22]) { c.beginPath(); c.arc(w / 2, h / 2, r, 0, TAU); c.stroke(); }
-    dot(c, w / 2, h / 2, 17, '#d8d2c4', OUT, 2); dot(c, w / 2, h / 2, 10, '#8fe2f5', 'rgba(20,110,150,.7)', 1.5); dot(c, w / 2 - 3, h / 2 - 3, 3, '#fff');
+  fountain(c, w, h, f) {   // fonte em pixel art: a base (quadro 0) vai no piso; a água animada é desenhada por drawFountain()
+    c.save(); c.imageSmoothingEnabled = false;
+    c.drawImage(fountainFrames(((f && f.w) || 3) * 10)[0], 0, 0, w, h);
+    c.restore();
   },
   sandbags(c, w, h) {
     const n = Math.max(2, Math.round(w / 22));
@@ -901,7 +908,7 @@ function drawRoof(c, r, T, g) {
   c.fillStyle = 'rgba(0,0,0,.28)'; if (w >= h) c.fillRect(x, y + h / 2 - 4, w, 8); else c.fillRect(x + w / 2 - 4, y, 8, h);   // cumeeira
   c.fillStyle = 'rgba(255,255,255,.22)'; if (w >= h) c.fillRect(x, y + h / 2 - 4, w, 2); else c.fillRect(x + w / 2 - 4, y, 2, h);
   c.restore();
-  for (let ty = r.y; ty < r.y + r.h; ty++) for (let tx = r.x; tx < r.x + r.w; tx++) if (g[ty][tx] === 2 && (tx === r.x || ty === r.y || tx === r.x + r.w - 1 || ty === r.y + r.h - 1)) c.clearRect(tx * T - 1, ty * T - 1, T + 2, T + 2);   // só as portas da FACHADA ficam visíveis por fora; portas internas (banheiro etc.) continuam sob o teto
+  // as portas (fachada e internas) ficam sob o teto: quem está fora da casa não as vê
   c.restore();
 }
 
@@ -940,6 +947,7 @@ function buildStatic() {
   wc.lineCap = 'butt';
   // móveis
   for (const f of m.furn) drawFurn(c, f, T);
+  poolFurn = m.furn.filter(f => f.k === 'pool'); fountainFurn = m.furn.filter(f => f.k === 'fountain');
   roofCv = null; roofA = [];
   if (m.roofs && m.roofs.length) {
     roofCv = document.createElement('canvas'); roofCv.width = W * TILE; roofCv.height = H * TILE;
@@ -950,7 +958,7 @@ function buildStatic() {
   decal = document.createElement('canvas'); decal.width = W * TILE; decal.height = H * TILE; dctx = decal.getContext('2d');
 }
 function newRound(s) {
-  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx(); roomD = [];
+  mapId = s.map; round = s.rd; buf = []; pending = []; first = true; resetFx(); roomD = []; canA = {};
   if (s.map) { level = new Level(s.map); buildStatic(); } else { level = null; levelCv = null; roofCv = null; roofA = []; }
 }
 function onSnapshot(s) {
@@ -977,7 +985,7 @@ function onSnapshot(s) {
   const me = s.pl.find(p => p.id === myId);
   if (me && level) {
     while (pending.length && pending[0].seq <= (s.ack || 0)) pending.shift();
-    const t = { x: me.x, y: me.y, skin: me.sk };
+    const t = { x: me.x, y: me.y, skin: me.sk, dualOn: !!me.dm, slowT: me.sn || 0, wt: me.w, fxSpd: me.fs || 1 };
     if (me.hk) { pending = []; pred.x = me.x; pred.y = me.y; first = false; }   // puxado pelo gancho: segue a posição do servidor
     else if (canMove(s.ph, me.al, me.dn, me.hz > 0)) for (const p of pending) stepMove(level, t, p.k, p.dt, p.sm);
     const err = Math.hypot(t.x - pred.x, t.y - pred.y);
@@ -1054,6 +1062,13 @@ function handleEvent(e, now) {
       break;
     }
     case 'kill': {
+      if (e.how === 'drown') {   // afogado: sem sangue, só bolhas e o corpo boiando
+        sfx('drown', e.x, e.y); addPop(e.x, e.y - 22, 'AFOGADO!', '#6fd8ff');
+        for (let i = 0; i < 26; i++) { const a = Math.random() * TAU, v = 15 + Math.random() * 90; fx.parts.push({ k: 'o', x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 10, life: 0.7 + Math.random() * 0.9, sz: 2 + Math.random() * 4 }); }
+        fx.corpses.push({ x: e.x, y: e.y, a: e.a, sk: e.sk, vx: 0, vy: 0, mine: e.id === myId, col: jacketOf(e.id, e.id === myId), dk: e.dk });
+        addShake(4); if (e.id === myId) fx.red = 0.4;
+        break;
+      }
       sfx('kill', e.x, e.y);
       if (e.how === 'suicide') addPop(e.x, e.y - 22, 'SUICÍDIO', '#ff2e4d');
       const big = e.how === 'exec' || e.how === 'blade' || e.how === 'blast';
@@ -1093,14 +1108,44 @@ function handleEvent(e, now) {
       break;
     case 'hstart': sfx('click', e.x, e.y); fx.lights.push({ x: e.x, y: e.y, t: 0.25, r: 90, c: '90,255,140' }); break;
     case 'pick': sfx('pick', e.x, e.y); break;
+    case 'coin': {   // jogou a moeda: ela cai na fonte no meio da animação (respingo) e o resultado sai no fim
+      const mine = e.id === myId; if (mine) sfx('coin');
+      const fo = fountainAim(e.x, e.y);
+      if (fo) setTimeout(() => { splashFx(fo.x, fo.y, 0.7, !mine); fx.lights.push({ x: fo.x, y: fo.y, t: 0.3, r: 90, c: '255,226,122' }); }, Shared.COIN_T * 0.7 * 1000);
+      break;
+    }
+    case 'coinr': {  // resultado do desejo: nada / buff / debuff (som e texto só para quem jogou; os outros só veem o brilho e o anel)
+      const def = e.k >= 0 ? Shared.COIN_FX[e.k] : null, mine = e.id === myId;
+      if (e.r === 1 && def) {
+        if (mine) { sfx('fx_' + def.id); addPop(e.x, e.y - 44, 'VOCÊ FOI ABENÇOADO!', '#7dff8a', 3.2); addPop(e.x, e.y - 20, def.name, '#fff6a0', 3.2); }
+        for (let i = 0; i < 16; i++) { const a = Math.random() * TAU; fx.parts.push({ k: 's', x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 70, vy: Math.sin(a) * 70 - 110, life: 0.6, sz: 4, col: i & 1 ? '#7dff8a' : '#fff6a0' }); }
+        fx.lights.push({ x: e.x, y: e.y, t: 0.35, r: 130, c: '120,255,160' });
+      } else if (e.r === 2 && def) {
+        if (mine) { sfx('fx_' + def.id); addPop(e.x, e.y - 44, 'VOCÊ FOI AMALDIÇOADO!', '#d98bff', 3.2); addPop(e.x, e.y - 20, def.name, '#ffb0e0', 3.2); }
+        for (let i = 0; i < 14; i++) { const a = Math.random() * TAU; fx.parts.push({ k: 's', x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 60, vy: Math.sin(a) * 60 + 40, life: 0.6, sz: 4, col: i & 1 ? '#b05cff' : '#5b2a8a' }); }
+        fx.lights.push({ x: e.x, y: e.y, t: 0.35, r: 120, c: '170,90,255' });
+      } else if (mine) { sfx('fx_none'); addPop(e.x, e.y - 40, 'ACONTECEU ALGO...', '#c9d1d9', 3.2); }
+      break;
+    }
     case 'sw': sfx('click', e.x, e.y); break;   // interruptor
+    case 'dive':   // mergulhou (on) ou subiu (off)
+      sfx(e.on ? 'dive' : 'surface', e.x, e.y);
+      for (let i = 0; i < (e.on ? 12 : 8); i++) { const a = Math.random() * TAU, v = 20 + Math.random() * 60; fx.parts.push({ k: 'o', x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 10, life: 0.5 + Math.random() * 0.6, sz: 2 + Math.random() * 3.5 }); }
+      if (!e.on) for (let i = 0; i < 10; i++) { const a = Math.random() * TAU, v = 50 + Math.random() * 120; fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.3 + Math.random() * 0.2, sz: 3, col: '#d8f8ff' }); }
+      break;
+    case 'pwr':   // tiro no quadro de energia: faíscas, clarão e a casa apaga
+      sfx('power', e.x, e.y); addShake(6);
+      for (let i = 0; i < 22; i++) { const a = Math.random() * TAU, v = 90 + Math.random() * 260; fx.parts.push({ k: 's', x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.25 + Math.random() * 0.35, sz: 4, col: Math.random() < 0.5 ? '#9ff7ff' : '#fff6a0' }); }
+      fx.lights.push({ x: e.x, y: e.y, t: 0.4, r: 260, c: '150,220,255' });
+      addPop(e.x, e.y - 30, 'ENERGIA CORTADA!', '#9ff7ff');
+      break;
     case 'click': sfx('click', e.x, e.y); break;
     case 'throw': sfx('throw', e.x, e.y); break;
     case 'go': goUntil = now + 900; sfx('go'); break;
     case 'end': sfx('end'); break;
   }
 }
-function addPop(x, y, s, col) { fx.pops.push({ x, y, s, col, t: 0.9 }); }
+function addPop(x, y, s, col, d = 0.9) { fx.pops.push({ x, y, s, col, t: d, d }); }
 function addBlood(x, y, a, n, spd) {
   for (let i = 0; i < n; i++) {
     const aa = a + (Math.random() - .5) * 1.5, s = spd * (0.2 + Math.random());
@@ -1196,7 +1241,7 @@ function stepInput() {
   const inp = { type: 'input', seq: ++seq, dt: STEP, k, a: +aim.toFixed(3), ad, f: mouse.down ? 1 : 0, fp: edge.fp ? 1 : 0, pk: edge.pk ? 1 : 0, it: edge.it ? 1 : 0, th: edge.th ? 1 : 0, hl: edge.hl ? 1 : 0, sw: edge.sw ? 1 : 0, sl: edge.sl ? 1 : 0, ct: keys.control ? 1 : 0, em: edge.em ? 1 : 0, ss: edge.ss, tc: (mouse.right || keys.f) ? 1 : 0 };
   edge.fp = edge.pk = edge.it = edge.th = edge.hl = edge.sw = edge.sl = edge.em = false; edge.ss = 0;
   const me = myState(), sm = me && me.hz > 0 ? HEAL_SLOW : 1;
-  if (me) pred.skin = me.sk;
+  if (me) { pred.skin = me.sk; pred.dualOn = !!me.dm; pred.slowT = me.sn || 0; pred.wt = me.w; pred.fxSpd = me.fs || 1; }
   const hooked = !!(me && me.hk);   // preso no gancho: o servidor move o boneco, a previsão só espera
   if (me && !hooked && canMove(snap.ph, me.al, me.dn, me.hz > 0)) stepMove(level, pred, k, STEP, sm);
   if (!hooked) { pending.push({ seq: inp.seq, dt: STEP, k, sm }); if (pending.length > 120) pending.shift(); }
@@ -1209,7 +1254,7 @@ function predictShots(inp) {
   const nowT = performance.now();
   while (pshots.length && nowT - pshots[0] > 700) pshots.shift();   // o servidor não confirmou: descarta
   if (snap.ph !== 'live') return;
-  const me = myState(); if (!me || !me.al || me.dn || me.hz > 0 || me.ch >= 0 || inp.ct || me.su > 0.02) return;
+  const me = myState(); if (!me || !me.al || me.dn || me.dv || me.hz > 0 || me.ch >= 0 || inp.ct || me.su > 0.02) return;
   pcd -= STEP; pbuf -= STEP;
   if (inp.pk || inp.it || inp.sw || inp.ss || inp.th || inp.hl || inp.sl) { pcd = Math.max(pcd, 0.25); pbuf = 0; return; }   // trocou/pegou/jogou/curou: espera o servidor
   if (inp.fp) pbuf = 0.16;
@@ -1221,7 +1266,7 @@ function predictShots(inp) {
   const loaded = guns.filter(q => q.ammo - pshots.length > 0);
   if (!loaded.length) return;
   if (!(pcd <= 0 && (pbuf > 0 || inp.f))) return;
-  pbuf = 0; pcd = Math.max(...loaded.map(q => WEAPONS[q.type].cd));
+  pbuf = 0; pcd = Math.max(...loaded.map(q => WEAPONS[q.type].cd)) * cadMulOf(me.sk, !!me.dm);
   const a = inp.a, cs = Math.cos(a), sn = Math.sin(a);
   guns.forEach((gun, gi) => {
     if (gun.ammo - pshots.length <= 0) return;
@@ -1581,6 +1626,19 @@ function hand(x, y) {
   ctx.drawImage(handSpr(true), Math.round(x / PU) * PU - 3 * PU, Math.round(y / PU) * PU - 3 * PU, 6 * PU, 6 * PU); ctx.imageSmoothingEnabled = sm;
 }
 // pernas estilo Hotline Miami: jeans + tênis branco com faixa vermelha (stp = quanto cada perna vai à frente/atrás)
+// pernas de nado (bate-perna): pés alternando atrás do corpo, com espuma
+function drawSwimKick(now, mv) {
+  const f = Math.sin(now / 75), jn = curHero ? '#69d6e8' : JEANS;
+  ctx.save(); ctx.lineCap = 'round';
+  for (const s of [-1, 1]) {
+    const k = s * f, fx0 = -15 - Math.abs(k) * 2, fy0 = s * 4.2 + k * 3.2;
+    ctx.strokeStyle = jn; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(-2, s * 3.6); ctx.lineTo(fx0, fy0); ctx.stroke();
+    ctx.fillStyle = '#f4f1ea'; ctx.beginPath(); ctx.ellipse(fx0 - 2.2, fy0, 3.6, 2.6, 0, 0, TAU); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(240,253,255,.7)';
+  for (let i = 0; i < 5; i++) { const t = ((now / 380 + i / 5) % 1); ctx.globalAlpha = (1 - t) * 0.75; ctx.beginPath(); ctx.arc(-18 - t * 12, Math.sin(i * 2.7 + now / 140) * 7, 1.6 + (1 - t) * 1.8, 0, TAU); ctx.fill(); }
+  ctx.restore();
+}
 function drawLegs(stp, sliding) {
   heroLegs(stp); return;   // mesmas pernas para TODOS os personagens
   // perna reta e grossa (calça clara com realce em cima e sombra embaixo) e, na ponta dela, um pé branco pequeno
@@ -1743,6 +1801,8 @@ function swingArm(sp) {
 const swingLunge = sp => (sp < 0.12 ? -0.25 * (sp / 0.12) : Math.sin(Math.min(1, (sp - 0.12) / 0.6) * Math.PI) * 1);
 function drawPlayer(p, x, y, ang, isMe, now) {
   const st = animOf(p.id);
+  const coinFo = p.cn > 0 && !p.dn ? fountainAim(x, y) : null;   // jogando a moeda: o corpo vira para a fonte
+  if (coinFo) ang = coinFo.a;
   if (!st.lx && !st.ly) { st.lx = x; st.ly = y; }
   const moved = Math.hypot(x - st.lx, y - st.ly);
   if (st.la === undefined) { st.la = ang; st.mv = 0; }
@@ -1754,11 +1814,23 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   const jacket = jacketOf(p.id, isMe); curHero = isHeroSk(p.sk);
   ctx.save(); ctx.translate(x, y); ctx.scale(CS, CS);
   if (isMe) { ctx.strokeStyle = 'rgba(0,229,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.stroke(); }
+  if (p.fk > 0 && !p.dn) {   // buff (verde) / debuff (roxo): anel pulsando em volta do boneco
+    const good = Shared.COIN_FX[p.fk - 1] && Shared.COIN_FX[p.fk - 1].good, pu = 0.5 + 0.5 * Math.sin(now / 160);
+    ctx.save(); ctx.lineWidth = 2; ctx.strokeStyle = good ? `rgba(110,255,150,${0.35 + 0.3 * pu})` : `rgba(190,100,255,${0.35 + 0.3 * pu})`;
+    ctx.beginPath(); ctx.arc(0, 0, 24 + pu * 2, 0, TAU); ctx.stroke(); ctx.restore();
+  }
+  const swimming = !!(level && level.waterAt(x, y)) && !p.dn;   // na água: sprite de NADO
+  if (p.dv) {   // MERGULHADO: boneco quase transparente, escuro, soltando bolhas (de fora só dá pra ver as ondas e as bolhas)
+    if (Math.random() < 0.07) fx.parts.push({ k: 'o', x: x + (Math.random() - .5) * 18, y: y + (Math.random() - .5) * 18, vx: (Math.random() - .5) * 16, vy: -10 - Math.random() * 14, life: 0.9 + Math.random() * 0.6, sz: 2 + Math.random() * 3 });
+    ctx.fillStyle = 'rgba(8,60,110,.38)'; ctx.beginPath(); ctx.arc(0, 0, 19, 0, TAU); ctx.fill();
+  }
+  { const inW = !!(level && level.waterAt(x, y)); if (st.inW === undefined) st.inW = inW; else if (st.inW !== inW && moved < 40) { st.inW = inW; splashFx(x, y, inW ? 1 : 0.6); } }
   if (level && level.waterAt(x, y)) {   // dentro da piscina: sem sombra, ondas se abrindo em volta dos pés
     ctx.save(); ctx.lineWidth = 2;
     for (let i = 0; i < 3; i++) { const t = ((now / 650 + i / 3) % 1); ctx.globalAlpha = (1 - t) * 0.7; ctx.strokeStyle = '#e8fbff'; ctx.beginPath(); ctx.ellipse(0, 4, 12 + t * 17, 9 + t * 12, 0, 0, TAU); ctx.stroke(); }
     ctx.restore();
   } else { ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(2, 4, 16, 13, 0, 0, TAU); ctx.fill(); }
+  if (p.dv) ctx.globalAlpha = isMe ? 0.55 : 0.26;
   const healing = p.hz > 0 && !p.dn;
   if (healing) {   // aura verde pulsante + cruzes subindo (por baixo do boneco)
     const pu = 0.5 + 0.5 * Math.sin(now / 130), pr = 1 - Math.max(0, Math.min(1, p.hz / healTimeOf(p.sk)));
@@ -1789,7 +1861,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   }
   // pernas estilo Hotline Miami: uma vai para frente e a outra para TRÁS, alternando; o pé que vem à frente levanta um pouco
   ctx.save(); ctx.rotate(angDiff(st.la, ang));
-  drawLegs(dancing ? Math.sin(now / 115) * 9 : Math.sin(st.walk) * 10 * st.mv);
+  if (swimming && !dancing) drawSwimKick(now, st.mv); else drawLegs(dancing ? Math.sin(now / 115) * 9 : Math.sin(st.walk) * 10 * st.mv);
   ctx.restore();
   const sp = swSp, swinging = swOn; let twist = 0;
   const swt = p.w, wt = p.su > 0.02 ? null : p.w, wd = wt ? WEAPONS[wt] : null, melee = !wt || wd.melee;
@@ -1813,6 +1885,27 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     limb(0, 10, 9 + a * 9, 17 + b2 * 3, jacket); limb(0, -10, 9 - a * 9, -17 - b2 * 3, jacket);
     hand(10 + a * 9, 17.5 + b2 * 3); hand(10 - a * 9, -17.5 - b2 * 3);
     twist = a * 0.2;
+  } else if (coinFo) {
+    // MOEDA: puxa a mão para trás, peteleca a moeda em arco até o centro da fonte (gira no ar, sobe e cai) e volta a mão
+    const u = 1 - p.cn, sm = v => v * v * (3 - 2 * v);
+    const pull = u < 0.15 ? sm(u / 0.15) : 0, fl = u < 0.15 ? 0 : u < 0.3 ? sm((u - 0.15) / 0.15) : u < 0.42 ? 1 : Math.max(0, 1 - sm((u - 0.42) / 0.2));
+    const hx = 8 - 2 * pull + 9 * fl, hy = 6 + 2 * pull - 4 * fl;   // mão direita (lado +y)
+    if (wt) { ctx.save(); ctx.translate(-1, -12); ctx.rotate(-2.5); ctx.scale(0.8, 0.8); drawWeaponSprite(wt); ctx.restore(); }   // arma guardada no quadril esquerdo
+    limb(0, 10, hx, hy, jacket); limb(0, -10, 9, -6, jacket);
+    hand(9, -6); hand(hx, hy);
+    const q = (u - 0.27) / 0.43;   // progresso do voo da moeda
+    if (u < 0.27) { ctx.fillStyle = '#f7d154'; ctx.strokeStyle = '#8a6414'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(hx + 1, hy - 1.5, 3.2, 0, TAU); ctx.fill(); ctx.stroke(); }   // moeda na ponta do dedo
+    else if (q < 1) {
+      const dd = Math.max(20, coinFo.d), arc = Math.sin(q * Math.PI), lift = arc * (16 + dd * 0.18);
+      const lx = 17 + (dd - 17) * q, ly = 2 * (1 - q), ex = lx - lift * Math.sin(ang), ey = ly - lift * Math.cos(ang);   // o "para cima" da tela, no referencial do boneco
+      ctx.save(); ctx.globalAlpha = 0.28; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(lx, ly, 3 * (1 - arc * 0.3), 2.2 * (1 - arc * 0.3), 0, 0, TAU); ctx.fill(); ctx.restore();   // sombra no chão
+      const flip = Math.max(0.18, Math.abs(Math.cos(q * Math.PI * 5))), sz = 3.6 * (1 + arc * 0.5);
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(-ang); ctx.scale(flip, 1);   // gira (achata) mantendo a moeda na vertical da tela
+      ctx.fillStyle = flip > 0.6 ? '#f7d154' : '#c99a2a'; ctx.strokeStyle = '#8a6414'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0, 0, sz, 0, TAU); ctx.fill(); ctx.stroke();
+      if (flip > 0.5) { ctx.fillStyle = '#fff2a8'; ctx.fillRect(-sz * 0.45, -sz * 0.55, sz * 0.5, 1.4); }
+      ctx.restore();
+    }
+    twist = 0;
   } else if (swt && p.su > 0.02) {
     // CTRL: os DOIS braços levam a arma (desenhada por cima do tronco, mais abaixo) da frente até a cabeça: uma mão no cabo, a outra mais à frente
     const u = p.su, e = u * u * (3 - 2 * u), ra = e * Math.PI / 2, dx = Math.cos(ra), dy = Math.sin(ra), gx = 12 - 9 * e, gy = -26 * e;
@@ -1825,6 +1918,15 @@ function drawPlayer(p, x, y, ang, isMe, now) {
     limb(0, 10, 14, 3, jacket); limb(0, -10, 21, -3, jacket);
     ctx.save(); ctx.translate(9, -1); drawHookGun(); ctx.restore();
     hand(14, 3); hand(21, -3);
+  } else if (swimming && !wt && !swinging) {
+    // NADO CRAWL: um braço estica à frente enquanto o outro puxa a água para trás, alternando; o tronco rola de leve
+    const a1 = Math.sin(now / 230 + st.walk * 0.2);
+    for (const [s, a] of [[1, a1], [-1, -a1]]) {
+      const hx = 15 + a * 12, hy = s * (7.5 + (a < 0 ? -a * 5 : 0));
+      limb(0, s * 10, hx, hy, jacket); hand(hx, hy);
+      if (a > 0.85) { ctx.fillStyle = 'rgba(235,252,255,.85)'; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(hx + 5 + i * 2.4, hy + (i - 1) * 2.6, 1.6, 0, TAU); ctx.fill(); } }   // respingo na mão que entra na água
+    }
+    twist = a1 * 0.16;
   } else if (!wt) {
     // soco: a mão que bate puxa para trás, dispara para frente cruzando a mira e volta; a outra fica de guarda
     const side = st.punch, bump = swinging ? Math.sin(Math.min(1, Math.max(0, (sp - 0.18) / 0.82)) * Math.PI) : 0;
@@ -1842,7 +1944,7 @@ function drawPlayer(p, x, y, ang, isMe, now) {
       const bl = sp < 0.12 ? sp / 0.12 : sp > 0.85 ? (1 - sp) / 0.15 : 1, ha = lerpN(-0.2, a, bl), len = lerpN(10.2, swingArm(sp), bl);
       const hx = Math.cos(ha) * len, hy2 = 10 + Math.sin(ha) * len, cnt = Math.sin(Math.min(1, sp / 0.7) * Math.PI);
       if (p.dm === 1) {   // Shadow 7 no modo dupla: COMBO — golpe 0 = só o braço direito, 1 = só o esquerdo (o outro fica de guarda), 2 = CRUZADO: os dois braços varrem juntos com o corpo girando
-        const stp = dcs >= 0 ? dcs : 0, both = stp === 2;
+        const stp = dcs >= 0 ? dcs : 0, both = true;   // as DUAS armas golpeiam em todo golpe
         twist = both ? (a + 0.6) * 0.5 : (a + 0.6) * 0.3 * (stp === 0 ? 1 : -1);
         for (const sd of [1, -1]) {
           const act = both || (stp === 0 ? sd === 1 : sd === -1);
@@ -1907,6 +2009,10 @@ function drawPlayer(p, x, y, ang, isMe, now) {
   ctx.save(); ctx.rotate(Math.sin(st.walk) * 0.07 * st.mv + twist);   // o tronco balança de leve a cada passo (e gira junto com o golpe)
   drawBody(p.sk, jacket, false);
   drawBackWeapon(p);   // a outra arma do inventário fica nas costas
+  if (swimming) {   // tronco dentro da água: véu azul por cima e espuma na linha d'água; só a cabeça fica de fora
+    ctx.fillStyle = 'rgba(70,200,240,.34)'; ctx.beginPath(); ctx.ellipse(-2, 0, 14.5, 12.5, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(240,253,255,.75)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.ellipse(-2, 0, 14.5, 12.5, 0, 0.5, 2.6 + Math.sin(now / 200) * 0.4); ctx.stroke();
+  }
   ctx.save(); ctx.translate(2.5, 0); drawHead(p.sk, p.dk > 0); ctx.restore();
   if (swt && p.su > 0.02) {   // CTRL: a arma sai da frente e vai girando até apontar para a própria cabeça
     const u = p.su, e = u * u * (3 - 2 * u);
@@ -1951,6 +2057,172 @@ function drawCorpse(c) {
   ctx.translate(-4, 0); drawHead(c.sk, c.dk > 0);
   ctx.fillStyle = 'rgba(160,10,35,.7)'; circle(1, 2, 5);
   ctx.restore();
+}
+// OMBRELONE (copa por cima de tudo): quem está de fora vê a copa quase opaca; quem entra debaixo dela vê ela ficar bem transparente
+function drawCanopy(cx, cy, R, al) {
+  ctx.save(); ctx.globalAlpha = al; ctx.translate(cx, cy);
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(4, 5, R, R * .94, 0, 0, TAU); ctx.fill();
+  dot(ctx, 0, 0, R, '#f4ead0', OUT, 2);
+  for (let i = 0; i < 8; i++) { ctx.fillStyle = i & 1 ? '#f4ead0' : '#e0533f'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R - 2, i * TAU / 8, (i + 1) * TAU / 8); ctx.closePath(); ctx.fill(); }
+  ctx.strokeStyle = 'rgba(70,24,12,.4)'; ctx.lineWidth = 1.2;
+  for (let i = 0; i < 8; i++) { ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(i * TAU / 8) * (R - 2), Math.sin(i * TAU / 8) * (R - 2)); ctx.stroke(); }
+  dot(ctx, 0, 0, 5, '#8a5a30', OUT, 1.2); dot(ctx, -1, -1, 1.8, '#d9b27a');
+  ctx.restore();
+}
+// PISCINA EM PIXEL ART: 10x10 pixels por tile, 4 quadros de animação pré-desenhados (ondinhas, brilho e faíscas mudam a cada quadro) e ampliados sem suavização.
+const POOL_W = ['#9aeaf6', '#66d6ef', '#3bb8e8', '#2796d6', '#1b74ba'], BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const poolCache = {};
+// FONTE DOS DESEJOS — pixel art 10 px por tile, 4 quadros (ondas, respingos e esguicho do centro se mexem)
+const fountainCache = {};
+function fountainFrames(n) {
+  if (fountainCache[n]) return fountainCache[n];
+  const frames = [], R = n / 2 - 1.2, cx = n / 2, cy = n / 2, TAU2 = Math.PI * 2;
+  const hsh = (a, b, c) => { const v = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return v - Math.floor(v); };
+  const WATER = ['#a6f0fc', '#5fd3f2', '#34aadf', '#2582c0', '#1c5f98'];
+  const rW = R - 4.4, rB = rW * 0.27;   // rW = raio da água; rB = raio da bacia do centro
+  for (let f = 0; f < 4; f++) {
+    const cv = document.createElement('canvas'); cv.width = n; cv.height = n; const c = cv.getContext('2d');
+    const px = (x, y, col) => { if (x < 0 || y < 0 || x >= n || y >= n) return; c.fillStyle = col; c.fillRect(x, y, 1, 1); };
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const dx = x + 0.5 - cx, dy = y + 0.5 - cy, r = Math.hypot(dx, dy), lit = (-dx - dy) / (r * 1.4142 + 1e-6), rho = R - r;
+      if (rho < 0) { if (Math.hypot(dx - 1.2, dy - 1.2) <= R) px(x, y, 'rgba(0,0,0,.24)'); continue; }   // sombra projetada
+      if (rho < 1) { px(x, y, '#2b2733'); continue; }                                                     // contorno
+      if (rho < 3.4) {                                                                                    // borda de pedra: duas fiadas, juntas desencontradas
+        const ang = (Math.atan2(dy, dx) + Math.PI) / TAU2 * 14, course = rho < 2.2 ? 0 : 1, fr = (ang + course * 0.5) % 1;
+        let col = lit > 0.25 ? '#f6f1e2' : lit > -0.35 ? '#ddd5c0' : '#bdb39c';
+        if (course) col = lit > 0.25 ? '#fffaec' : lit > -0.35 ? '#e8e1ce' : '#c9bfa8';
+        if (fr < 0.09) col = '#a59b84';
+        px(x, y, col); continue;
+      }
+      if (rho < 4.4) { px(x, y, lit > 0 ? '#7c7766' : '#a9a28d'); continue; }                          // parede interna da bacia
+      if (r > rB + 1.2) {                                                                                 // ÁGUA
+        const d = (r - rB) / (rW - rB), t = d * 3.5, base = Math.floor(t), frac = t - base;
+        let idx = frac > BAYER[(y & 3) * 4 + (x & 3)] / 16 ? base + 1 : base;
+        if (rho < 6 && lit > 0.2) idx++;                                                                  // sombra da borda (cima/esquerda)
+        { const rr = rB + 1.5 + (f / 4) * (rW - rB - 1.5); if (Math.abs(r - rr) < 0.6) idx -= 1; }   // ondas saindo do centro
+        idx = Math.max(0, Math.min(4, idx));
+        let col = WATER[idx];
+        if (hsh(x, y, f) > 0.975) col = '#ffffff';                                                        // brilhinhos
+        px(x, y, col); continue;
+      }
+      if (r > rB - 0.2) { px(x, y, '#2b2733'); continue; }                                                // contorno do pedestal
+      if (r > rB - 1.8) { px(x, y, lit > 0.2 ? '#fffaec' : lit > -0.35 ? '#e4dcc7' : '#bdb39c'); continue; }   // topo do pedestal
+      px(x, y, (f + x + y) & 2 ? '#8ae6f8' : '#b4f2fc');                                                   // bacia com água
+    }
+    // esguicho do centro + gotas caindo em volta
+    const j = f & 1;
+    px(Math.floor(cx), Math.floor(cy), '#ffffff'); px(Math.floor(cx) - 1, Math.floor(cy), '#ffffff'); px(Math.floor(cx), Math.floor(cy) - 1, '#ffffff'); px(Math.floor(cx) - 1, Math.floor(cy) - 1, '#e8fbff');
+    px(Math.floor(cx) - 2 - j, Math.floor(cy) - 2 - j, '#d4f7ff'); px(Math.floor(cx) + 1 + j, Math.floor(cy) - 2 - j, '#d4f7ff'); px(Math.floor(cx) - 2 - j, Math.floor(cy) + 1 + j, '#d4f7ff'); px(Math.floor(cx) + 1 + j, Math.floor(cy) + 1 + j, '#d4f7ff');
+    for (let k = 0; k < 8; k++) {
+      const t = (f / 4 + (k & 1) * 0.5) % 1, a = k * TAU2 / 8 + 0.3, rad = rB + 1.6 + t * (rW - rB - 2.6);
+      px(Math.floor(cx + Math.cos(a) * rad), Math.floor(cy + Math.sin(a) * rad), t < 0.5 ? '#ffffff' : '#d4f7ff');
+    }
+    frames.push(cv);
+  }
+  return fountainCache[n] = frames;
+}
+const FOUNTAIN_COIN_PER_W = 4;   // máximo de moedas desenhadas = 4 x largura da fonte em tiles (12 na pequena, 16 na grande)
+function drawFountain(f, now, coins) {
+  ctx.save(); ctx.imageSmoothingEnabled = false;
+  const n = f.w * 10, fr = ((now / 230) | 0) & 3, X = f.x * TILE, Y = f.y * TILE, ps = f.w * TILE / n;
+  ctx.drawImage(fountainFrames(n)[fr], X, Y, f.w * TILE, f.h * TILE);
+  // moedas no fundo: só existem depois que alguém joga; posições fixas (iguais para todos) na região da água, alinhadas à grade da pixel art
+  const R = n / 2 - 1.2, rW = R - 4.4, rB = rW * 0.27, m = Math.min(FOUNTAIN_COIN_PER_W * f.w, coins | 0);
+  for (let k = 0; k < m; k++) {
+    const a = ((0.5 + k * 0.7548776662) % 1) * Math.PI * 2, rad = rB + 2.6 + Math.sqrt((0.5 + k * 0.5698402909) % 1) * (rW - rB - 5), gx = Math.floor(n / 2 + Math.cos(a) * rad), gy = Math.floor(n / 2 + Math.sin(a) * rad);
+    const gl = ((fr + k) & 3) === 0;   // brilho passando de moeda em moeda
+    const P = (dx, dy, col) => { ctx.fillStyle = col; ctx.fillRect(X + (gx + dx) * ps, Y + (gy + dy) * ps, ps + 0.5, ps + 0.5); };
+    P(0, 0, '#f2b92e'); P(1, 0, gl ? '#fff6c0' : '#ffe27a'); P(0, 1, '#b8821a'); P(1, 1, '#f2b92e');
+  }
+  ctx.restore();
+}
+// fonte mais próxima de (x,y): ângulo e distância até o centro (o boneco vira para ela ao jogar a moeda)
+function fountainAim(x, y) {
+  let best = null, bd = Infinity;
+  for (const f of fountainFurn) { const fx = (f.x + f.w / 2) * TILE, fy = (f.y + f.h / 2) * TILE, d = Math.hypot(fx - x, fy - y); if (d < bd) { bd = d; best = { a: Math.atan2(fy - y, fx - x), d, x: fx, y: fy }; } }
+  return best;
+}
+function poolFrames(gw, gh) {
+  const key = gw + 'x' + gh; if (poolCache[key]) return poolCache[key];
+  const R = 3, frames = [];
+  const inRR = (x, y, k) => {
+    const x0 = k, y0 = k, x1 = gw - 1 - k, y1 = gh - 1 - k, r = Math.max(0, R - k);
+    if (x < x0 || x > x1 || y < y0 || y > y1) return false;
+    const dx = Math.min(x - x0, x1 - x), dy = Math.min(y - y0, y1 - y);
+    if (dx >= r || dy >= r) return true;
+    return (r - dx - 0.5) ** 2 + (r - dy - 0.5) ** 2 <= r * r;
+  };
+  const hsh = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
+  for (let f = 0; f < 4; f++) {
+    const cv = document.createElement('canvas'); cv.width = gw; cv.height = gh; const c = cv.getContext('2d');
+    const px = (x, y, col) => { if (x < 0 || y < 0 || x >= gw || y >= gh) return; c.fillStyle = col; c.fillRect(x, y, 1, 1); };
+    const idxAt = (x, y) => {
+      const t = Math.max(0, Math.min(3.999, (x - 4) / (gw - 8) * 4)), base = Math.floor(t), fr = t - base;
+      let i = fr > BAYER[(y & 3) * 4 + (x & 3)] / 16 ? base + 1 : base;
+      if (inRR(x, y, 4) && !inRR(x, y, 6) && (y < gh / 2 || x < gw / 2) && (y - 4 < 2 || x - 4 < 2)) i++;   // sombra da borda (cima/esquerda) dentro da água
+      return Math.max(0, Math.min(4, i));
+    };
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+      if (!inRR(x, y, 0)) continue;
+      if (!inRR(x, y, 1)) { px(x, y, '#1b2a3a'); continue; }                                          // contorno
+      if (!inRR(x, y, 3)) {                                                                            // borda de lajotas (2 px)
+        const outer = !inRR(x, y, 2), top = y < gh / 2 && (y <= 2 || x > 3 && x < gw - 4), left = x < gw / 2;
+        let col = outer ? ((y < 3 && y < gh / 2) || (x < 3 && x < gw / 2) ? '#faf6ea' : '#cbc1a6') : '#e9e2cf';
+        const horiz = y < 4 || y >= gh - 4, vert = x < 4 || x >= gw - 4;
+        if ((horiz && !vert && x % 6 === 0) || (vert && !horiz && y % 6 === 0)) col = '#b8ad90';       // juntas das lajotas
+        px(x, y, col); continue;
+      }
+      if (!inRR(x, y, 4)) { px(x, y, '#1f5f92'); continue; }                                           // parede interna da piscina
+      px(x, y, POOL_W[idxAt(x, y)]);                                                                   // água em degradê (raso -> fundo) com dithering
+    }
+    // ondinhas e brilho (mudam a cada quadro)
+    for (let k = 0, y0 = 8; y0 < gh - 6; k++, y0 += 7) for (let x = 6; x < gw - 6; x++) {
+      if (((x + f * 2 + k * 5) % 10) >= 3) continue;
+      const y = y0 + ((((x + k) >> 1) + f) & 1), i = idxAt(x, y);
+      px(x, y, ((x + k) % 10 === 0) ? '#dffaff' : POOL_W[Math.max(0, i - 1)]);
+    }
+    for (let y = 6; y < gh - 6; y++) for (let x = 6; x < gw - 6; x++) if ((x * 3 + y * 5 + f * 7) % 23 === 0) px(x, y, POOL_W[Math.max(0, idxAt(x, y) - 1)]);   // cáustica
+    // raias no fundo (tracejadas) + marca de fim de raia
+    for (const ly of [Math.round(gh / 3), Math.round(gh * 2 / 3)]) {
+      for (let x = 16; x < gw - 8; x++) if (((x >> 1) & 1) === 0) px(x, ly, '#1b6aa8');
+      for (let y = ly - 2; y <= ly + 2; y++) px(gw - 10, y, '#1b6aa8');
+    }
+    // degraus no lado raso (o mais perto da borda é o mais claro)
+    const sy0 = Math.round(gh * .28), sy1 = Math.round(gh * .72);
+    for (let y = sy0; y < sy1; y++) for (let x = 5; x < 17; x++) {
+      const step = x < 9 ? 0 : x < 13 ? 1 : 2, edge = (x === 9 || x === 13 || x === 16 || y === sy0 || y === sy1 - 1);
+      px(x, y, edge ? '#58b4c4' : ['#effcfb', '#cdf1f0', '#a8e4e8'][step]);
+    }
+    // escadinha de metal no canto de cima
+    for (const lx of [gw - 20, gw - 15]) { for (let y = 1; y <= 7; y++) { px(lx, y, '#e3e9ee'); if (y > 3) px(lx + 1, y, '#8a96a2'); } }
+    for (const ry of [5, 7]) for (let x = gw - 19; x < gw - 15; x++) px(x, ry, '#c3ccd4');
+    // boia salva-vidas
+    const bx = gw - 10, by = gh - 9;
+    for (let y = -5; y <= 5; y++) for (let x = -5; x <= 5; x++) {
+      const d = Math.hypot(x, y); if (d > 4.3 || d < 1.5) continue;
+      if (d > 3.6 || d < 2.2) { px(bx + x, by + y, '#5a1a1c'); continue; }
+      const q = (Math.floor((Math.atan2(y, x) + Math.PI) / (Math.PI / 2)) + (f >> 1)) & 1;   // gira devagarinho com a água
+      px(bx + x, by + y, q ? '#f6f6f6' : '#e5484d');
+    }
+    // faíscas de sol
+    for (let i = 0; i < 9; i++) {
+      if ((i + f) % 4 !== 0) continue;
+      const x = 7 + Math.floor(hsh(i, 3) * (gw - 14)), y = 7 + Math.floor(hsh(i, 9) * (gh - 14));
+      px(x, y, '#ffffff'); px(x - 1, y, '#dffaff'); px(x + 1, y, '#dffaff'); px(x, y - 1, '#dffaff'); px(x, y + 1, '#dffaff');
+    }
+    frames.push(cv);
+  }
+  return poolCache[key] = frames;
+}
+function drawPool(f, now) {
+  const fr = poolFrames(f.w * 10, f.h * 10)[((now / 240) | 0) & 3];
+  ctx.save(); ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(fr, f.x * TILE, f.y * TILE, f.w * TILE, f.h * TILE);
+  ctx.restore();
+}
+function splashFx(x, y, k, quiet) {   // respingo ao entrar/sair da água
+  if (!quiet) sfx('splash', x, y);
+  for (let i = 0; i < 16 * k; i++) { const a = Math.random() * TAU, v = 60 + Math.random() * 170; fx.parts.push({ k: 's', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.3 + Math.random() * 0.25, sz: 3, col: Math.random() < .5 ? '#d8f8ff' : '#8fe3ff' }); }
 }
 function drawDoor(d) {
   const T = TILE, a = d.o === 'h' ? d.phi : Math.PI / 2 - d.phi;
@@ -2062,10 +2334,39 @@ function render(now, dt) {
   ctx.setTransform(dpr * Z, 0, 0, dpr * Z, dpr * (W / 2 - (cam.x + sx) * Z), dpr * (H / 2 - (cam.y + sy) * Z));
   const vhw = W / Z / 2 + 40, vhh = H / Z / 2 + 40, vx0 = cam.x - vhw, vx1 = cam.x + vhw, vy0 = cam.y - vhh, vy1 = cam.y + vhh;
   const inView = (x, y, m) => x > vx0 - m && x < vx1 + m && y > vy0 - m && y < vy1 + m;   // fora da tela não desenha
-  blitView(levelCv, vx0, vy0, vx1 - vx0, vy1 - vy0); blitView(decal, vx0, vy0, vx1 - vx0, vy1 - vy0);
-  for (const d of level.doors) if (inView(d.hx, d.hy, TILE)) drawDoor(d);
+  blitView(levelCv, vx0, vy0, vx1 - vx0, vy1 - vy0);
+  for (const f of poolFurn) if (inView((f.x + f.w / 2) * TILE, (f.y + f.h / 2) * TILE, f.w * TILE / 2 + 40)) drawPool(f, now);
+  fountainFurn.forEach((f, i) => { if (inView((f.x + f.w / 2) * TILE, (f.y + f.h / 2) * TILE, f.w * TILE / 2 + 40)) drawFountain(f, now, snap.fc && snap.fc[i]); });
+  blitView(decal, vx0, vy0, vx1 - vx0, vy1 - vy0);
+  {   // porta dentro de uma construção com teto: só aparece para quem está dentro (acompanha o fade do teto, inclusive a folha aberta que sai do contorno)
+    const rs = level.m.roofs || [];
+    for (const d of level.doors) {
+      if (!inView(d.hx, d.hy, TILE)) continue;
+      let al = 1;
+      for (let i = 0; i < rs.length; i++) { const r = rs[i]; if (d.x >= r.x && d.x < r.x + r.w && d.y >= r.y && d.y < r.y + r.h) { al = 1 - (roofA[i] === undefined ? 1 : roofA[i]); break; } }
+      if (al < 0.02) continue;
+      ctx.globalAlpha = al; drawDoor(d); ctx.globalAlpha = 1;
+    }
+  }
   for (const c of fx.corpses) if (inView(c.x, c.y, 80)) drawCorpse(c);
 
+  // paredes antes dos personagens: evita que a camada de paredes cubra o sprite
+  blitView(wallCv, vx0, vy0, vx1 - vx0, vy1 - vy0);
+  // ESCURIDÃO DA CASA: cômodo com a luz apagada fica quase preto (piso, móveis, paredes, portas, corpos e sangue somem).
+  // Itens no chão, tiros (com brilho) e o SEU boneco são desenhados depois, por cima da escuridão; adversários dentro de cômodo apagado ficam invisíveis.
+  const loff = snap.lo | 0, lrooms = level.m.rooms || [];
+  const darkAt = (x, y) => { for (let i = 0; i < lrooms.length; i++) if ((loff >> i) & 1) { const r = lrooms[i]; if (x >= r.x1 * TILE && x < (r.x2 + 1) * TILE && y >= r.y1 * TILE && y < (r.y2 + 1) * TILE) return true; } return false; };
+  if (lrooms.length) {
+    ctx.save(); ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    for (let i = 0; i < lrooms.length; i++) {
+      const target = (loff >> i) & 1; roomD[i] = (roomD[i] || 0) + (target - (roomD[i] || 0)) * Math.min(1, dt * 10);
+      const a = roomD[i]; if (a < 0.02) continue;
+      const r = lrooms[i], x0 = (r.x1 - 1) * TILE, y0 = (r.y1 - 1) * TILE, w0 = (r.x2 - r.x1 + 3) * TILE, h0 = (r.y2 - r.y1 + 3) * TILE;
+      if (!inView(x0 + w0 / 2, y0 + h0 / 2, Math.max(w0, h0))) continue;
+      ctx.fillStyle = `rgba(2,3,8,${0.985 * a})`; ctx.fillRect(x0, y0, w0, h0);
+    }
+    ctx.restore();
+  }
   // itens no chão
   let near = null, nd = PICK_R;
   for (const it of snap.it) {
@@ -2079,7 +2380,7 @@ function render(now, dt) {
       else { ctx.shadowColor = WEAPONS[type].col; ctx.shadowBlur = thrown ? 6 : 12; }
       ctx.scale(CS * 1.05, CS * 1.05); if (thrown && type === 'SPEAR') ctx.translate(-55, 0); drawWeaponSprite(type); ctx.restore();
     }
-    if (!thrown && me && me.al && canHold(me.sk, type) && !isBottle(type)) { const d = itemDistOn(level, type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
+    if (!thrown && me && me.al && canHold(me.sk, type) && !(isBottle(type) && onTable)) { const d = itemDistOn(level, type, x, y, rot, pred.x, pred.y); if (d < nd) { nd = d; near = it; } }
   }
   if (near) {
     const t = (WEAPONS[near[3]].name + (near[4] ? ' · ' + near[4] : '')).toUpperCase();
@@ -2089,6 +2390,10 @@ function render(now, dt) {
     rrect(ctx, bx + 3, by + 3, 16, 16, 2, '#e2a93b'); ctx.fillStyle = '#14120c'; ctx.textAlign = 'center'; ctx.fillText('E', bx + 11, by + 11.5);
     ctx.fillStyle = '#e8e6d8'; ctx.textAlign = 'left'; ctx.fillText(t, bx + 25, by + 11.5); ctx.restore();
   }
+  // quem está dentro de uma casa não vê quem está fora (nem fora de outra casa): só enxerga quem está sob o mesmo teto
+  const roofAt = (x, y) => { const rs = level.m.roofs || []; for (let i = 0; i < rs.length; i++) { const r = rs[i]; if (x >= r.x * TILE && x < (r.x + r.w) * TILE && y >= r.y * TILE && y < (r.y + r.h) * TILE) return i; } return -1; };
+  const myRoof = roofAt(me && me.al ? pred.x : cam.x, me && me.al ? pred.y : cam.y);
+  const hiddenFoe = f => myRoof >= 0 && roofAt(f.x, f.y) !== myRoof;
   // mira a laser de quem segura o sniper
   const laser = (px, py, pa) => {
     const mz = WEAPONS.SNIPER.muz, x0 = px + Math.cos(pa) * mz, y0 = py + Math.sin(pa) * mz, len = level.ray(x0, y0, pa, 2600);
@@ -2096,7 +2401,7 @@ function render(now, dt) {
     ctx.save(); ctx.strokeStyle = g; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + Math.cos(pa) * len, y0 + Math.sin(pa) * len); ctx.stroke();
     ctx.fillStyle = 'rgba(255,70,100,.9)'; ctx.shadowColor = '#ff3c5a'; ctx.shadowBlur = 10; circle(x0 + Math.cos(pa) * len, y0 + Math.sin(pa) * len, 3); ctx.restore();
   };
-  for (const f of foesOf()) if (f.al && !f.dn && f.w === 'SNIPER') { const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a }; laser(ie.x, ie.y, ie.a); }
+  for (const f of foesOf()) if (f.al && !f.dn && f.w === 'SNIPER' && !hiddenFoe(f) && !darkAt(f.x, f.y)) { const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a }; laser(ie.x, ie.y, ie.a); }
   if (me && me.al && !me.dn && me.w === 'SNIPER') laser(pred.x, pred.y, aimAngle());
   // balas
   const age = Math.min(0.06, (now - snapAt) / 1000);
@@ -2104,6 +2409,7 @@ function render(now, dt) {
   for (const b of snap.b) {
     if (hiddenB.has(b[0])) continue;   // é uma bala minha: já estou desenhando a prevista
     if (!inView(b[1], b[2], 130)) continue;
+    if (b[6]) { drawOrb(b[1] + b[3] * age, b[2] + b[4] * age, b[6], now); continue; }   // bola de energia do Shadow 2
     const x = b[1] + b[3] * age, y = b[2] + b[4] * age, l = Math.hypot(b[3], b[4]) || 1, snipe = l > 2000, tl = snipe ? 110 : Math.min(42, l * 0.032);
     ctx.strokeStyle = snipe ? '#ffd0da' : '#fff3a8'; ctx.lineWidth = snipe ? 4 : 2.8; ctx.shadowColor = snipe ? '#ff5a7a' : '#ffd23f'; ctx.shadowBlur = snipe ? 14 : 8;
     ctx.beginPath(); ctx.moveTo(x - b[3] / l * tl, y - b[4] / l * tl); ctx.lineTo(x, y); ctx.stroke();
@@ -2114,17 +2420,15 @@ function render(now, dt) {
     ctx.beginPath(); ctx.moveTo(b.x - b.vx / l * tl, b.y - b.vy / l * tl); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.shadowBlur = 0;
-  // paredes antes dos personagens: evita que a camada de paredes cubra o sprite
-  blitView(wallCv, vx0, vy0, vx1 - vx0, vy1 - vy0);
 
   // jogadores
   // Sem névoa no mapa, todos os adversários vivos são sempre desenhados.
   for (const f of foesOf()) {
-    if (!f.al) continue;
+    if (!f.al || hiddenFoe(f) || darkAt(f.x, f.y)) continue;
     const ie = interpEnemy(f.id) || { x: f.x, y: f.y, a: f.a };
     if (!inView(ie.x, ie.y, 160) && !(spec && f.id === spec.id)) continue;
     if (spec && f.id === spec.id) { ctx.save(); ctx.strokeStyle = jacketOf(f.id); ctx.globalAlpha = 0.55 + 0.25 * Math.sin(now / 220); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ie.x, ie.y, 36, 0, TAU); ctx.stroke(); ctx.restore(); }
-    drawPlayer(f, ie.x, ie.y, ie.a, false, now); drawHpBar(ie.x, ie.y, f.hp ?? maxHpOf(f.sk), false, maxHpOf(f.sk)); drawName(ie.x, ie.y, f.nm, f.id);   // barras de cura e de carga da lança só aparecem para o próprio jogador
+    drawPlayer(f, ie.x, ie.y, ie.a, false, now); if (!f.dv) { drawHpBar(ie.x, ie.y, f.hp ?? maxHpOf(f.sk), false, maxHpOf(f.sk)); drawName(ie.x, ie.y, f.nm, f.id); }   // barras de cura e de carga da lança só aparecem para o próprio jogador
   }
   // GANCHO do Shadow 4: corda do boneco até o alvo preso (e a corda curta de quem errou)
   for (const p of snap.pl) {
@@ -2148,6 +2452,7 @@ function render(now, dt) {
   // efeitos
   for (const p of fx.parts) {
     if (p.k === 'b') { ctx.fillStyle = '#b3122f'; circle(p.x, p.y, p.sz); }
+    else if (p.k === 'o') { ctx.save(); ctx.globalAlpha = Math.min(1, p.life * 1.6) * 0.8; ctx.strokeStyle = '#dff8ff'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(p.x, p.y, p.sz, 0, TAU); ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(p.x - p.sz * 0.45, p.y - p.sz * 0.5, 1.3, 1.3); ctx.restore(); }
     else if (p.k === 's') { ctx.strokeStyle = p.col; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 0.02, p.y - p.vy * 0.02); ctx.stroke(); }
     else if (p.k === 'c') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = '#ffd86b'; ctx.fillRect(-2, -1, 4, 2); ctx.restore(); }
   }
@@ -2176,7 +2481,8 @@ function render(now, dt) {
       }
     } else {                 // varrida: meia-lua que acompanha a ponta da arma e some
       const fin = s.dc === 2, arc = s.w === 'SPEAR' ? 1.9 : wd.arc * (fin ? 1.5 : 1), rng = wd.range * (fin ? 1.2 : s.w === 'SPEAR' ? 0.85 : 1);   // lança dupla, 2º golpe = slash
-      for (const dir of (fin ? [s.dir || 1, -(s.dir || 1)] : [s.dir || 1])) {   // cruzado do Shadow 7: dois rastros em X
+      const both2 = fin || (s.dc >= 0 && s.w !== 'SPEAR');   // Shadow 7 com duas armas: rastro das duas
+      for (const dir of (both2 ? [s.dir || 1, -(s.dir || 1)] : [s.dir || 1])) {
         const head = swingAng(Math.min(sp, 0.62), arc, dir), tail = head - dir * Math.min(1.5, arc * 0.7) * (0.35 + 0.65 * Math.min(1, sp / 0.45));
         const r1 = rng * 0.95, r0 = rng * 0.5, a0 = Math.min(head, tail), a1 = Math.max(head, tail);
         ctx.globalAlpha = fade * 0.55; ctx.fillStyle = wd.col; ctx.beginPath(); ctx.arc(0, 0, r1, a0, a1); ctx.arc(0, 0, r0, a1, a0, true); ctx.closePath(); ctx.fill();
@@ -2185,20 +2491,10 @@ function render(now, dt) {
     }
     ctx.restore();
   }
-  // LUZES DA CASA: cômodo apagado fica escuro (os bonecos continuam visíveis, só mais fracos), com um halo em volta de quem está lá dentro
+  // INTERRUPTORES (a escuridão em si é desenhada mais cedo, logo depois das paredes)
   if (level.m.rooms && level.m.rooms.length) {
-    const rooms = level.m.rooms, off = snap.lo | 0, vx2 = me && me.al ? pred.x : cam.x, vy2 = me && me.al ? pred.y : cam.y;
+    const off = snap.lo | 0;
     ctx.save(); ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-    for (let i = 0; i < rooms.length; i++) {
-      const target = (off >> i) & 1; roomD[i] = (roomD[i] || 0) + (target - (roomD[i] || 0)) * Math.min(1, dt * 10);
-      const a = roomD[i]; if (a < 0.02) continue;
-      const r = rooms[i], x0 = (r.x1 - 1) * TILE, y0 = (r.y1 - 1) * TILE, w0 = (r.x2 - r.x1 + 3) * TILE, h0 = (r.y2 - r.y1 + 3) * TILE;
-      if (!inView(x0 + w0 / 2, y0 + h0 / 2, Math.max(w0, h0))) continue;
-      const inside = vx2 >= r.x1 * TILE && vx2 < (r.x2 + 1) * TILE && vy2 >= r.y1 * TILE && vy2 < (r.y2 + 1) * TILE;
-      if (inside) { const g = ctx.createRadialGradient(vx2, vy2, 30, vx2, vy2, 240); g.addColorStop(0, `rgba(6,8,22,${0.18 * a})`); g.addColorStop(1, `rgba(6,8,22,${0.7 * a})`); ctx.fillStyle = g; }
-      else ctx.fillStyle = `rgba(6,8,22,${0.7 * a})`;
-      ctx.fillRect(x0, y0, w0, h0);
-    }
     // interruptores: plaquinha na parede (alavanca para cima = aceso). Apagado, ganha um brilhinho para dar pra achar no escuro.
     const swNear = me && me.al ? level.switchNear(pred.x, pred.y) : null;
     for (const s of level.m.switches) {
@@ -2220,7 +2516,41 @@ function render(now, dt) {
         ctx.fillStyle = '#e8e6d8'; ctx.textAlign = 'left'; ctx.fillText('LUZ', bx - bw / 2 + kw + 9, by + 0.5); ctx.restore();
       }
     }
+    // QUADRO DE ENERGIA: caixa metálica na parede. Inteiro = LED verde (dá pra achar no escuro); baleado = chamuscado, LED apagado e faíscas de vez em quando.
+    const pwm = snap.pw | 0, pns = level.m.panels || [];
+    for (let i = 0; i < pns.length; i++) {
+      const pn = pns[i], [px2, py2] = level.switchPos(pn);
+      if (!inView(px2, py2, 60)) continue;
+      const dead = (pwm >> i) & 1, rot = { e: 0, s: Math.PI / 2, w: Math.PI, n: -Math.PI / 2 }[pn.face] || 0;
+      if (!dead) { ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(px2, py2, 0, px2, py2, 36); g.addColorStop(0, 'rgba(110,255,150,.30)'); g.addColorStop(1, 'rgba(110,255,150,0)'); ctx.fillStyle = g; ctx.fillRect(px2 - 36, py2 - 36, 72, 72); ctx.globalCompositeOperation = 'source-over'; }
+      else if (Math.random() < dt * 2.5) { const a = Math.random() * TAU; fx.parts.push({ k: 's', x: px2, y: py2, vx: Math.cos(a) * 120, vy: Math.sin(a) * 120, life: 0.2, sz: 3, col: '#9ff7ff' }); }
+      ctx.save(); ctx.translate(px2, py2); ctx.rotate(rot);
+      rrect(ctx, -6, -16, 11, 32, 2, dead ? '#3a3d42' : '#7b8088', '#1d2025', 1.5);
+      rrect(ctx, -3, -13, 6, 26, 1, dead ? '#25272b' : '#4d535b');
+      if (!dead) {   // raio amarelo + LED verde
+        ctx.fillStyle = '#f2c94c'; ctx.beginPath(); ctx.moveTo(-1, -6); ctx.lineTo(2, -1); ctx.lineTo(0, -1); ctx.lineTo(2, 7); ctx.lineTo(-2, 1); ctx.lineTo(0, 1); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#6dff96'; ctx.beginPath(); ctx.arc(0, -10, 1.8, 0, TAU); ctx.fill();
+      } else {       // buraco da bala e marca de queimado
+        ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.beginPath(); ctx.arc(0, 1, 7, 0, TAU); ctx.fill();
+        ctx.strokeStyle = '#111'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(-3, -10); ctx.lineTo(1, -4); ctx.lineTo(-2, 3); ctx.lineTo(2, 10); ctx.stroke();
+        ctx.fillStyle = '#5a1d1d'; ctx.beginPath(); ctx.arc(0, -10, 1.8, 0, TAU); ctx.fill();
+      }
+      ctx.restore();
+    }
     ctx.restore();
+  }
+  // ombrelones: a copa fica por cima dos personagens; transparente quando EU estou debaixo dela
+  {
+    const fs = level.m.furn, cvx = me && me.al ? pred.x : cam.x, cvy = me && me.al ? pred.y : cam.y;
+    ctx.shadowBlur = 0;
+    for (let i = 0; i < fs.length; i++) {
+      const f = fs[i]; if (f.k !== 'patio') continue;
+      const px = (f.x + f.w / 2) * TILE, py = (f.y + f.h / 2) * TILE, R = Math.min(f.w, f.h) * TILE / 2 - 2;
+      if (!inView(px, py, R + 20)) continue;
+      const under = Math.hypot(cvx - px, cvy - py) < R, tgt = under ? 0.3 : 0.96;
+      canA[i] = (canA[i] === undefined ? tgt : canA[i]) + (tgt - (canA[i] === undefined ? tgt : canA[i])) * Math.min(1, dt * 9);
+      drawCanopy(px, py, R, canA[i]);
+    }
   }
   // tetos: cobrem tudo que está dentro da casa (jogadores, armas, tiros) e somem quando EU estou dentro (ou a câmera, se estou espectando)
   if (roofCv) {
@@ -2241,6 +2571,7 @@ function render(now, dt) {
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
     // (nome e barra de vida do próprio jogador não são mais desenhados sobre o boneco: ficam só no painel de vitais)
     drawHealBar(pred.x, pred.y, me.hz, now, healTimeOf(me.sk));
+    drawAirBar(pred.x, pred.y, me.dv, me.ai === undefined ? 1 : me.ai, !!level.waterAt(pred.x, pred.y), now);
     drawChargeBar(pred.x, pred.y, me.ch);
     if (me.dm) {   // modo dupla do Shadow 7: mostra se as duas armas estão prontas ou se falta a arma igual
       const t = me.dm === 1 ? 'DUPLA · 2 ARMAS' : 'DUPLA · PEGUE 2 ARMAS DO MESMO TIPO';
@@ -2255,7 +2586,7 @@ function render(now, dt) {
     ctx.restore();
   }
   for (const q of fx.pops) {
-    const k = 1 - q.t / 0.9; ctx.save(); ctx.globalAlpha = Math.min(1, q.t * 3);
+    const k = 1 - q.t / (q.d || 0.9); ctx.save(); ctx.globalAlpha = q.d > 0.9 ? Math.max(0, Math.min(1, q.t / 0.7, (q.d - q.t) / 0.2)) : Math.min(1, q.t * 3);
     ctx.font = '400 20px Bungee, Impact, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.fillStyle = q.col;
     ctx.strokeText(q.s, q.x, q.y - k * 26); ctx.fillText(q.s, q.x, q.y - k * 26); ctx.restore();
   }
@@ -2273,6 +2604,18 @@ function render(now, dt) {
   if (fx.red > 0) { ctx.fillStyle = `rgba(255,20,60,${fx.red * 0.35})`; ctx.fillRect(0, 0, W, H); }
   if (!paused && me && me.al) drawCrosshair(me);
   updateHud(now);
+}
+// bola de energia (soco do Shadow 2): núcleo ciano brilhante dentro de um anel pulsante
+function drawOrb(x, y, r, now) {
+  const pu = 1 + 0.05 * Math.sin(now / 70);
+  ctx.save(); ctx.lineCap = 'butt';
+  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 24;
+  ctx.strokeStyle = '#19e8ff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, r * pu, 0, TAU); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#0fb8ff'; circle(x, y, r * 0.66);
+  ctx.fillStyle = '#25f0ff'; circle(x, y, r * 0.52);
+  ctx.fillStyle = '#b8fdff'; circle(x - r * 0.14, y - r * 0.14, r * 0.2);
+  ctx.restore();
 }
 // nome do jogador acima do boneco (só no online)
 function drawName(x, y, name, id) {
@@ -2303,6 +2646,19 @@ function drawHpBar(x, y, hp, mine, mx = MAX_HP) {
   ctx.fillStyle = 'rgba(8,9,8,.9)'; for (let i = 1; i < 4; i++) ctx.fillRect(x - w / 2 + w * i / 4 - 0.5, y - 47.5, 1, 4);
 }
 // barra de cura: barra verde carregando acima da cabeça
+// FÔLEGO: barra de ar aparece quando você está mergulhado ou ainda recuperando o ar (sem aviso de tecla)
+function drawAirBar(x, y, dv, ai, inWater, now) {
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (dv || ai < 0.995) {
+    const w = 56, k = Math.max(0, Math.min(1, ai)), low = k < 0.34, blink = low && dv && Math.sin(now / 90) > 0;
+    ctx.fillStyle = 'rgba(4,16,34,.92)'; ctx.fillRect(x - w / 2 - 2, y - 66, w + 4, 11);
+    ctx.fillStyle = blink ? '#ff5a5a' : low ? '#ffb34a' : '#6fdcff'; ctx.fillRect(x - w / 2, y - 64, w * k, 7);
+    ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(x - w / 2, y - 64, w * k, 2);
+    ctx.font = '700 11px Rajdhani, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.fillStyle = low && dv ? '#ff8a8a' : '#dff8ff';
+    const t = dv ? (low ? 'SEM AR! SUBA (' + keyName(bindOf('v')) + ')' : 'AR') : 'AR'; ctx.strokeText(t, x, y - 74); ctx.fillText(t, x, y - 74);
+  }
+  ctx.restore();
+}
 function drawHealBar(x, y, hz, now, ht = HEAL_TIME) {
   if (!(hz > 0)) return;
   const k = Math.max(0, Math.min(1, 1 - hz / ht)), w = 56;

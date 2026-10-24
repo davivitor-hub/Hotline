@@ -31,7 +31,11 @@
   }
   /* ===== ATIVA (Espaço): gasta NA HORA 15% da vida ATUAL e solta uma explosão em área; o dano depende do HP sacrificado ===== */
   const ACT_COST = 0.15;     // fração da vida ATUAL sacrificada (não pode matar quem usa: sempre sobra 85%)
-  const ACT_MULT = 1.5;      // dano causado = HP sacrificado x ACT_MULT (no centro; cai até 60% na borda)
+  const ACT_MULT = 4;        // dano causado = HP sacrificado x ACT_MULT (no centro; cai até 60% na borda)
+  const WEAPON_SLOW = { SNIPER: 0.85, MINIGUN: 0.65 };   // velocidade de quem segura: sniper -15%, minigun -35%
+  const ACT_SLOW = 0.45, ACT_SLOW_T = 3;   // quem leva a explosão da ativa anda a 45% da velocidade por 3 s
+  /* SOCO DO SHADOW 2: bola de energia (sem arma na mão) — colisão grande, dano enorme, recarga longa */
+  const ORB_DMG = 15, ORB_R = 46, ORB_SPEED = 720, ORB_RANGE = 760, ORB_CD = 0.9;
   const ACT_RADIUS = 170;    // raio da explosão (px)
   const ACT_CD = 3;          // recarga (s)
   /* ===== SHADOW 4: ATIVA = GANCHO. Prende no adversário mais perto da mira e se puxa até ele ===== */
@@ -61,8 +65,8 @@
   // (faca/machete/katana) que acerta a LÂMINA tira 100% de dano (no cabo não) e a ATIVA (Espaço) equipa um GANCHO: com ele na mão, o clique esquerdo lança e puxa até o adversário.
   const SKIN_STATS = {
     GORILLA: { hpMul: 2, healPct: 2, healTime: 0.3, active: true },
-    TIGER: { dual: true, active: true },   // Shadow 7: a ATIVA (Espaço) liga/desliga o modo DUPLA: com duas armas de fogo iguais no inventário, cada clique dispara as duas ao mesmo tempo
-    HERO: { speedMul: 1.15, spearChargeMul: 0.5, dmgTaken: 0.75, meleeOnly: true, bladeKill: true, hook: true, active: true }
+    TIGER: { dual: true, active: true },   // balanceamento: dupla dobra o fogo, então ele é mais frágil (80% de vida, +10% de dano recebido). Modo TIGRE: mais cadência; modo PANTERA (dupla): menos cadência e mais lento   // Shadow 7: a ATIVA (Espaço) liga/desliga o modo DUPLA: com duas armas de fogo iguais no inventário, cada clique dispara as duas ao mesmo tempo
+    HERO: { speedMul: 1.3, spearChargeMul: 0.5, dmgTaken: 0.75, meleeOnly: true, bladeKill: true, hook: true, active: true }
   };
   const speedMulOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].speedMul) || 1;               // multiplicador da velocidade de andar
   const dmgTakenOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].dmgTaken) || 1;               // multiplicador do dano de armas recebido
@@ -75,6 +79,8 @@
   const healPctOf = skin => (SKIN_STATS[skin] && SKIN_STATS[skin].healPct) || HEAL_PCT;          // % da PRÓPRIA vida máxima que a cura devolve
   const DUAL_FWD = 16 * CS;   // modo dupla: as armas longas ficam 16 unidades (do desenho) mais à frente, com os braços esticados — o cano sai dessa distância a mais
   const dualFwdOf = type => (type === 'PISTOL' || type === 'REVOLVER') ? 0 : DUAL_FWD;   // pistola/revólver já ficam na ponta do braço
+  const TIGER_CAD = 0.85, PANTHER_CAD = 1.2, PANTHER_SPEED = 0.88, PANTHER_DMG = 1.25 * 1.1;   // pantera: equivale a 80% de vida (x1,25 de dano) + 10% de dano recebido a mais (x1,1) = x1,375   // Shadow 7: multiplicador do intervalo entre ataques (menor = mais cadência) e da velocidade
+  const cadMulOf = (skin, dualOn) => (SKIN_STATS[skin] && SKIN_STATS[skin].dual) ? (dualOn ? PANTHER_CAD : TIGER_CAD) : 1;
   const hasDual = skin => !!(SKIN_STATS[skin] && SKIN_STATS[skin].dual);                          // a ativa é o modo dupla (duas armas iguais ao mesmo tempo)
   const canDual = p => {   // tem 2 armas do mesmo TIPO no inventário (mão + outro espaço)? Só assim o Shadow 7 pode usar a ativa
     if (!p || !hasDual(p.skin) || !p.inv) return false;
@@ -109,6 +115,20 @@
   const SPEAR_THROW_MIN = 20, SPEAR_THROW_MAX = 100;   // % de vida tirada pela lança arremessada: toque rápido -> segurando até o fim
   /* ===== PORTAS (física) ===== */
   const DOOR_HT = 5;     // meia espessura da folha da porta
+  const DIVE_AIR = 6;          // segundos de fôlego debaixo d'água; acabou = morre afogado
+  const DIVE_MIN_AIR = 1.2;    // fôlego mínimo para poder mergulhar de novo
+  const DIVE_REGEN_WATER = 1.5, DIVE_REGEN_LAND = 4;   // recupera o fôlego (x velocidade do relógio) na superfície / fora da água
+  // FONTE DOS DESEJOS: V perto da fonte joga uma moeda -> nada / buff / debuff aleatório (o efeito é infinito: dura até você morrer ou a rodada acabar; só dá pra jogar UMA vez por vida)
+  const COIN_T = 1.1, COIN_REACH = 46;   // duração da animação, alcance extra além da borda da fonte (px)
+  const COIN_P_NONE = 0.30, COIN_P_GOOD = 0.35;                       // o resto (35%) é debuff
+  const COIN_FX = [
+    { id: 'spd',  good: true,  name: 'VELOCIDADE',     spd: 1.35 },
+    { id: 'arm',  good: true,  name: 'ARMADURA',       dmg: 0.6 },
+    { id: 'rof',  good: true,  name: 'ATAQUE RÁPIDO',  cad: 0.7 },
+    { id: 'slow', good: false, name: 'LENTIDÃO',       spd: 0.65 },
+    { id: 'frag', good: false, name: 'FRAGILIDADE',    dmg: 1.5 },
+    { id: 'rus',  good: false, name: 'ATAQUE LENTO',   cad: 1.5 }
+  ];
   const WATER_SLOW = 0.5;  // multiplicador da velocidade dentro da piscina
   const FISH_WATER_FAST = 1.7;  // PEIXE: multiplicador da velocidade dentro da piscina (nada mais rápido do que anda)
   const DOOR_LIM = 1.52;   // abertura máxima (rad, ~87°) para cada lado
@@ -224,9 +244,9 @@
     const free = !!theme.free;   // free = mapa desenhado INTEIRO à mão (sem o espelho automático de 180°)
     const set = free ? (x, y, v) => { g[y][x] = v; } : (x, y, v) => { g[y][x] = v; g[H - 1 - y][W - 1 - x] = v; };
     const rect = (x1, y1, x2, y2, v = 1) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) set(x, y, v); };
-    const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = [], roofs = [], bottles = [], rooms = [], switches = []; let pair = 0;
+    const spawn = [], wp = [], furn = [], rugs = [], circ = [], rnd = [], roofs = [], bottles = [], rooms = [], switches = [], panels = []; let pair = 0;
     // móveis redondos (árvore, vaso, churrasqueira) colidem como CÍRCULO, não como o quadrado inteiro; a piscina (tile 4) é água: dá pra andar, mais devagar
-    const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, patio: f => Math.min(f.w, f.h) / 2 - 0.05, plant: () => 0.36, bbq: () => 0.38, palm: () => 0.34, barrel: () => 0.36, lamp: () => 0.28 };
+    const ROUND = { tree: f => Math.min(f.w, f.h) / 2 - 0.05, patio: () => 0.3,   /* só o pé/mesa do centro é sólido: dá pra entrar debaixo do ombrelone */ plant: () => 0.36, bbq: () => 0.38, palm: () => 0.34, barrel: () => 0.36, lamp: () => 0.28, fountain: f => Math.min(f.w, f.h) / 2 - 0.02 };
     const same = (a, b) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
     def({
       rect,
@@ -244,7 +264,7 @@
         for (const f of list) {
           const rf = ROUND[f.k];
           if (rf) circ.push({ x: (f.x + f.w / 2) * TILE, y: (f.y + f.h / 2) * TILE, r: rf(f) * TILE });
-          for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) { g[j][i] = (f.k === 'pool' || f.k === 'oasis' || f.k === 'fountain') ? 4 : 3; if (rf) rnd.push(j * W + i); }
+          for (let j = f.y; j < f.y + f.h; j++) for (let i = f.x; i < f.x + f.w; i++) { g[j][i] = (f.k === 'pool' || f.k === 'oasis') ? 4 : 3; if (rf) rnd.push(j * W + i); }
         }
       },
       // tapete (decoração sem colisão)
@@ -262,10 +282,12 @@
       room: (x1, y1, x2, y2) => { rooms.push({ x1, y1, x2, y2 }); return rooms.length - 1; },
       // INTERRUPTOR numa parede (tile x,y). face = lado da parede onde fica a plaquinha ('n','s','e','w' = para onde está o cômodo). Liga/desliga a luz dos cômodos listados.
       sw: (x, y, face, ...rs) => { switches.push({ x, y, face, rooms: rs }); },
+      // QUADRO DE ENERGIA numa parede (tile x,y, mesmo esquema de face do interruptor). Um tiro nele corta a energia: apaga TODOS os cômodos listados e os interruptores deles param de funcionar até o fim da rodada.
+      panel: (x, y, face, ...rs) => { panels.push({ x, y, face, rooms: rs }); },
       // tipo de piso de uma região
       floor: (x1, y1, x2, y2, kind) => { for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) { fl[y][x] = kind; if (!free) fl[H - 1 - y][W - 1 - x] = kind; } }
     });
-    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs, circ, rnd, roofs, bottles, rooms, switches, free };
+    MAPS[id] = { id, name, theme, W, H, g, fl, spawn, wp, furn, rugs, circ, rnd, roofs, bottles, rooms, switches, panels, free };
     MAP_IDS.push(id);
   }
 
@@ -376,7 +398,7 @@
     m.furn(44, 13, 2, 2, 'tree'); m.furn(44, 16, 1, 3, 'hedge'); m.furn(43, 12, 1, 1, 'barrel'); m.furn(43, 20, 2, 1, 'dumpster');
     // GRAMADO DA FRENTE
     m.furn(12, 21, 4, 1, 'flowers'); m.furn(30, 21, 4, 1, 'flowers'); m.furn(21, 21, 1, 1, 'lamp'); m.furn(25, 21, 1, 1, 'lamp');
-    m.furn(14, 24, 3, 3, 'fountain');                  // fonte (água: dá pra atravessar, mais devagar)
+    m.furn(14, 24, 3, 3, 'fountain');                  // fonte (sólida: não dá pra nadar; V perto dela joga uma moeda)
     m.furn(27, 23, 2, 2, 'tree'); m.furn(31, 25, 2, 2, 'tree'); m.furn(19, 26, 2, 2, 'tree'); m.furn(2, 22, 2, 2, 'tree'); m.furn(44, 25, 2, 2, 'tree');
     m.furn(6, 24, 1, 4, 'hedge'); m.furn(3, 27, 2, 1, 'bench'); m.furn(25, 26, 2, 1, 'bench'); m.furn(8, 22, 3, 1, 'flowers');
     // entrada de carros
@@ -385,6 +407,7 @@
     const rQuarto = m.room(12, 9, 17, 13), rBanho = m.room(12, 15, 17, 19), rSala = m.room(19, 9, 27, 19), rCozinha = m.room(29, 9, 33, 13), rEscrit = m.room(29, 15, 33, 19), rGaragem = m.room(35, 13, 41, 19), rGalpao = m.room(3, 3, 6, 5);
     m.sw(18, 10, 'w', rQuarto); m.sw(18, 16, 'w', rBanho); m.sw(22, 20, 'n', rSala); m.sw(28, 10, 'e', rCozinha);
     m.sw(28, 18, 'e', rEscrit); m.sw(34, 18, 'e', rGaragem); m.sw(2, 4, 'e', rGalpao);
+    m.panel(36, 12, 's', rQuarto, rBanho, rSala, rCozinha, rEscrit, rGaragem);   // QUADRO DE ENERGIA (parede norte da garagem): atire nele para apagar a casa inteira
     // GARRAFAS DE VINHO: em pé em cima das mesas da casa (mesa da cozinha, mesa da sala, mesinha de centro e mesa do escritório)
     m.bottle(30.5, 11.5); m.bottle(25.5, 9.5); m.bottle(21.5, 14.5); m.bottle(30.5, 19);
     // nascimentos: PARES distantes (0-1 noroeste/sudeste, 2-3 nordeste/sudoeste, 4-5 fundos/frente, 6-7 oeste/leste)
@@ -640,6 +663,7 @@
       const m = MAPS[id];
       this.id = id; this.m = m; this.W = m.W; this.H = m.H; this.circ = m.circ; this.rnd = new Set(m.rnd);
       this.g = m.g.map(r => r.slice());
+      this.fc = m.furn.filter(f => f.k === 'fountain').map(() => 0);   // moedas no fundo de cada fonte (aparecem depois que alguém joga)
       this.doors = [];
       for (let y = 0; y < this.H; y++) for (let x = 0; x < this.W; x++) if (this.g[y][x] === 2) {
         const h = m.g[y][x - 1] === 1 && m.g[y][x + 1] === 1;
@@ -647,6 +671,7 @@
           hx: h ? x * TILE : (x + 0.5) * TILE, hy: h ? (y + 0.5) * TILE : y * TILE });
       }
       this.doorMap = new Map(this.doors.map(d => [d.y * this.W + d.x, d]));   // busca de porta por tile sem varrer a lista
+      this.pw = (m.panels || []).map(() => 1);   // quadros de energia (1 = inteiro, 0 = baleado)
       this.lt = (m.rooms || []).map(() => 1);   // luz de cada cômodo (1 = acesa, 0 = apagada); toda rodada começa acesa
     }
     // centro da plaquinha do interruptor (px do mundo), colada na face da parede que olha para o cômodo
@@ -654,10 +679,30 @@
       const x = s.x * TILE, y = s.y * TILE;
       return s.face === 'e' ? [x + TILE - 5, y + TILE / 2] : s.face === 'w' ? [x + 5, y + TILE / 2] : s.face === 's' ? [x + TILE / 2, y + TILE - 5] : [x + TILE / 2, y + 5];
     }
+    // quadro de energia inteiro no tile em que o ponto (px,py) está, ou null
+    panelAt(px, py) {
+      const ps = this.m.panels; if (!ps || !ps.length) return null;
+      const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+      for (let i = 0; i < ps.length; i++) if (this.pw[i] && ps[i].x === tx && ps[i].y === ty) return i;
+      return null;
+    }
+    // o cômodo r está sem energia (algum quadro que o alimenta foi baleado)?
+    noPower(r) { const ps = this.m.panels || []; for (let i = 0; i < ps.length; i++) if (!this.pw[i] && ps[i].rooms.includes(r)) return true; return false; }
     // interruptor mais perto de (px,py) dentro do alcance, ou null
     switchNear(px, py) {
       let best = null, bd = SW_REACH;
       for (const s of (this.m.switches || [])) { const [sx, sy] = this.switchPos(s), d = Math.hypot(px - sx, py - sy); if (d < bd) { bd = d; best = s; } }
+      return best;
+    }
+    fountainIdx(f) { return this.m.furn.filter(q => q.k === 'fountain').indexOf(f); }
+    // fonte mais perto de (px,py) dentro do alcance de jogar moeda, ou null
+    fountainNear(px, py) {
+      let best = null, bd = Infinity;
+      for (const f of (this.m.furn || [])) {
+        if (f.k !== 'fountain') continue;
+        const cx = (f.x + f.w / 2) * TILE, cy = (f.y + f.h / 2) * TILE, d = Math.hypot(px - cx, py - cy);
+        if (d <= Math.min(f.w, f.h) * TILE / 2 + COIN_REACH && d < bd) { bd = d; best = f; }
+      }
       return best;
     }
     // tiles: 0 livre, 1 parede, 2 porta, 3 móvel sólido, 4 água (livre, mais lenta). Móvel redondo: o tile só vale como sólido dentro do círculo.
@@ -738,6 +783,10 @@
     let dx = ((k & 8) ? 1 : 0) - ((k & 2) ? 1 : 0), dy = ((k & 4) ? 1 : 0) - ((k & 1) ? 1 : 0);
     if (!dx && !dy) return null;
     const l = Math.hypot(dx, dy); dx /= l; dy /= l;
+    { const wt = p.weapon ? p.weapon.type : p.wt; if (p.skin !== 'GORILLA' && WEAPON_SLOW[wt]) sm *= WEAPON_SLOW[wt]; }   // Shadow 2 não fica lento com arma pesada   // armas pesadas na mão deixam lento (no cliente a previsão guarda o tipo em p.wt)
+    if (p.slowT > 0) sm *= ACT_SLOW;     // lentidão da explosão do Shadow 2
+    if (p.dualOn) sm *= PANTHER_SPEED;   // modo pantera (dupla) é mais lento
+    if (p.fxSpd) sm *= p.fxSpd;          // buff/debuff da fonte
     sm *= speedMulOf(p.skin);   // passiva de velocidade do personagem (Shadow 4 anda mais rápido)
     if (level.waterAt(p.x, p.y)) sm *= (p.skin === 'FISH' ? FISH_WATER_FAST : WATER_SLOW);   // piscina: anda mais devagar (o PEIXE nada mais rápido)
     const mx = dx * SPEED * sm * dt, my = dy * SPEED * sm * dt;
@@ -765,7 +814,7 @@
       const slot = this.players.findIndex(q => !q);
       if (slot < 0 || slot >= this.maxPlayers) return null;   // sala cheia (limite escolhido na criação)
       const p = { id, slot, name: String(name || 'JOGADOR').slice(0, 14), skin: skin || 'HERO', color: randomColor(this.players.filter(Boolean).map(q => q.color)), x: 0, y: 0, angle: 0, alive: true, down: false, downT: 0, hp: maxHpOf(skin || 'HERO'),
-        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, actCd: 0, aimD: HOOK_RANGE, emT: 0, emCd: 0, sui: 0, ct: false };
+        inv: [null, null], sel: 0, swcd: 0, cd: 0, swing: 0, buf: 0, fire: false, budget: 0.3, ack: 0, score: 0, kills: 0, bot: false, spawnIdx: -1, healT: 0, charging: false, chg: 0, tc: false, dcd: 0, actCd: 0, aimD: HOOK_RANGE, emT: 0, emCd: 0, sui: 0, ct: false, dive: false, air: DIVE_AIR };
       // inventário de 2 espaços: `weapon` continua sendo a arma NA MÃO (o espaço selecionado), então todo o resto do código funciona igual
       Object.defineProperty(p, 'weapon', { get() { return this.inv[this.sel]; }, set(v) { this.inv[this.sel] = v; }, enumerable: false, configurable: true });
       this.players[slot] = p;
@@ -808,7 +857,7 @@
       p.spawnIdx = idx;
       p.x = (s[0] + 0.5) * TILE; p.y = (s[1] + 0.5) * TILE;
       p.angle = Math.atan2(this.level.H * TILE / 2 - p.y, this.level.W * TILE / 2 - p.x);
-      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.hook = null; p.hookOn = false; p.dualOn = false; p.emT = 0; p.emCd = 0; p.sui = 0; p.ct = false;
+      p.alive = true; p.hp = maxHpOf(p.skin); p.down = false; p.downT = 0; p.inv = [null, null]; p.sel = 0; p.swcd = 0; p.cd = 0; p.swing = 0; p.buf = 0; p.fire = false; p.healT = 0; p.charging = false; p.chg = 0; p.tc = false; p.dcd = 0; p.actCd = 0; p.slowT = 0; p.dive = false; p.air = DIVE_AIR; p.hook = null; p.hookOn = false; p.dualOn = false; p.emT = 0; p.emCd = 0; p.sui = 0; p.ct = false; p.coinT = 0; p.coinUsed = false; p.coinRes = 0; p.coinFx = -1; p.fx = -1; p.fxSpd = 1; p.fxDmg = 1; p.fxCad = 1;
     }
     startMatch() { for (const p of this.players) if (p) { p.score = 0; p.kills = 0; } this.round = 0; this.startRound(); }
     startRound() {
@@ -888,13 +937,16 @@
       let healCanceled = false;
       if (p.healT > 0 && this.phase === 'live' && (inp.hl || inp.fp || inp.th || inp.pk || inp.it || inp.sw || inp.ss)) { this.cancelHeal(p); healCanceled = true; }
       if (this.phase === 'live' && p.alive && !p.down && !(p.healT > 0) && !p.hook) {
+        if (p.dive) { if (inp.it) this.toggleDive(p); }   // mergulhado: não ataca, não pega nem troca nada; só V para subir
+        else {
         if (inp.pk) this.pickup(p, false);   // E: qualquer arma, menos garrafa
-        else if (inp.it && !this.pickup(p, true)) this.toggleSwitch(p);   // V (interagir): garrafa; se não tem garrafa ao alcance, o interruptor
+        else if (inp.it) { if (this.level.waterAt(p.x, p.y)) this.toggleDive(p); else { if (!this.pickup(p, true)) this.toggleSwitch(p); this.coinToss(p); } }   // a moeda da fonte é independente: funciona mesmo se pegou a garrafa ou mexeu na luz no mesmo aperto   // V (interagir): na água = mergulha; fora, garrafa, depois o interruptor e, perto da fonte, joga a moeda
         if (inp.sw) this.swapTo(p, 1 - p.sel);              // scroll do mouse: alterna entre as 2 armas
         else if (inp.ss) this.swapTo(p, (inp.ss | 0) - 1);  // teclas 1 / 2: escolhe o espaço direto
         if (inp.th) this.startThrow(p);
         if (inp.hl && !healCanceled) this.heal(p);
         if (inp.sl) this.useActive(p);                      // ATIVA (Espaço)
+        }
       }
       if (canMove(this.phase, p.alive, p.down, p.healT > 0) && !p.hook) {   // puxado pelo gancho: o servidor move o boneco
         const dd = Math.min(dt, 0.05, p.budget);
@@ -917,6 +969,8 @@
     tick(dt) {
       for (const p of this.players) {
         if (!p) continue;
+        if (p.slowT > 0) p.slowT -= dt;
+        this.stepCoin(p, dt);
         p.cd -= dt; p.swcd -= dt; p.swing -= dt; p.buf -= dt; p.dcd -= dt; if (p.dcT > 0) p.dcT -= dt; if (p.actCd > 0) p.actCd = Math.max(0, p.actCd - dt); if (p.emCd > 0) p.emCd -= dt; p.budget = Math.min(0.3, p.budget + dt);
         if (p.charging) {   // lança: enquanto segura o botão de arremesso a força sobe; soltou = arremessa
           if (!p.alive || p.down || p.healT > 0 || !p.weapon || p.weapon.type !== 'SPEAR' || this.phase !== 'live') { p.charging = false; p.chg = 0; }
@@ -953,6 +1007,7 @@
         for (const p of this.players) if (p && p.dualOn && !canDual(p)) {   // perdeu o par de armas (largou, arremessou, trocou, morreu...): a dupla desliga
           p.dualOn = false; this.events.push({ t: 'dualeq', id: p.id, x: p.x, y: p.y, on: 0 });
         }
+        for (const p of this.players) this.stepDive(p, dt);
         for (const p of this.players) this.tryFire(p);
         for (const p of this.players) if (p && p.hook) this.stepHook(p, dt);   // Shadow 4: puxada do gancho
       }
@@ -1000,12 +1055,13 @@
 
     // dispara se der (cooldown pronto + clique guardado ou botão segurado; todas as armas são automáticas). Chamado a cada tick E logo quando a entrada chega (menos atraso).
     tryFire(p) {
-      if (!p || !p.alive || p.down || p.healT > 0 || p.charging || this.phase !== 'live') return;
+      if (!p || !p.alive || p.down || p.dive || p.healT > 0 || p.charging || this.phase !== 'live') return;
       const w = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
       if (p.cd <= 0 && (p.buf > 0 || p.fire)) { p.buf = 0; this.attack(p); }   // segurar o botão repete o ataque em TODAS as armas (inclusive corpo a corpo e mãos)
     }
     attack(p) {
       if (p.hookOn) { this.fireHook(p); return; }   // gancho na mão: o clique lança o gancho em vez de bater/atirar
+      if (!p.weapon && p.skin === 'GORILLA') { this.fireOrb(p); return; }   // Shadow 2 de mãos vazias: o soco solta uma bola de energia
       const wd = p.weapon ? WEAPONS[p.weapon.type] : WEAPONS.FISTS;
       if (wd.melee) {
         // SHADOW 7 com 2 armas corpo a corpo do mesmo tipo (modo dupla): COMBO. Sem bater por ~0,5 s o combo volta ao início.
@@ -1027,13 +1083,13 @@
             if (spr && dStep === 1) { mArc = 1.9; mRange *= 0.85; }   // lança: o 2º golpe é um SLASH (varrida larga, alcance um pouco menor) com a lança esquerda
           }
         }
-        p.cd = mCd; p.swing = 0.2;
+        p.cd = mCd * cadMulOf(p.skin, p.dualOn) * (p.fxCad || 1); p.swing = 0.2;
         if (dp) { p.dc = (cK + 1) % cN; p.dcT = mCd + 0.5; }
         this.events.push({ t: 'swing', by: p.id, w: p.weapon ? p.weapon.type : 'FISTS', x: p.x, y: p.y, a: p.angle, dc: dStep });
         // o golpe atinge todos os adversários dentro do arco
         let hitAny = false;
         for (const o of this.players) {
-          if (!o || o === p || !o.alive) continue;
+          if (!o || o === p || !o.alive || o.dive) continue;
           const dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy);
           if (d > mRange + PR) continue;
           const aa = Math.atan2(dy, dx);
@@ -1045,7 +1101,7 @@
           }
         }
         // garrafa inteira que bate numa parede/porta/móvel: QUEBRA e vira garrafa quebrada (se acertou alguém, sobrevive)
-        if (wd.brk && !hitAny && p.weapon) {
+        if ((wd.brk || (dp && dp[1] && WEAPONS[dp[1].type] && WEAPONS[dp[1].type].brk)) && !hitAny && p.weapon) {
           const reach = PR + wd.range * 0.8;
           for (const off of [0, 0.45, -0.45]) {
             const a = p.angle + off, d = this.level.ray(p.x, p.y, a, reach);
@@ -1056,7 +1112,7 @@
       }
       const guns = dualPair(p) || [p.weapon], loaded = guns.filter(g => g.ammo > 0), dual = guns.length > 1;   // modo dupla do Shadow 7: as duas armas do mesmo tipo atiram juntas (uma de cada lado do corpo)
       if (!loaded.length) { p.cd = 0.3; this.events.push({ t: 'click', by: p.id, x: p.x, y: p.y }); return; }
-      p.cd = Math.max(...loaded.map(g => WEAPONS[g.type].cd));   // armas diferentes: o ritmo é o da mais lenta
+      p.cd = Math.max(...loaded.map(g => WEAPONS[g.type].cd)) * cadMulOf(p.skin, p.dualOn) * (p.fxCad || 1);   // armas diferentes: o ritmo é o da mais lenta
       const cs = Math.cos(p.angle), sn = Math.sin(p.angle);
       let shotN = 0;
       guns.forEach((gun, gi) => {
@@ -1081,19 +1137,31 @@
       });
     }
 
+    fireOrb(p) {
+      p.cd = ORB_CD; p.swing = 0.2;
+      const cs = Math.cos(p.angle), sn = Math.sin(p.angle);
+      let mz = 34;
+      if (!this.level.los(p.x, p.y, p.x + cs * mz, p.y + sn * mz)) mz = 8;
+      this.bullets.push({ id: this.nid++, x: p.x + cs * mz, y: p.y + sn * mz, vx: cs * ORB_SPEED, vy: sn * ORB_SPEED, owner: p.id, w: 'ORB', life: ORB_RANGE / ORB_SPEED, r: ORB_R });
+      this.events.push({ t: 'swing', by: p.id, w: 'FISTS', x: p.x, y: p.y, a: p.angle, dc: -1 });
+      this.events.push({ t: 'shot', by: p.id, w: 'ORB', x: p.x, y: p.y, a: p.angle });
+    }
     // Garrafa quebra: a arma da mão do jogador `p` vira a versão quebrada (GARRAFA QUEBRADA) e sai um estilhaço de vidro/vinho no ponto do impacto.
     shatter(p, x, y, a) {
       const wd = p.weapon && WEAPONS[p.weapon.type];
-      if (!wd || !wd.brk) return false;
-      p.weapon = { type: wd.brk, ammo: 0 };
+      const dp = dualPair(p), o = dp && dp[1], od = o && WEAPONS[o.type];
+      if (wd && wd.brk) p.weapon = { type: wd.brk, ammo: 0 };          // quebra UMA garrafa por vez: primeiro a da mão...
+      else if (od && od.brk) { o.type = od.brk; o.ammo = 0; }          // ...e na próxima batida a da outra mão (modo dupla do Shadow 7)
+      else return false;
       this.events.push({ t: 'shatter', x, y, a, by: p.id });
       return true;
     }
     // Tira `pct`% da vida máxima. Se zerar, mata.
     hurt(v, by, pct, how, a) {
       if (!v.alive || this.phase !== 'live') return false;
+      if (v.dive) return false;   // mergulhado: nada te atinge (o afogamento mata direto em kill)
       v.emT = 0;   // tomou dano: para de dançar
-      if (how !== 'blast' && how !== 'door') pct *= dmgTakenOf(v.skin);   // passiva: dano de ARMAS reduzido (a explosão do Shadow 2 não)
+      if (how !== 'blast' && how !== 'door') { pct *= dmgTakenOf(v.skin); if (v.dualOn) pct *= PANTHER_DMG; if (v.fxDmg) pct *= v.fxDmg; }   // passiva: dano de ARMAS reduzido (a explosão do Shadow 2 não)
       v.hp = Math.max(0, v.hp - MAX_HP * pct / 100);
       this.events.push({ t: 'hurt', id: v.id, x: v.x, y: v.y, a, hp: Math.round(v.hp), by: by ? by.id : null });
       if (v.hp <= 0) this.kill(v, by, how, a);
@@ -1108,7 +1176,7 @@
       this.events.push({ t: 'kill', id: v.id, x: v.x, y: v.y, a, how, by: by ? by.id : null, sk: v.skin, dk: wasDk });
     }
     knockdown(p, dur, a) {
-      if (!p.alive || p.down) return;
+      if (!p.alive || p.down || p.dive) return;
       p.hook = null; p.hookOn = false;
       p.down = true; p.downT = dur; p.fire = false; p.wasDual = !!p.dualOn;   // Shadow 7: caído continua com a máscara preta se estava no modo dupla
       this.dropWeapon(p, Math.cos(a) * 220, Math.sin(a) * 220);
@@ -1151,6 +1219,7 @@
         if (d > ACT_RADIUS + PR || !this.level.los(p.x, p.y, o.x, o.y)) continue;
         const f = 0.6 + 0.4 * (1 - Math.min(1, d / ACT_RADIUS));
         this.hurt(o, p, pct * f, 'blast', Math.atan2(dy, dx));
+        if (o.alive) o.slowT = ACT_SLOW_T;   // atingidos ficam lentos
       }
       return true;
     }
@@ -1257,10 +1326,61 @@
       this.events.push({ t: 'hstart', id: p.id, x: p.x, y: p.y });
       return true;
     }
+    // MOEDA NA FONTE: a animação dura COIN_T s; o resultado (nada / buff / debuff) é sorteado agora e aplicado quando a moeda cai na mão
+    coinToss(p) {
+      if (!p || !p.alive || p.down || this.phase !== 'live' || !this.level || p.dive) return false;
+      if (p.coinT > 0 || p.coinUsed || !this.level.fountainNear(p.x, p.y)) return false;
+      this.cancelHeal(p);
+      const r = Math.random();
+      if (r < COIN_P_NONE) { p.coinRes = 0; p.coinFx = -1; }
+      else {
+        const good = r < COIN_P_NONE + COIN_P_GOOD, pool = [];
+        COIN_FX.forEach((e, i) => { if (e.good === good) pool.push(i); });
+        p.coinRes = good ? 1 : 2; p.coinFx = pool[Math.floor(Math.random() * pool.length)];
+      }
+      p.coinFt = this.level.fountainIdx(this.level.fountainNear(p.x, p.y)); p.coinLand = false; p.coinT = COIN_T; p.coinUsed = true;   // gasta a única chance já ao jogar (mesmo que dê "nada")
+      p.fire = false; p.buf = 0; p.charging = false; p.chg = 0; p.emT = 0;
+      this.events.push({ t: 'coin', id: p.id, x: p.x, y: p.y });
+      return true;
+    }
+    setFx(p, i) {
+      p.fx = i; const e = i >= 0 ? COIN_FX[i] : null;
+      p.fxSpd = (e && e.spd) || 1; p.fxDmg = (e && e.dmg) || 1; p.fxCad = (e && e.cad) || 1;
+    }
+    stepCoin(p, dt) {
+      if (!(p.coinT > 0)) return;
+      if (!p.alive || p.down || this.phase !== 'live') { p.coinT = 0; return; }
+      p.coinT -= dt;
+      if (!p.coinLand && p.coinT <= COIN_T * 0.3) { p.coinLand = true; if (p.coinFt >= 0) this.level.fc[p.coinFt]++; }   // a moeda afunda na fonte: ganha uma moeda no fundo (vale para todos verem)
+      if (p.coinT > 0) return;
+      p.coinT = 0;
+      if (p.coinRes) this.setFx(p, p.coinFx);
+      this.events.push({ t: 'coinr', id: p.id, x: p.x, y: p.y, r: p.coinRes, k: p.coinFx });
+    }
+    // MERGULHO (V dentro da piscina): some debaixo d'água (ninguém te acerta e você não ataca), mas o fôlego acaba em DIVE_AIR s
+    toggleDive(p) {
+      if (!p || !p.alive || p.down || this.phase !== 'live' || !this.level) return false;
+      if (p.dive) { p.dive = false; this.events.push({ t: 'dive', id: p.id, x: p.x, y: p.y, on: 0 }); return true; }
+      if (!this.level.waterAt(p.x, p.y) || p.air < DIVE_MIN_AIR || p.hook) return false;
+      this.cancelHeal(p); p.dive = true; p.fire = false; p.buf = 0; p.charging = false; p.chg = 0; p.hookOn = false; p.emT = 0;
+      this.events.push({ t: 'dive', id: p.id, x: p.x, y: p.y, on: 1 });
+      return true;
+    }
+    stepDive(p, dt) {
+      if (!p || !this.level) return;
+      if (!p.alive) { p.dive = false; return; }
+      const inW = this.level.waterAt(p.x, p.y);
+      if (p.dive && (!inW || p.down)) { p.dive = false; this.events.push({ t: 'dive', id: p.id, x: p.x, y: p.y, on: 0 }); }   // saiu da água: sobe
+      if (p.dive) {
+        p.air -= dt;
+        if (p.air <= 0) { p.air = 0; p.dive = false; this.events.push({ t: 'dive', id: p.id, x: p.x, y: p.y, on: 0 }); this.kill(p, null, 'drown', p.angle); }   // sem fôlego: morre afogado
+      } else if (p.air < DIVE_AIR) p.air = Math.min(DIVE_AIR, p.air + dt * (inW ? DIVE_REGEN_WATER : DIVE_REGEN_LAND));
+    }
     // INTERRUPTOR: liga/desliga a luz dos cômodos ligados a ele
     toggleSwitch(p) {
       const L = this.level; if (!L) return false;
       const s = L.switchNear(p.x, p.y); if (!s) return false;
+      if (s.rooms.some(r => L.noPower(r))) return false;   // sem energia: o interruptor não faz nada
       const on = s.rooms.some(r => !L.lt[r]);   // algum apagado -> acende tudo; senão apaga tudo
       for (const r of s.rooms) L.lt[r] = on ? 1 : 0;
       const [sx, sy] = L.switchPos(s);
@@ -1270,7 +1390,9 @@
     pickup(p, bottle) {
       let best = null, bd = PICK_R;
       for (const it of this.items) {
-        if (it.thrown || !canHold(p.skin, it.type) || isBottle(it.type) !== !!bottle) continue;   // Shadow 4 só pega corpo a corpo
+        if (it.thrown || !canHold(p.skin, it.type)) continue;   // Shadow 4 só pega corpo a corpo
+        // V (bottle=true): só garrafas (inclusive em cima da mesa). E: tudo, e garrafa só depois de sair da mesa (no chão)
+        if (bottle ? !isBottle(it.type) : (isBottle(it.type) && this.level.onTable(it.x, it.y))) continue;
         const d = itemDistOn(this.level, it.type, it.x, it.y, it.rot, p.x, p.y);
         if (d < bd && (this.level.onTable(it.x, it.y) || this.level.los(p.x, p.y, it.x, it.y))) { bd = d; best = it; }   // item na mesa: o próprio móvel não conta como parede   // não pega arma do outro lado da parede
       }
@@ -1296,7 +1418,7 @@
       const type = p.weapon.type, jav = !!WEAPONS[type].jav, a = p.angle;
       let sx = p.x + Math.cos(a) * 24, sy = p.y + Math.sin(a) * 24;
       if (!this.level.los(p.x, p.y, sx, sy)) { sx = p.x; sy = p.y; }
-      const sp = (jav ? 900 + 600 * charge : 820) * throwFactor(type);   // alcance depende do peso da arma
+      const sp = (jav ? 900 + 600 * charge : 820) * (p.skin === 'GORILLA' ? 1.2 : throwFactor(type));   // alcance depende do peso da arma (Shadow 2 lança tudo com a mesma força/distância)
       const it = this.addItem(type, sx, sy, Math.cos(a) * sp, Math.sin(a) * sp, p.weapon.ammo);
       it.thrown = true; it.owner = p.id; it.t = jav ? 0.45 + 0.45 * charge : 0.45; it.spin = jav ? 0 : 22; it.pow = charge;
       if (jav || bladeKills(p.skin)) it.rot = a;   // a lança voa reta, com a ponta para frente; a lâmina do Shadow 4 sai com a ponta pra frente (e vai girando)
@@ -1412,12 +1534,19 @@
               this.events.push({ t: 'door', i: ld.i, dir, x: cx, y: cy, hit: false });
             }
           }
-          if (this.level.solidAt(b.x, b.y)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }
+          if (this.level.solidAt(b.x, b.y)) {
+            const pi = this.level.panelAt(b.x, b.y);
+            if (pi !== null) {   // tiro no quadro de energia: queima e apaga a casa toda
+              const pn = this.level.m.panels[pi], [qx, qy] = this.level.switchPos(pn);
+              this.level.pw[pi] = 0; for (const r of pn.rooms) this.level.lt[r] = 0;
+              this.events.push({ t: 'pwr', x: qx, y: qy });
+            }
+            dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }
           { const dh = this.level.doorHit(b.x, b.y, 1.5); if (dh) this.shotDoor(dh, b); }
           if (this.level.doorAt(b.x, b.y, 1.5)) { dead = true; this.events.push({ t: 'wall', x: px, y: py, a: Math.atan2(b.vy, b.vx) }); break; }   // porta destravada também barra tiro
           for (const p of this.players) {
-            if (!p || !p.alive || p.id === b.owner) continue;
-            if (segDist(p.x, p.y, px, py, b.x, b.y) < PR) { dead = true; this.hurt(p, this.byId(b.owner), WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
+            if (!p || !p.alive || p.dive || p.id === b.owner) continue;
+            if (segDist(p.x, p.y, px, py, b.x, b.y) < (b.r || PR)) { dead = true; this.hurt(p, this.byId(b.owner), b.w === 'ORB' ? ORB_DMG : WEAPONS[b.w].dmg, 'bullet', Math.atan2(b.vy, b.vx)); break; }
           }
         }
         b.life -= dt;
@@ -1454,7 +1583,7 @@
             }
             it.x = nx; it.y = ny;
             for (const p of this.players) {
-              if (!p || !p.alive || p.id === it.owner) continue;
+              if (!p || !p.alive || p.dive || p.id === it.owner) continue;
               if (Math.hypot(p.x - it.x, p.y - it.y) < PR + 10) {
                 const wd = WEAPONS[it.type], ang = Math.atan2(it.vy, it.vx);
                 let pct = THROW_DMG, how = 'throw', bl = 0, cb = 0, pw = 0, gl = 0;
@@ -1482,9 +1611,15 @@
           it.rot += it.spin * dt; it.t -= dt;
           if (stop || it.t <= 0) { it.thrown = false; it.owner = null; it.vx *= 0.25; it.vy *= 0.25; it.spin = 0; }
         } else if (it.vx || it.vy) {
-          const nx = it.x + it.vx * dt, ny = it.y + it.vy * dt;
-          if (!this.level.solidAt(nx, it.y)) it.x = nx; else it.vx = 0;
-          if (!this.level.solidAt(it.x, ny)) it.y = ny; else it.vy = 0;
+          const nx = it.x + it.vx * dt, ny = it.y + it.vy * dt, spd = Math.hypot(it.vx, it.vy);
+          let hitW = false;
+          if (!this.level.solidAt(nx, it.y)) it.x = nx; else { it.vx = 0; hitW = true; }
+          if (!this.level.solidAt(it.x, ny)) it.y = ny; else { it.vy = 0; hitW = true; }
+          if (hitW && WEAPONS[it.type].brk && spd > 60) {   // garrafa deslizando (fim do arremesso) que bate na parede: também quebra
+            const a = Math.atan2(ny - it.y, nx - it.x);
+            it.type = WEAPONS[it.type].brk; it.ammo = 0; it.vx = it.vy = 0;
+            this.events.push({ t: 'shatter', x: it.x, y: it.y, a, by: null });
+          }
           const f = Math.pow(0.02, dt); it.vx *= f; it.vy *= f;
           if (Math.abs(it.vx) + Math.abs(it.vy) < 4) { it.vx = 0; it.vy = 0; }
           it.rot += (it.vx + it.vy) * 0.002;
@@ -1499,15 +1634,16 @@
         type: 's', ph: this.phase, tm: Math.max(0, +this.timer.toFixed(2)), rd: this.round,
         rt: this.phase === 'live' && this.roundTime > 0 ? +Math.max(0, this.rt).toFixed(1) : -1, tu: this.tu ? 1 : 0,   // rt = tempo que falta na rodada (-1 = sem limite)
         cf: [this.winScore, this.roundTime, this.maxPlayers, this.healOn ? 1 : 0, this.weaponMul, this.mapPref || ''],   // config da sala
-        map: this.level ? this.level.id : null, win: this.winner, host: this.hostId(),
+        map: this.level ? this.level.id : null, fc: this.level ? this.level.fc : [], win: this.winner, host: this.hostId(),
         pl: this.players.filter(Boolean).map(p => ({
-          id: p.id, sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
+          id: p.id, dv: p.dive ? 1 : 0, ai: +(p.air / DIVE_AIR).toFixed(2), sl: p.slot, nm: p.name, sk: p.skin, cl: p.color, sc: p.score, kl: p.kills | 0, x: r1(p.x), y: r1(p.y), a: Math.round(p.angle * 100) / 100,
           hp: Math.round(p.hp), hz: +Math.max(0, p.healT).toFixed(2), al: p.alive ? 1 : 0, dn: p.down ? 1 : 0, dt: +Math.max(0, p.downT).toFixed(2),
           w: p.weapon ? p.weapon.type : 0, am: p.weapon ? p.weapon.ammo : 0, se: p.sel, iv: p.inv.map(x => x ? [x.type, x.ammo] : 0), bot: p.bot ? 1 : 0, ch: p.charging ? +(p.chg / spearChargeOf(p.skin)).toFixed(2) : -1,
-          su: p.sui > 0.01 ? +p.sui.toFixed(2) : 0, em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), hm: p.hookOn ? 1 : 0, dm: p.dualOn ? (dualPair(p) ? 1 : 2) : 0, dk: (p.dualOn || (p.down && p.wasDual)) ? 1 : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
+          cn: p.coinT > 0 ? +(p.coinT / COIN_T).toFixed(3) : 0, fk: p.fx >= 0 ? p.fx + 1 : 0, fs: p.fxSpd && p.fxSpd !== 1 ? p.fxSpd : 1, su: p.sui > 0.01 ? +p.sui.toFixed(2) : 0, em: p.emT > 0 ? 1 : 0, sq: +p.actCd.toFixed(2), sn: +Math.max(0, p.slowT || 0).toFixed(2), hm: p.hookOn ? 1 : 0, dm: p.dualOn ? (dualPair(p) ? 1 : 2) : 0, dk: (p.dualOn || (p.down && p.wasDual)) ? 1 : 0, hk: p.hook ? (p.hook.id ? (this.byId(p.hook.id) ? this.byId(p.hook.id).slot + 1 : 0) : -1) : 0, hx: p.hook && !p.hook.id ? Math.round(p.hook.ax) : 0, hy: p.hook && !p.hook.id ? Math.round(p.hook.ay) : 0   // hk = slot+1 de quem está preso no gancho; -1 = preso na parede/objeto em (hx,hy); 0 = sem gancho
         })),
-        b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1)]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
+        b: this.bullets.map(b => [b.id, r1(b.x), r1(b.y), Math.round(b.vx), Math.round(b.vy), (b.owner in slotOf ? slotOf[b.owner] : -1), b.r || 0]),   // [5] = slot de quem atirou (o cliente usa para não duplicar o tiro previsto)
         it: this.items.map(i => [i.id, r1(i.x), r1(i.y), i.type, i.ammo, Math.round(i.rot * 100) / 100, i.thrown ? 1 : 0]),
+        pw: this.level ? this.level.pw.reduce((m, v, i) => m | (v ? 0 : (1 << i)), 0) : 0,   // pw = bitmask dos quadros de energia BALEADOS
         lo: this.level ? this.level.lt.reduce((m, v, i) => m | (v ? 0 : (1 << i)), 0) : 0,   // lo = bitmask dos cômodos com a luz APAGADA
         dr: this.level ? this.level.doors.filter(d => !d.latched).map(d => [d.i, Math.round(d.phi * 1000) / 1000, Math.round(d.w * 100) / 100]) : [],
         ev: this.events
@@ -1648,5 +1784,5 @@
     }
   }
 
-  return { ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, hasDual, canDual, dualFwdOf, DUAL_FWD, dualPair, WEAPON_TYPES, weaponTypeOf, sameWeaponType, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
+  return { COIN_FX, COIN_T, DIVE_AIR, ROOM_DEFAULTS, sanitizeRoomCfg, TILE, PR, CS, SPEED, WIN_SCORE, DOWN_TIME, MAX_HP, HEAL_PCT, HEAL_TIME, HEAL_SLOW, SKIN_STATS, hasActive, hasHook, hasDual, cadMulOf, canDual, dualFwdOf, DUAL_FWD, dualPair, WEAPON_TYPES, weaponTypeOf, sameWeaponType, speedMulOf, dmgTakenOf, canHold, activeCdOf, spearChargeOf, HOOK_RANGE, HOOK_STOP, maxHpOf, healPctOf, healTimeOf, ACT_COST, ACT_MULT, ACT_RADIUS, ACT_CD, WATER_SLOW, FISH_WATER_FAST, BLADE_CHANCE, bladeChanceOf, WEIGHT, throwFactor, SPEAR_CHARGE, SPEAR_THROW_MIN, SPEAR_THROW_MAX, DOOR_HT, DOOR_LIM, MAX_PLAYERS, MIN_PLAYERS, randomColor, WEAPONS, itemDist, itemDistOn, PICK_R, SW_REACH, isBottle, MAPS, MAP_IDS, Level, Game, Bot, stepMove, ITEM_EXT, canMove, angDiff };
 });
