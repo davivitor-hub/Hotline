@@ -9,12 +9,12 @@ const $ = id => document.getElementById(id);
 // celular/tablet: tela de toque sem mouse (ou ?touch=1 para testar no PC)
 const IS_TOUCH = /[?&]touch=1/.test(location.search) || matchMedia('(hover:none) and (pointer:coarse)').matches;
 
-// Mesma origem quando servido pelo Render (ou localhost); senão aponta para o Render.
-const RENDER_HOST = 'hotline-m6gx.onrender.com';
-const SAME_ORIGIN = location.protocol.startsWith('http') && (location.hostname === RENDER_HOST || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
-const SERVER_URL = SAME_ORIGIN ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host : 'wss://' + RENDER_HOST;
-// Acorda o servidor do Render (plano gratuito dorme) assim que a página abre.
-if (!SAME_ORIGIN) { try { fetch('https://' + RENDER_HOST + '/health', { mode: 'no-cors' }); } catch { } }
+// Servidor do jogo. Se a página vem de http(s), usa a mesma origem (qualquer domínio/VPS/localhost).
+// Só preencha SERVER_HOST se o front-end ficar em outro lugar (ex.: 'meujogo.com.br').
+const SERVER_HOST = '';
+const SAME_ORIGIN = location.protocol.startsWith('http') && !SERVER_HOST;
+const SERVER_URL = SAME_ORIGIN ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host : 'wss://' + SERVER_HOST;
+if (!SAME_ORIGIN && SERVER_HOST) { try { fetch('https://' + SERVER_HOST + '/health', { mode: 'no-cors' }); } catch { } }
 
 const STEP = 1 / 60, TAU = Math.PI * 2;
 const HOOK_FX_T = 260;   // ms que o gancho que errou leva para sumir
